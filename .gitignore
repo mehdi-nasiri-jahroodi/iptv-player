@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Future app artifacts (uncomment when code exists)
+# node_modules/
+# dist/
+# build/
+# .gradle/
+# */build/
