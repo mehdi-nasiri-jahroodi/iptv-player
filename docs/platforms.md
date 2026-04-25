@@ -9,9 +9,11 @@ Order of delivery recommended in product discussions: **Web → Android TV → L
 - Fastest place to **prototype** navigation, EPG, and “add source” flows.
 - A **full companion** to TV for some users (e.g. configuration on desktop).
 
-**Typical stack (not fixed yet)**
+**Stack (decided)**
 
-- A modern web framework and **HLS/TS** playback via the browser or **hls.js** (and format fallbacks as needed per browser).
+- **React** + **Tailwind CSS** for UI.
+- **Norigin Spatial Navigation** for D-pad / keyboard spatial focus (critical for TV-style use in the browser and for parity with TV clients).
+- **Shaka Player** for playback (HLS/DASH and typical IPTV-style streams in the browser).
 
 **Considerations**
 
@@ -22,11 +24,12 @@ Order of delivery recommended in product discussions: **Web → Android TV → L
 
 **Role**
 
-- Primary “lean-back” experience: **D-pad** or remote, large UI, and **ExoPlayer-class** control over buffering, codecs, and track selection.
+- Primary “lean-back” experience: **D-pad** or remote, large UI, and native control over buffering, codecs, and track selection.
 
-**Typical stack (not fixed yet)**
+**Stack (decided)**
 
-- **Kotlin** with Jetpack, **ExoPlayer** (or successor), and TV-specific **focus and browse** fragments.
+- **Kotlin**, **Jetpack Compose for TV**, and **Media3** (ExoPlayer) for playback.
+- Domain models aligned with web via **JSON Schema** (see [architecture.md](architecture.md)) alongside **Zod** on the TypeScript side.
 
 **Considerations**
 
@@ -39,9 +42,10 @@ Order of delivery recommended in product discussions: **Web → Android TV → L
 
 - Reach LG TVs with a **hosted web app** packaged for webOS, reusing as much as possible from the **web** app.
 
-**Typical stack (not fixed yet)**
+**Stack (decided)**
 
-- **HTML/CSS/JS** or the same web framework as the web app, with **webOS** APIs for lifecycle, back key, and device capabilities.
+- Same **React** + **Tailwind** + **Norigin Spatial Navigation** + **Shaka Player** baseline as Web, with webOS APIs for lifecycle, back key, and device capabilities.
+- Prefer a dedicated **webOS app** target in the Nx workspace that depends on shared `packages/*` rather than forking the web UI.
 
 **Considerations**
 

@@ -13,3 +13,9 @@
 | **Lean-back** | TV UI design pattern: use from a **distance** with a **remote**, large text, and focus-based navigation. |
 | **Zapping** | Quickly switching between live channels; perceived speed matters on TV. |
 | **BYO** | **Bring your own** — user supplies playlists or credentials; the app does not provide channels. |
+| **Nx** | Monorepo tooling for JavaScript/TypeScript (and optional polyglot plugins): task graph, caching, and multi-app workspaces. |
+| **Norigin Spatial Navigation** | React **hooks**–based spatial navigation for TV and browser ([`@noriginmedia/norigin-spatial-navigation`](https://www.npmjs.com/package/@noriginmedia/norigin-spatial-navigation)); moves focus by direction (D-pad / arrow keys). |
+| **Shaka Player** | Google-maintained **web** media player emphasizing DASH and HLS; used for generic IPTV-style playback in browser and webOS. |
+| **Media3** | Android’s **modern media stack**; includes **ExoPlayer** as the playback engine for apps targeting current APIs. |
+| **Zod** | TypeScript-first **schema** library for runtime validation and static types. |
+| **JSON Schema** | A vocabulary for describing JSON data; used here for **cross-platform contracts** (e.g. Kotlin) aligned with Zod-defined shapes. |

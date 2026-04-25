@@ -1,6 +1,6 @@
 # IPTV Player
 
-A **bring-your-own-source** live TV and VOD **player** (not a content service). The product goal is a fast, simple, and polished experience across **Web**, **Android TV**, and **LG webOS** — with a shared product vision and a monorepo-friendly architecture when implementation begins.
+A **bring-your-own-source** live TV and VOD **player** (not a content service). The product goal is a fast, simple, and polished experience across **Web**, **Android TV**, and **LG webOS** — with a shared product vision and an **Nx** monorepo plan: **React + Tailwind**, **Norigin Spatial Navigation** for TV-style input, **Shaka Player** on web/webOS, **Media3** on Android, and **Zod + JSON Schema** for cross-client data contracts (see [docs/architecture.md](docs/architecture.md)).
 
 ## What this is
 
@@ -9,18 +9,17 @@ A **bring-your-own-source** live TV and VOD **player** (not a content service). 
 
 ## Repository contents (this phase)
 
-This repository currently holds **product and architecture reference documentation only** — no application code, build tooling, or dependencies. Use it to align the team, onboard contributors, and give AI assistants a single source of truth for intent and structure.
+This repository currently holds **product and architecture reference documentation** (the **stack is decided**; see [docs/architecture.md](docs/architecture.md)) — **no application code or Nx workspace yet** unless added in a later phase. Use it to align the team, onboard contributors, and give AI assistants a single source of truth for intent and structure.
 
 | Document | Purpose |
 | -------- | ------- |
 | [docs/README.md](docs/README.md) | Documentation index |
 | [docs/product.md](docs/product.md) | Vision, positioning, principles |
 | [docs/features.md](docs/features.md) | Planned capabilities (MVP → later) |
-| [docs/architecture.md](docs/architecture.md) | Monorepo layout, platform notes, shared vs native |
+| [docs/architecture.md](docs/architecture.md) | Nx layout, stack, shared vs native boundaries |
 | [docs/platforms.md](docs/platforms.md) | Web, Android TV, webOS — constraints and order of delivery |
 | [docs/glossary.md](docs/glossary.md) | Terms used across the project |
 | [AGENTS.md](AGENTS.md) | Pointers for AI assistants working in this repo |
-| [docs/setup.md](docs/setup.md) | How to initialize Git locally |
 
 ## Suggested build order (when you implement)
 
@@ -30,7 +29,7 @@ This repository currently holds **product and architecture reference documentati
 
 ## Git
 
-This directory is ready to be a Git project; **initialize Git on your machine** (see [docs/setup.md](docs/setup.md)). Automated environments may be unable to write `.git` in `Documents/`; running the commands locally avoids that.
+If this folder is not yet a Git repository, run `git init` locally, add a remote (for example `https://github.com/mehdi-nasiri-jahroodi/iptv-player.git`), and push your branch.
 
 ## License
 
