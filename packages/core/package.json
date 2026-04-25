@@ -15,6 +15,22 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "schemas": "node ./scripts/generate-schemas.mjs"
+  },
+  "nx": {
+    "targets": {
+      "schemas": {
+        "executor": "nx:run-commands",
+        "options": {
+          "commands": [
+            "./node_modules/.bin/nx run core:build",
+            "node packages/core/scripts/generate-schemas.mjs"
+          ]
+        }
+      }
+    }
+  },
   "dependencies": {
     "tslib": "^2.3.0",
     "zod": "^4.3.6",

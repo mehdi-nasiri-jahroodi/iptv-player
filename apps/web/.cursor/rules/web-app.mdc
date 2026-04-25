@@ -79,7 +79,7 @@ This Nx app uses **React Router 7** file-based routes under `apps/web/app/`. Pre
 
 | Feature | Status |
 | ------- | ------ |
-| Xtream Codes UI | Deferred to Phase 4 — schema type exists, form UI does not |
+| Xtream Codes UI | First-class in Phase 2 — wire schemas, URL builders, EPG decode, and `Channel` discriminated union (`live | vod | series`) live in `packages/core`. UI surfaces for VOD / Series / catchup land in Phase 4. |
 | Full EPG grid | Phase 3 |
 | Multiple profiles | Phase 4 |
 | Cloud sync / accounts | Post-v1 |

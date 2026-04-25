@@ -80,7 +80,7 @@ Reusable React + Tailwind components used by both `apps/web` and later `apps/web
 | `ChannelGrid` / `ChannelList` | Virtualized list/grid; focus-aware |
 | `EpgGrid` | Time-axis grid; simplified for MVP |
 | `PlayerOverlay` | Controls, track picker, error state |
-| `SourceForm` | URL / file inputs with inline validation. **MVP scope: URL + file import only.** Xtream UI is deferred to Phase 4 — the underlying `xtream` type exists in the Zod schema but the form UI is not built yet. |
+| `SourceForm` | Tabbed input for the three source types: **M3U URL**, **M3U file**, and **Xtream Codes** (host + username + password). Inline validation runs the relevant probe (URL fetch / file parse / Xtream `player_api.php` auth check). |
 | `SettingsPanel` | Theme toggle, player toggles |
 | `Dialog` / `Toast` | Feedback primitives |
 
@@ -137,15 +137,19 @@ apps/web/
 
 **Add source**
 
-- [ ] `AddSource` page: URL input, file picker, "paste raw text" fallback (CORS mitigation).
-- [ ] Source type is URL or file only for MVP; Xtream UI is not built yet.
-- [ ] Source validator runs on submit; distinguishes `cors_blocked`, `parse_error`, `unreachable`; shows actionable messages.
+- [ ] `AddSource` page: tabbed UI for **M3U URL**, **M3U file**, and **Xtream Codes** (host / username / password). Includes "paste raw text" fallback for the URL tab as a CORS mitigation.
+- [ ] All three source types are part of MVP. Xtream is treated as first-class because it sidesteps most M3U CORS pain (JSON endpoints + per-stream URLs) and exposes catalog metadata (catchup, VOD, series) the M3U format can't carry.
+- [ ] Source validator runs on submit and distinguishes:
+  - M3U: `cors_blocked`, `parse_error`, `unreachable`.
+  - Xtream: `auth_failed` (panel returns `auth: 0`), `unreachable`, `unexpected_payload`.
+  Each shows actionable messages.
 - [ ] Validated source saved to localStorage via storage adapter.
 
 **Browse**
 
 - [ ] `Home` page: groups sidebar + channel list, keyboard/D-pad navigable with Norigin.
 - [ ] Channel data loaded from stored playlist; groups displayed.
+- [ ] **MVP browse scope is live channels only** even when an Xtream source also exposes VOD / series catalogs — those surfaces (VOD grid, series detail with seasons / episodes) land in Phase 4. The `Channel` discriminated union (`live | vod | series`) is already in place so the UI can be added without schema changes.
 - [ ] Search bar (filter by name, client-side).
 - [ ] Favorites toggle per channel; recents updated on play.
 
@@ -182,6 +186,9 @@ apps/web/
 
 ### Phase 4 — Polish and next-tier features
 
+- [ ] **VOD browser**: grid of movies (poster, year, rating) populated from `vod` channels in the catalog; play on select.
+- [ ] **Series browser**: list → series detail (seasons + episodes); play episode; track watched episodes.
+- [ ] **Catchup / time-shift** for live channels that advertise it (`catchupDays`/`catchupMode` set by either M3U attributes or Xtream `tv_archive`). Use `buildCatchupUrl` from `packages/core` to construct the playback URL on demand.
 - [ ] Multiple profiles (separate favorites per profile).
 - [ ] Channel logos (fetch + cache; fallback to initials).
 - [ ] Hidden groups / custom category order.
@@ -291,6 +298,6 @@ Use Nx remote cache (Nx Cloud free tier) to keep CI fast once the workspace grow
 | Routing library | React Router v6, TanStack Router | React Router v6 (mature, wide support) |
 | Global state | Zustand, Jotai, Redux Toolkit | Zustand (lightweight) |
 | Icon set | Lucide, Heroicons, Radix Icons | Lucide React (Tailwind-friendly) |
-| Xtream support in MVP | Yes / No | No — `xtream` type defined in schema only; UI deferred to Phase 4 |
+| Xtream support in MVP | Yes / No | **Yes** — Xtream is first-class alongside M3U URL and file. Wire schemas, URL builders, EPG decode, and discriminated `Channel` (live / vod / series) live in `packages/core/src/lib/xtream.ts` and `contracts.ts`; web `SourceForm` adds the tabbed UI in Phase 2. |
 | EPG in MVP | Full grid / Now+Next only | Now+Next only; full grid in Phase 3 |
 | Auth / accounts | Local only / cloud | Local only for v1 |

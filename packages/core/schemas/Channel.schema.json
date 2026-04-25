@@ -1,0 +1,267 @@
+{
+  "$ref": "#/definitions/Channel",
+  "definitions": {
+    "Channel": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "live"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groupTitle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "streamUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "logoUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "tvgId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "catchupDays": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "catchupMode": {
+              "type": "string",
+              "enum": [
+                "default",
+                "append",
+                "shift",
+                "flussonic",
+                "xtream"
+              ]
+            },
+            "catchupSource": {
+              "type": "string"
+            },
+            "xtreamStreamId": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "name",
+            "groupTitle",
+            "streamUrl"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "vod"
+            },
+            "id": {
+              "$ref": "#/definitions/Channel/anyOf/0/properties/id"
+            },
+            "name": {
+              "$ref": "#/definitions/Channel/anyOf/0/properties/name"
+            },
+            "groupTitle": {
+              "$ref": "#/definitions/Channel/anyOf/0/properties/groupTitle"
+            },
+            "streamUrl": {
+              "$ref": "#/definitions/Channel/anyOf/0/properties/streamUrl"
+            },
+            "logoUrl": {
+              "$ref": "#/definitions/Channel/anyOf/0/properties/logoUrl"
+            },
+            "durationSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "year": {
+              "type": "integer"
+            },
+            "rating": {
+              "type": "number",
+              "minimum": 0
+            },
+            "plot": {
+              "type": "string"
+            },
+            "cast": {
+              "type": "string"
+            },
+            "director": {
+              "type": "string"
+            },
+            "genre": {
+              "type": "string"
+            },
+            "containerExtension": {
+              "type": "string"
+            },
+            "posterUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "backdropUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "xtreamStreamId": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "name",
+            "groupTitle",
+            "streamUrl"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "series"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groupTitle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "logoUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "posterUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "backdropUrl": {
+              "type": "string",
+              "format": "uri"
+            },
+            "plot": {
+              "type": "string"
+            },
+            "cast": {
+              "type": "string"
+            },
+            "director": {
+              "type": "string"
+            },
+            "genre": {
+              "type": "string"
+            },
+            "releaseYear": {
+              "type": "integer"
+            },
+            "rating": {
+              "type": "number",
+              "minimum": 0
+            },
+            "seasons": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "seasonNumber": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "episodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "episodeNumber": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "streamUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "containerExtension": {
+                          "type": "string"
+                        },
+                        "durationSeconds": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "plot": {
+                          "type": "string"
+                        },
+                        "xtreamEpisodeId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "episodeNumber",
+                        "title",
+                        "streamUrl"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "seasonNumber",
+                  "episodes"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "xtreamSeriesId": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "name",
+            "groupTitle",
+            "seasons"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

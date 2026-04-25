@@ -67,12 +67,13 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
 | 1 — Foundation | in progress | Nx + pnpm done; complete schemas/M3U/Shaka/Norigin per plan |
-| 2 — MVP core flows | not started | AddSource, channel browser, playback, onboarding |
+| 2 — MVP core flows | not started | AddSource (M3U URL + file + **Xtream Codes**), live channel browser, playback, onboarding |
 | 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
-| 4 — Polish | not started | Multiple profiles, logos, backup/restore, a11y audit |
+| 4 — Polish | not started | VOD/Series browsers, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
 **Things that are explicitly deferred — do not build them early:**
-- Xtream Codes UI (the `xtream` type exists in the Zod schema; the form UI is Phase 4).
+- VOD and Series UI surfaces (Phase 4). The Xtream catalog already returns them and `Channel` is a discriminated union with `vod` and `series` variants in the schema, but the browse UI lands later.
+- Catchup / time-shift playback UI (Phase 4). `buildCatchupUrl` exists in `packages/core` and live channels carry `catchupDays` / `catchupMode` already.
 - Full EPG grid (Phase 3).
 - Multiple profiles (Phase 4).
 - Cloud sync / accounts (post-v1).
@@ -84,14 +85,38 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 ### `packages/core` — domain models (Zod)
 
 ```
-Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?
-Channel         — id, name, groupTitle, streamUrl, logoUrl?, tvgId?
-ChannelGroup    — id, name, channels[]
+Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?, epgUrl?
+Channel         — discriminated union on `type`:
+                    'live'   { id, name, groupTitle, streamUrl, logoUrl?, tvgId?,
+                               catchupDays?, catchupMode?, catchupSource?, xtreamStreamId? }
+                    'vod'    { id, name, groupTitle, streamUrl, logoUrl?, posterUrl?,
+                               year?, rating?, plot?, cast?, director?, genre?,
+                               containerExtension?, xtreamStreamId? }
+                    'series' { id, name, groupTitle, logoUrl?, posterUrl?, plot?, cast?,
+                               director?, genre?, releaseYear?, rating?,
+                               seasons[] (each: seasonNumber, name?, episodes[]),
+                               xtreamSeriesId? }
+ChannelGroup    — id, name, kind ('live' | 'vod' | 'series' | 'mixed'), channels[]
 Playlist        — sourceId, groups[], fetchedAt
 EpgProgram      — channelId, title, start, end, description?
 EpgGuide        — programs[] keyed by channelId
 AppSettings     — theme, playerBufferMode, ...
 UserProfile     — id, name, favorites[], recents[]
+
+Xtream wire types (in `packages/core/src/lib/contracts.ts`, all `.passthrough()`):
+  XtreamCredentials, XtreamPlayerApi, XtreamCategory, XtreamLiveStream,
+  XtreamVodStream, XtreamVodInfo, XtreamSeries, XtreamSeriesInfo,
+  XtreamShortEpg(Entry), XtreamAction.
+
+Xtream client + builders (in `packages/core/src/lib/xtream.ts`):
+  fetchXtreamPlayerApi, isXtreamAuthSuccessful,
+  fetchLive/Vod/SeriesCategories, fetchLive/Vod/SeriesStreams,
+  fetchVodInfo, fetchSeriesInfo, fetchShortEpg,
+  buildPlayerApiUrl, buildLiveStreamUrl, buildVodStreamUrl,
+  buildSeriesEpisodeUrl, buildCatchupUrl,
+  toLiveChannel, toVodChannel, toSeriesChannel, decodeXtreamEpgEntry.
+  Stream URLs are constructed at playback time from credentials + ids;
+  never persist URLs that embed username/password.
 ```
 
 Export JSON Schema artifacts to `packages/core/schemas/` using `zod-to-json-schema`.
