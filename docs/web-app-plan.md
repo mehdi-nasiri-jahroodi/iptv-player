@@ -19,15 +19,15 @@ Before writing product code, the Nx monorepo must exist.
 
 > **Existing repo**: this repository already contains `docs/` and other files. Do **not** run `create-nx-workspace` inside it — that command scaffolds a new directory and will overwrite the tree. Instead, run it from the **parent folder** (`cd ..` first) and merge the result, or use `npx nx@latest init` to add Nx to the existing repo in place.
 
-| Step | Command / action |
-| ---- | ---------------- |
-| Init Nx in existing repo | Run from repo root: `npx nx@latest init` (adds `nx.json`; follow prompts) |
-| Add web app | `nx g @nx/react:app apps/web` |
-| Add shared packages | `nx g @nx/js:lib packages/core` and `nx g @nx/react:lib packages/ui` |
-| Install Shaka Player | `pnpm add shaka-player -w` (workspace root; consumed by `apps/web` and `packages/ui`) |
-| Install Norigin Spatial Nav | `pnpm add @noriginmedia/norigin-spatial-navigation -w` (root; peer of `packages/ui`) |
-| Install Zod | `pnpm add zod -w` (root; consumed by `packages/core`) |
-| Tailwind CSS | Configure per Nx/Tailwind guide; share preset via `packages/config` |
+| Step | Command / action | Status |
+| ---- | ---------------- | ------ |
+| Init Nx in existing repo | Run from repo root: `npx nx@latest init` (adds `nx.json`; follow prompts) | Done |
+| Add web app | `nx g @nx/react:app apps/web` (React Router 7 + Vite + Tailwind) | Done |
+| Add shared packages | `nx g @nx/js:lib packages/core` and `nx g @nx/react:lib packages/ui` | Done |
+| Install Shaka Player | `pnpm add shaka-player -w` (workspace root; peer for `packages/ui`) | Done |
+| Install Norigin Spatial Nav | `pnpm add @noriginmedia/norigin-spatial-navigation -w` (root; peer of `packages/ui`) | Done |
+| Install Zod | Declared on `packages/core` (`zod`, `zod-to-json-schema`) | Done |
+| Tailwind CSS | Shared preset in `packages/config`; `apps/web` + `packages/ui` extend it | Done |
 
 **Dependency placement note**: `packages/ui` wraps Norigin components and may contain shared player chrome, so `@noriginmedia/norigin-spatial-navigation`, `react`, and `shaka-player` must be listed as `peerDependencies` of `packages/ui` (and `packages/core` where applicable), not only in `apps/web`. This prevents version mismatches when webOS later consumes the same packages.
 

@@ -70,6 +70,78 @@ packages/
 
 Use Nx **affected** commands and **task pipelines** for CI once projects exist.
 
+## Channel domain model — discriminated union (decided)
+
+M3U playlists mix **live** and **VOD** entries in the same file with meaningfully different metadata. The `Channel` type in `packages/core` must be a **discriminated union** keyed on a `type` field, not a flat object with all-optional fields.
+
+### Zod schema shape (suggested starting point)
+
+```ts
+// packages/core/src/schemas/channel.ts
+
+const LiveChannelSchema = z.object({
+  type: z.literal("live"),
+  id: z.string(),
+  name: z.string(),
+  groupTitle: z.string(),
+  streamUrl: z.string().url(),
+  logoUrl: z.string().url().optional(),
+  tvgId: z.string().optional(),       // EPG correlation key
+  tvgName: z.string().optional(),
+});
+
+const VodChannelSchema = z.object({
+  type: z.literal("vod"),
+  id: z.string(),
+  name: z.string(),
+  groupTitle: z.string(),
+  streamUrl: z.string().url(),
+  logoUrl: z.string().url().optional(),
+  duration: z.number().optional(),    // seconds; -1 = live (use as heuristic)
+  poster: z.string().url().optional(),
+  year: z.number().optional(),
+});
+
+export const ChannelSchema = z.discriminatedUnion("type", [
+  LiveChannelSchema,
+  VodChannelSchema,
+]);
+
+export type Channel = z.infer<typeof ChannelSchema>;
+export type LiveChannel = z.infer<typeof LiveChannelSchema>;
+export type VodChannel = z.infer<typeof VodChannelSchema>;
+```
+
+TypeScript narrows automatically on `channel.type`:
+
+```ts
+if (channel.type === "live") {
+  channel.tvgId;   // available
+} else {
+  channel.duration; // available
+}
+```
+
+### M3U parser heuristic for `type` assignment
+
+M3U does not have a reliable standard field for Live vs VOD. Use this priority order in the parser:
+
+1. `#EXTINF` duration attribute: `-1` → `live`; any positive value → `vod`.
+2. Custom tag `#KODIPROP:inputstream.adaptive.manifest_type` or `kodiprop` hints, if present.
+3. URL pattern as last resort (e.g. `.m3u8` streams with no duration → assume `live`).
+
+Document the heuristic in a comment block at the top of the parser file.
+
+### JSON Schema export
+
+`z.discriminatedUnion` generates a clean `oneOf` in JSON Schema — Android TV consumes this directly. Run the export script as an Nx target after any schema change.
+
+### When to apply this skill
+
+Load the `typescript-advanced-types` skill (`.agents/skills/typescript-advanced-types/SKILL.md`) when implementing or reviewing the channel schema, the M3U parser, or any code that branches on `channel.type`.
+
+---
+
 ## Build and quality (when you implement)
 
 - **CI** per app with Nx **remote cache** where available.

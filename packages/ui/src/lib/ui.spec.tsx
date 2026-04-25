@@ -1,12 +1,20 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { Ui } from './ui';
 
-import Ui from './ui';
+vi.mock('@noriginmedia/norigin-spatial-navigation', () => ({
+  useFocusable: () => ({
+    ref: { current: null },
+    focused: false,
+    focusSelf: vi.fn(),
+    hasFocusedChild: false,
+    focusKey: 'mock',
+  }),
+}));
 
 describe('Ui', () => {
-  
-  it('should render successfully', () => {
-    const { baseElement } = render(<Ui />);
-    expect(baseElement).toBeTruthy();
+  it('renders package title', () => {
+    render(<Ui />);
+    expect(screen.getByText('packages/ui')).toBeTruthy();
   });
-  
 });

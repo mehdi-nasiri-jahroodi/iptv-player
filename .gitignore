@@ -1,39 +1,104 @@
-# macOS
-.DS_Store
+# =============================================================================
+# iptv-player — root ignore rules (Nx + pnpm monorepo)
+# Patterns without a leading `/` apply under any directory unless noted.
+# =============================================================================
 
-# Editor / IDE
+# --- Operating system ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Editors & local tooling ---
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
-# Future app artifacts (uncomment when code exists)
-# node_modules/
-# dist/
-# build/
-# .gradle/
-# */build/
-
-# Nx local cache / graph (do not commit)
-.nx/
-
+# --- Dependencies ---
 node_modules/
-/dist
-/build
-/coverage
-/logs
-/temp
-/cache
-/backups
-/archives
-/old
-/temp
-/cache
+
+# --- Package managers ---
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-store/
+
+# --- Nx ---
+.nx/
+.nx/cache/
+
+# --- Builds & compiled output (any package or app) ---
+dist/
+build/
+out/
+next/
+.nuxt/
+.output/
+.vercel/
+.turbo/
+*.tsbuildinfo
+
+# TypeScript / Nx intermediate emit (Vitest, etc.)
+out-tsc/
+
+# --- Bundlers & frameworks ---
+.vite/
+**/.vite/
+**/.react-router/
+.parcel-cache/
+.cache/
+**/.cache/
+
+# Vite / Vitest timestamped temp configs
 vitest.config.*.timestamp*
 vite.config.*.timestamp*
 
-# pnpm
-pnpm-debug.log*
+# --- Tests & quality ---
+coverage/
+.nyc_output/
+**/*.lcov
+eslint-report.json
+*.lcov
 
-# Local scaffold backup (pre-Nx apps/web)
+# --- Environment & secrets (never commit) ---
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+*.pem
+*.key
+!*.key.pub
+
+# --- Logs & scratch ---
+logs/
+*.log
+tmp/
+temp/
+**/tmp/
+**/temp/
+
+# --- Archives & local dumps (optional local folders) ---
+backups/
+archives/
+old/
+
+# --- Project-specific (this repo) ---
 apps/_web_docs_backup/
-.claude/worktrees
+
+# Claude Code: keep shared kit in Git (.claude/settings.json, docs, hooks you add).
+# Ignore only ephemeral / machine-local paths (easy to recreate; should not ship).
+.claude/worktrees/
 .claude/settings.local.json
+
+# =============================================================================
+# When adding Android TV / native: uncomment or extend, e.g.
+# *.apk, *.aab, .gradle/, local.properties, **/build/ (already covered)
+# =============================================================================

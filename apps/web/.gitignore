@@ -1,5 +1,3 @@
-.cache
-build
-public/build
-.env
-.react-router
+# Web app: most rules live in the monorepo root `.gitignore`.
+# Add only paths that must stay relative to this folder and are not worth
+# promoting to the root file (e.g. a one-off local experiment).

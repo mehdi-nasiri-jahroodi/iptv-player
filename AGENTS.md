@@ -6,6 +6,16 @@ This file helps automated assistants (and humans) work consistently in this repo
 
 - **Do not commit or push on your own.** Never run `git commit`, `git push`, or similar to publish changes unless the user **explicitly** asks you to commit and/or push in that request. Prepare diffs and files only; the user controls what enters Git and the remote.
 
+## Agent tooling (keep in the repo “kit”)
+
+Treat **shared** assistant setup as part of the project, same as `AGENTS.md` and `docs/`, so clones and future you do not have to recreate it from memory.
+
+- **Cursor:** commit [`.cursor/rules/`](.cursor/rules/) and [`.cursor/skills/`](.cursor/skills/) (and any other non-secret project rules you add). Do **not** add a blanket `.cursor/` entry to `.gitignore`.
+- **Claude Code:** commit [`.claude/settings.json`](.claude/settings.json) (and hooks or subagents you intentionally share). `.gitignore` only excludes **local** paths: `.claude/worktrees/` and `.claude/settings.local.json`.
+- **Nx / Claude:** [CLAUDE.md](CLAUDE.md) is maintained for Nx-aware guidance; keep it unless the team replaces that workflow.
+
+If you add new agent directories, document them here and avoid ignoring them unless they contain secrets or regenerated cache only.
+
 ## Current state
 
 - **Monorepo:** **pnpm** workspaces + **Nx** ([`package.json`](package.json), [`pnpm-workspace.yaml`](pnpm-workspace.yaml)). Prefer `pnpm exec nx …` or `pnpm nx …` for tasks. **Technology choices** remain in [docs/architecture.md](docs/architecture.md) and [docs/platforms.md](docs/platforms.md).

@@ -1,0 +1,11 @@
+{
+  "name": "config",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared Tailwind preset and workspace-level config tokens for web + webOS.",
+  "main": "tailwind.preset.cjs",
+  "exports": {
+    "./tailwind-preset": "./tailwind.preset.cjs",
+    "./package.json": "./package.json"
+  }
+}

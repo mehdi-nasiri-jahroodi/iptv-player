@@ -1,8 +1,11 @@
 const { createGlobPatternsForDependencies } = require('@nx/react/tailwind');
 const { join } = require('path');
+const iptvPreset = require('config/tailwind-preset');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
+  presets: [iptvPreset],
   content: [
     join(
       __dirname,
