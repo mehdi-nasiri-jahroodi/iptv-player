@@ -8,7 +8,7 @@ Brand color is **Persian Turquoise** (`#00A693`) and it drives semantic `accent`
 | File | Purpose |
 |------|---------|
 | [`iptv-tavern-palette.json`](./iptv-tavern-palette.json) | Canonical paint hex values for `light` and `dark` modes |
-| [`iptv-semantic-colors.json`](./iptv-semantic-colors.json) | Semantic role mapping (`background`, `foreground`, `surface`, `accent`, `border`) via `mode.family.step` refs |
+| [`iptv-semantic-colors.json`](./iptv-semantic-colors.json) | Semantic role mapping (`background`, `foreground`, `surface`, `accent`, `border`, `danger`) via `mode.family.step` refs |
 
 ## Theme automation
 

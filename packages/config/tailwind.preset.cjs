@@ -42,6 +42,10 @@ module.exports = {
           DEFAULT: 'var(--iptv-color-border)',
           strong: 'var(--iptv-color-border-strong)',
         },
+        danger: {
+          DEFAULT: 'var(--iptv-color-danger)',
+          foreground: 'var(--iptv-color-danger-foreground)',
+        },
         lum: buildIptvTavernTailwindColors(dual.light),
         'iptv-tavern': buildIptvTavernTailwindColors(dual.light),
       },

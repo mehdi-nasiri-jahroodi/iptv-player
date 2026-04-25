@@ -15,15 +15,24 @@
     }
   },
   "peerDependencies": {
+    "@hookform/resolvers": "^5.0.0",
     "@noriginmedia/norigin-spatial-navigation": "^3.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "shaka-player": "^5.1.0"
+    "react-hook-form": "^7.0.0",
+    "shaka-player": "^5.1.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "autoprefixer": "10.4.13",
     "config": "workspace:*",
     "postcss": "8.4.38",
-    "tailwindcss": "3.4.3"
+    "react-hook-form": "^7.73.1",
+    "tailwindcss": "3.4.3",
+    "zod": "^4.3.6"
+  },
+  "dependencies": {
+    "core": "workspace:^"
   }
 }

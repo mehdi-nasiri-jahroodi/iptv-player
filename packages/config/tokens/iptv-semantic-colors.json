@@ -21,6 +21,10 @@
     "border": {
       "DEFAULT": "light.neutral.4",
       "strong": "light.neutral.3"
+    },
+    "danger": {
+      "DEFAULT": "light.red.1",
+      "foreground": "light.neutral.5"
     }
   },
   "dark": {
@@ -43,6 +47,10 @@
     "border": {
       "DEFAULT": "dark.ebony.4",
       "strong": "dark.neutral.3"
+    },
+    "danger": {
+      "DEFAULT": "dark.red.1",
+      "foreground": "dark.neutral.5"
     }
   }
 }

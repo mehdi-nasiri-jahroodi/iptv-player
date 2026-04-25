@@ -3,14 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {},
-  "sideEffects": ["**/*.css"],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "@noriginmedia/norigin-spatial-navigation": "^3.1.0",
     "@react-router/node": "^7.14.2",
     "@react-router/serve": "^7.14.2",
     "isbot": "^4.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-hook-form": "^7.73.1",
     "react-router": "^7.14.2",
     "ui": "workspace:*"
   },

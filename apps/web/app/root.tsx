@@ -8,10 +8,10 @@ import {
   type LinksFunction,
 } from 'react-router';
 
-import './styles.css';
-import { AppNav } from './app-nav';
-import { AutoTheme } from './auto-theme';
-import { SpatialNavigationRoot } from './spatial-navigation-root';
+import './styles/index.css';
+import { AppNav } from './layout/app-nav';
+import { AutoTheme } from './layout/auto-theme';
+import { SpatialNavigationRoot } from './layout/spatial-navigation-root';
 
 export const meta: MetaFunction = () => [
   {

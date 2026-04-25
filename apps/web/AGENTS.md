@@ -37,21 +37,29 @@ Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope
 ```
 apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
-    root.tsx, app.tsx, routes/
-    features/                 # (planned) sources, catalog, guide, player, profiles
-    lib/                      # (planned) shaka, navigation, storage
+    root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav
+    routes.tsx                # URL → page-module manifest
+    app-nav.tsx               # top nav (NavLinks + ThemeToggle)
+    auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
+    spatial-navigation-root.tsx  # Norigin init/destroy on the client
+    pages/                    # one file per route module — exported as default
+      home.tsx
+      about.tsx
+      add-source.tsx
+      dev/
+        design-tokens.tsx     # only registered when import.meta.env.DEV
+    features/                 # feature folders co-locating hooks + state
+      sources/
+        sources-storage.ts    # SourcesStore + newSourceId
+    lib/                      # (planned) shaka, navigation
     store/                    # (planned) Zustand slices
-
-packages/core/                # types, Zod schemas, parsers, storage adapter interface
-packages/ui/                  # shared React + Tailwind (web + webOS)
-packages/config/              # shared Tailwind preset + IPTV color tokens (JSON)
 ```
 
 ### Dev-only: token lab (design / colors)
 
 - **Route:** `/dev/design-tokens` — linked in the top nav as **Token lab** when `import.meta.env.DEV` is true.
 - **Implementation:** `app/routes.tsx` only registers this route in development, so **production client and server bundles do not contain** that page or its strings (the module is dropped from the graph).
-- **Source:** `app/routes/dev.design-tokens.tsx` stays in the repo for local dev and typecheck; it is not part of the shipped product surface.
+- **Source:** `app/pages/dev/design-tokens.tsx` stays in the repo for local dev and typecheck; it is not part of the shipped product surface.
 
 ### Theme (light / dark)
 
@@ -126,7 +134,8 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
-- List Norigin, React, and Shaka as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
+- List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
 
 ---
 
