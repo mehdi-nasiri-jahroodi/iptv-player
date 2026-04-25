@@ -1,0 +1,100 @@
+# Web app — Cursor rules
+
+> Scoped to `apps/web/` and shared packages (`packages/core`, `packages/ui`).
+> For repo-wide rules see root `AGENTS.md`. For full web app context see `apps/web/AGENTS.md`.
+
+---
+
+## Stack — always use these, no alternatives
+
+- **React** (functional components + hooks only, no class components)
+- **Tailwind CSS** (utility classes; shared preset from `packages/config`)
+- **Norigin Spatial Navigation** for all focusable / D-pad interactive elements
+- **Shaka Player** for all playback (`useShakaPlayer` hook in `apps/web/src/lib/shaka/`)
+- **Zustand** for global state (small slices, no Redux)
+- **Zod** for all data validation (in `packages/core`; infer types from schemas)
+- **React Router v6** for routing
+- **Lucide React** for icons (no second icon library)
+- **Vitest** + **React Testing Library** + **MSW** for tests
+
+---
+
+## File structure — follow this exactly
+
+```
+apps/web/src/
+  main.tsx          # SpatialNavigation.init() lives here
+  App.tsx           # router shell only
+  router.tsx
+  pages/            # route-level components only
+  features/         # self-contained feature folders (hooks + state + local components)
+  lib/
+    shaka/          # useShakaPlayer hook
+    navigation/     # keybindings.ts + spatial nav config
+    storage/        # localStorage storage adapter
+  store/            # Zustand slices
+```
+
+---
+
+## Rules
+
+### Navigation
+- Every interactive element **must** use `useFocusable` from Norigin.
+- Every focusable region **must** have a stable, unique `focusKey` string constant.
+- Use `isFocusBoundary: true` on container `FocusContext` nodes (Sidebar, ChannelList, EpgGrid, PlayerOverlay).
+- Use `setFocus("KEY")` for programmatic focus changes on route transitions.
+- All key bindings documented in `apps/web/src/lib/navigation/keybindings.ts`.
+
+### Playback
+- Only one `useShakaPlayer` instance at a time.
+- Always call `destroy()` on unmount.
+- Never autoplay speculatively — require an explicit user gesture.
+
+### State
+- One Zustand slice per domain: `sourcesStore`, `catalogStore`, `guideStore`, `profileStore`, `settingsStore`, `playerStore`.
+- Persist only: `sourcesStore`, `profileStore`, `settingsStore` (via Zustand middleware).
+- No direct `localStorage` calls outside the storage adapter in `lib/storage/`.
+
+### CORS / source handling
+- Always provide a "paste raw text" input alongside URL input.
+- Surface CORS failures as `cors_blocked` error code — never as "invalid source."
+- File import must always be supported.
+
+### Shared packages
+- `packages/core` — types, Zod schemas, parsers, storage adapter **interface** only. No React.
+- `packages/ui` — shared React + Tailwind components. List `react`, `shaka-player`, and `@noriginmedia/norigin-spatial-navigation` as `peerDependencies`.
+- Components must be headless-friendly: logic in hooks, styles in Tailwind classes.
+
+### Code quality
+- No `any` — use Zod-inferred types or explicit interfaces.
+- No secrets or credentials in logs — diagnostics must be redacted.
+- Co-locate tests: `*.test.ts` next to the file under test.
+- Split components that exceed ~150 lines of JSX.
+- Feature folders are self-contained: hooks, state, and local components stay together.
+
+---
+
+## Phase guard — do not build these yet
+
+| Feature | Status |
+| ------- | ------ |
+| Xtream Codes UI | Deferred to Phase 4 — schema type exists, form UI does not |
+| Full EPG grid | Phase 3 |
+| Multiple profiles | Phase 4 |
+| Cloud sync / accounts | Post-v1 |
+
+When asked to build any of the above, flag it and confirm with the user before proceeding.
+
+---
+
+## Nx commands
+
+```bash
+nx affected --target=lint
+nx affected --target=test
+nx affected --target=build
+nx g @nx/react:app apps/web
+nx g @nx/js:lib packages/core
+nx g @nx/react:lib packages/ui
+```

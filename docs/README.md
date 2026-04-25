@@ -9,6 +9,6 @@ All documents are written to be **human-readable and AI-parseable** (clear headi
 | [architecture.md](architecture.md) | Nx monorepo, chosen stack (React, Shaka, Media3, Zod/JSON Schema), what is shared, boundaries |
 | [platforms.md](platforms.md) | Web vs Android TV vs LG webOS — stack per platform |
 | [glossary.md](glossary.md) | Acronyms and domain terms |
-| [setup.md](setup.md) | Initialize Git on your machine |
+| [web-app-plan.md](web-app-plan.md) | Phased implementation plan for the React web app (first client) |
 
 Start with **product.md** and **features.md** for a full picture, then **architecture.md** and **platforms.md** for technical shape.

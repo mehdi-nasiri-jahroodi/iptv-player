@@ -1,0 +1,13 @@
+---
+description: Consult repo-local agent skills under .agents/skills when tasks match.
+alwaysApply: true
+---
+
+# Agent skills in this workspace
+
+Before **substantive** work (code changes, non-trivial refactors, multi-file edits, or detailed implementation plans) in a domain covered by a skill:
+
+1. Open **[.agents/README.md](.agents/README.md)** and identify **which** skill folders apply to the user’s request (do not read all skills; context is limited).
+2. Read **`SKILL.md`** for each selected skill (use the Read tool) and follow its instructions **where they fit** this repo’s stack (see root `AGENTS.md` and `docs/architecture.md`). Skip or adapt guidance that assumes a different framework or missing tooling.
+
+Purely conversational questions, tiny one-line fixes with no domain skill, or doc-only typo fixes do not require loading skills unless the user asks for standards compliance.
