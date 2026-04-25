@@ -7,8 +7,9 @@
 
 ## Current state
 
-The web app does **not exist yet** — the monorepo has not been bootstrapped. The docs are the source of truth.
-Before writing any product code, the Nx workspace must be initialized per [`docs/web-app-plan.md § 2`](../../docs/web-app-plan.md).
+The **Nx + pnpm** workspace exists at the repo root. This app is generated as **React Router 7** + Vite under `apps/web/app/` (not the older `src/` layout in some docs — mirror the same folders under `app/`).
+
+Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope; use **pnpm** / `pnpm exec nx` from the repo root (see root `AGENTS.md`).
 
 ---
 
@@ -22,7 +23,7 @@ Before writing any product code, the Nx workspace must be initialized per [`docs
 | Playback | **Shaka Player** (`shaka-player`) |
 | Global state | **Zustand** (small slices; no Redux) |
 | Data validation | **Zod** (in `packages/core`; also exported as JSON Schema for Android TV) |
-| Routing | **React Router v6** |
+| Routing | **React Router v7** (`react-router`, file-based `app/`) |
 | Icons | **Lucide React** |
 | Unit / integration tests | **Vitest** + **React Testing Library** + **MSW** |
 | E2E (Phase 3+) | **Playwright** |
@@ -34,31 +35,15 @@ Before writing any product code, the Nx workspace must be initialized per [`docs
 
 ```
 apps/web/
-  src/
-    main.tsx                  # entry point; SpatialNavigation.init() here
-    App.tsx                   # router shell
-    router.tsx
-    pages/
-      Home/                   # channel browser + EPG strip
-      Player/                 # fullscreen player
-      AddSource/              # source wizard
-      Settings/
-      Onboarding/             # first-run flow
-    features/
-      sources/                # hooks + state for source management
-      catalog/                # channel list, groups, search
-      guide/                  # EPG state, now-pointer
-      player/                 # Shaka integration, track selection
-      profiles/               # favorites, recents, profile CRUD
-    lib/
-      shaka/                  # useShakaPlayer hook + wrapper component
-      navigation/             # spatial nav config, keybindings.ts
-      storage/                # localStorage impl of storage adapter
-    store/                    # Zustand store slices
+  app/                        # React Router 7 routes + layout (see routes.tsx)
+    root.tsx, app.tsx, routes/
+    features/                 # (planned) sources, catalog, guide, player, profiles
+    lib/                      # (planned) shaka, navigation, storage
+    store/                    # (planned) Zustand slices
 
 packages/core/                # types, Zod schemas, parsers, storage adapter interface
-packages/ui/                  # shared React + Tailwind components (web + webOS)
-packages/config/              # eslint, tailwind preset, tsconfig bases
+packages/ui/                  # shared React + Tailwind (web + webOS)
+packages/config/              # (planned) eslint, tailwind preset, tsconfig bases
 ```
 
 ---
@@ -70,7 +55,7 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
-| 1 — Foundation | not started | Nx init, `packages/core` schemas + M3U parser, router skeleton, Shaka smoke test |
+| 1 — Foundation | in progress | Nx + pnpm done; complete schemas/M3U/Shaka/Norigin per plan |
 | 2 — MVP core flows | not started | AddSource, channel browser, playback, onboarding |
 | 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
 | 4 — Polish | not started | Multiple profiles, logos, backup/restore, a11y audit |

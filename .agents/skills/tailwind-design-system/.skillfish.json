@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "tailwind-design-system",
+  "owner": "wshobson",
+  "repo": "agents",
+  "path": "plugins/frontend-mobile-development/skills/tailwind-design-system",
+  "branch": "main",
+  "sha": "a8532caa4b6284a92c686bc9346c274e6e66aaa5",
+  "source": "manual"
+}

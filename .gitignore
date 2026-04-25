@@ -11,3 +11,29 @@
 # build/
 # .gradle/
 # */build/
+
+# Nx local cache / graph (do not commit)
+.nx/
+
+node_modules/
+/dist
+/build
+/coverage
+/logs
+/temp
+/cache
+/backups
+/archives
+/old
+/temp
+/cache
+vitest.config.*.timestamp*
+vite.config.*.timestamp*
+
+# pnpm
+pnpm-debug.log*
+
+# Local scaffold backup (pre-Nx apps/web)
+apps/_web_docs_backup/
+.claude/worktrees
+.claude/settings.local.json

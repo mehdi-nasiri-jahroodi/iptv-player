@@ -24,9 +24,9 @@ Before writing product code, the Nx monorepo must exist.
 | Init Nx in existing repo | Run from repo root: `npx nx@latest init` (adds `nx.json`; follow prompts) |
 | Add web app | `nx g @nx/react:app apps/web` |
 | Add shared packages | `nx g @nx/js:lib packages/core` and `nx g @nx/react:lib packages/ui` |
-| Install Shaka Player | `npm install shaka-player` (root; consumed by `apps/web` and `packages/ui`) |
-| Install Norigin Spatial Nav | `npm install @noriginmedia/norigin-spatial-navigation` (root; peer of `packages/ui`) |
-| Install Zod | `npm install zod` (root; consumed by `packages/core`) |
+| Install Shaka Player | `pnpm add shaka-player -w` (workspace root; consumed by `apps/web` and `packages/ui`) |
+| Install Norigin Spatial Nav | `pnpm add @noriginmedia/norigin-spatial-navigation -w` (root; peer of `packages/ui`) |
+| Install Zod | `pnpm add zod -w` (root; consumed by `packages/core`) |
 | Tailwind CSS | Configure per Nx/Tailwind guide; share preset via `packages/config` |
 
 **Dependency placement note**: `packages/ui` wraps Norigin components and may contain shared player chrome, so `@noriginmedia/norigin-spatial-navigation`, `react`, and `shaka-player` must be listed as `peerDependencies` of `packages/ui` (and `packages/core` where applicable), not only in `apps/web`. This prevents version mismatches when webOS later consumes the same packages.
@@ -52,7 +52,7 @@ AppSettings     — theme, playerBufferMode, ...
 UserProfile     — id, name, favorites[], recents[]
 ```
 
-Export JSON Schema artifacts (`packages/core/schemas/`) for future Android TV alignment using **`zod-to-json-schema`** (`npm install zod-to-json-schema`). Add a small build script that calls `zodToJsonSchema(SourceSchema)` etc. and writes the output files; run it as an Nx target so CI always has fresh artifacts.
+Export JSON Schema artifacts (`packages/core/schemas/`) for future Android TV alignment using **`zod-to-json-schema`** (`pnpm add zod-to-json-schema -w`). Add a small build script that calls `zodToJsonSchema(SourceSchema)` etc. and writes the output files; run it as an Nx target so CI always has fresh artifacts.
 
 ### 3.2 Core utilities
 

@@ -17,7 +17,7 @@ This document describes the **intended** shape of the codebase **when** implemen
 ## High-level
 
 - **One product**, **three client applications** (Web, Android TV, LG webOS).
-- An **Nx monorepo**: one Git repo with `apps/*` and shared `packages/*` (or Nx libraries) so Web and webOS share React, Tailwind, Shaka integration, and TypeScript domain logic, while Android TV remains a native app with Media3.
+- An **Nx monorepo** with **pnpm** workspaces: one Git repo with `apps/*` and shared `packages/*` (or Nx libraries) so Web and webOS share React, Tailwind, Shaka integration, and TypeScript domain logic, while Android TV remains a native app with Media3.
 
 ## Logical modules (future)
 

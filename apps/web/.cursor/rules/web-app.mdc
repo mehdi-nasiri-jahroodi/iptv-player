@@ -1,3 +1,9 @@
+---
+description: Web app stack and phase guard for apps/web and shared TS packages.
+globs: apps/web/**,packages/core/**,packages/ui/**
+alwaysApply: false
+---
+
 # Web app — Cursor rules
 
 > Scoped to `apps/web/` and shared packages (`packages/core`, `packages/ui`).
@@ -8,65 +14,59 @@
 ## Stack — always use these, no alternatives
 
 - **React** (functional components + hooks only, no class components)
-- **Tailwind CSS** (utility classes; shared preset from `packages/config`)
+- **Tailwind CSS** (utility classes; shared preset from `packages/config` when it exists)
 - **Norigin Spatial Navigation** for all focusable / D-pad interactive elements
-- **Shaka Player** for all playback (`useShakaPlayer` hook in `apps/web/src/lib/shaka/`)
+- **Shaka Player** for all playback (`useShakaPlayer` hook under `apps/web/app/lib/shaka/` — align with actual app tree)
 - **Zustand** for global state (small slices, no Redux)
 - **Zod** for all data validation (in `packages/core`; infer types from schemas)
-- **React Router v6** for routing
+- **React Router** (v7 in this repo via `@react-router/*`; same routing concepts as v6)
 - **Lucide React** for icons (no second icon library)
 - **Vitest** + **React Testing Library** + **MSW** for tests
 
 ---
 
-## File structure — follow this exactly
+## File structure
 
-```
-apps/web/src/
-  main.tsx          # SpatialNavigation.init() lives here
-  App.tsx           # router shell only
-  router.tsx
-  pages/            # route-level components only
-  features/         # self-contained feature folders (hooks + state + local components)
-  lib/
-    shaka/          # useShakaPlayer hook
-    navigation/     # keybindings.ts + spatial nav config
-    storage/        # localStorage storage adapter
-  store/            # Zustand slices
-```
+This Nx app uses **React Router 7** file-based routes under `apps/web/app/`. Prefer `app/lib/`, `app/features/`, etc., matching the plan in `docs/web-app-plan.md` (adapt paths from `src/` to `app/` where the generator placed files).
 
 ---
 
 ## Rules
 
 ### Navigation
+
 - Every interactive element **must** use `useFocusable` from Norigin.
 - Every focusable region **must** have a stable, unique `focusKey` string constant.
-- Use `isFocusBoundary: true` on container `FocusContext` nodes (Sidebar, ChannelList, EpgGrid, PlayerOverlay).
+- Use `isFocusBoundary: true` on container regions (Sidebar, ChannelList, EpgGrid, PlayerOverlay).
 - Use `setFocus("KEY")` for programmatic focus changes on route transitions.
-- All key bindings documented in `apps/web/src/lib/navigation/keybindings.ts`.
+- All key bindings documented under `apps/web/app/lib/navigation/keybindings.ts` (create when adding navigation).
 
 ### Playback
+
 - Only one `useShakaPlayer` instance at a time.
 - Always call `destroy()` on unmount.
 - Never autoplay speculatively — require an explicit user gesture.
 
 ### State
+
 - One Zustand slice per domain: `sourcesStore`, `catalogStore`, `guideStore`, `profileStore`, `settingsStore`, `playerStore`.
 - Persist only: `sourcesStore`, `profileStore`, `settingsStore` (via Zustand middleware).
 - No direct `localStorage` calls outside the storage adapter in `lib/storage/`.
 
 ### CORS / source handling
+
 - Always provide a "paste raw text" input alongside URL input.
 - Surface CORS failures as `cors_blocked` error code — never as "invalid source."
 - File import must always be supported.
 
 ### Shared packages
+
 - `packages/core` — types, Zod schemas, parsers, storage adapter **interface** only. No React.
 - `packages/ui` — shared React + Tailwind components. List `react`, `shaka-player`, and `@noriginmedia/norigin-spatial-navigation` as `peerDependencies`.
 - Components must be headless-friendly: logic in hooks, styles in Tailwind classes.
 
 ### Code quality
+
 - No `any` — use Zod-inferred types or explicit interfaces.
 - No secrets or credentials in logs — diagnostics must be redacted.
 - Co-locate tests: `*.test.ts` next to the file under test.
@@ -88,13 +88,11 @@ When asked to build any of the above, flag it and confirm with the user before p
 
 ---
 
-## Nx commands
+## Nx / pnpm commands
 
 ```bash
-nx affected --target=lint
-nx affected --target=test
-nx affected --target=build
-nx g @nx/react:app apps/web
-nx g @nx/js:lib packages/core
-nx g @nx/react:lib packages/ui
+pnpm exec nx affected -t lint
+pnpm exec nx affected -t test
+pnpm exec nx affected -t build
+pnpm exec nx run web:dev
 ```

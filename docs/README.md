@@ -2,6 +2,8 @@
 
 All documents are written to be **human-readable and AI-parseable** (clear headings, stable filenames, no ambiguous jargon without definitions).
 
+**Workspace:** install and run commands from the repo root with [**pnpm**](https://pnpm.io/) (`pnpm install`, `pnpm exec nx …`). See the root [`README.md`](../README.md).
+
 | File | Description |
 | ---- | ----------- |
 | [product.md](product.md) | Why we are building this, who it is for, non-goals |

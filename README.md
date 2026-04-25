@@ -7,9 +7,14 @@ A **bring-your-own-source** live TV and VOD **player** (not a content service). 
 - A **client application** for playing streams the user is authorized to use (e.g. playlists, provider credentials), with strong UX: onboarding, EPG, favorites, search, and TV-remote–first navigation.
 - **Not** a bundled channel service; users supply their own lawful sources.
 
-## Repository contents (this phase)
+## Repository contents
 
-This repository currently holds **product and architecture reference documentation** (the **stack is decided**; see [docs/architecture.md](docs/architecture.md)) — **no application code or Nx workspace yet** unless added in a later phase. Use it to align the team, onboard contributors, and give AI assistants a single source of truth for intent and structure.
+**Docs:** product vision, platforms, and implementation plans under [`docs/`](docs/). **Code:** an **Nx** monorepo (`apps/web`, `packages/*`) managed with **pnpm** — see [docs/architecture.md](docs/architecture.md) and [docs/web-app-plan.md](docs/web-app-plan.md).
+
+## Development
+
+- **Package manager:** [pnpm](https://pnpm.io/) (see `packageManager` in [`package.json`](package.json)). Install dependencies from the repo root: `pnpm install`.
+- **Nx:** `pnpm exec nx graph`, `pnpm exec nx run web:dev`, etc.
 
 | Document | Purpose |
 | -------- | ------- |
