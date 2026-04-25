@@ -1,93 +1,75 @@
 {
-  "$comment": "Dual tavern palettes: iptvTavern.light.* and iptvTavern.dark.* share the same family.step keys. CSS --iptv-paint-{family}-{step} is set on :root from light and overridden on .dark — utilities bg-iptv-tavern-* follow the active theme automatically.",
-  "version": 3,
+  "$comment": "Persian Cinematic Tavern Palette: Featuring Persian Turquoise for branding and Saffron for highlights. Optimized for D-pad navigation visibility on TV panels.",
+  "version": 4,
   "iptvTavern": {
     "light": {
       "neutral": {
-        "1": "#0c0a08",
-        "2": "#1a1612",
-        "3": "#6e655b",
-        "4": "#c4b5a0",
-        "5": "#a8947c"
+        "1": "#111827",
+        "2": "#374151",
+        "3": "#6B7280",
+        "4": "#F3F4F6",
+        "5": "#FFFFFF"
       },
-      "brown": {
-        "1": "#0e0b09",
-        "2": "#17120e",
-        "3": "#221c16",
-        "4": "#2f261f",
-        "5": "#4a4036"
+      "turquoise": {
+        "1": "#00695C",
+        "2": "#00897B",
+        "3": "#00A693",
+        "4": "#4DB6AC",
+        "5": "#B2DFDB"
       },
-      "cream": {
-        "1": "#efe6d4",
-        "2": "#f7f1e4",
-        "3": "#f4e3c2"
+      "saffron": {
+        "1": "#B45309",
+        "2": "#D97706",
+        "3": "#F4C430"
       },
-      "blue": {
-        "1": "#1a2330",
-        "2": "#8a9aad"
+      "ebony": {
+        "1": "#1B1714",
+        "2": "#3E362E",
+        "3": "#5C5248"
       },
       "red": {
-        "1": "#6e2432",
-        "2": "#8f3545"
-      },
-      "orange": {
-        "1": "#c45c1a",
-        "2": "#e07a2f",
-        "3": "#deb76c",
-        "4": "#f0cf88",
-        "5": "#e8a03a"
-      },
-      "gold": {
-        "1": "#9c8a38",
-        "2": "#b8a64d"
+        "1": "#991B1B",
+        "2": "#CC3333"
       },
       "green": {
-        "1": "#4f6749",
-        "2": "#6a8562"
+        "1": "#166534",
+        "2": "#93C572"
       }
     },
     "dark": {
       "neutral": {
-        "1": "#f4ede3",
-        "2": "#dcd4c8",
-        "3": "#a39e95",
-        "4": "#5c5650",
-        "5": "#454039"
+        "1": "#F9FAFB",
+        "2": "#E5E7EB",
+        "3": "#9CA3AF",
+        "4": "#1F2937",
+        "5": "#0A0A0B"
       },
-      "brown": {
-        "1": "#0e0b09",
-        "2": "#17120e",
-        "3": "#221c16",
-        "4": "#2f261f",
-        "5": "#4a4036"
+      "turquoise": {
+        "1": "#00A693",
+        "2": "#26C6DA",
+        "3": "#4DD0E1",
+        "4": "#004D40",
+        "5": "#002521"
       },
-      "cream": {
-        "1": "#3a322a",
-        "2": "#463b31",
-        "3": "#524739"
+      "saffron": {
+        "1": "#F4C430",
+        "2": "#FFD54F",
+        "3": "#78350F"
       },
-      "blue": {
-        "1": "#1e2836",
-        "2": "#9eb0c8"
+      "ebony": {
+        "1": "#F3F4F6",
+        "2": "#D1D5DB",
+        "3": "#4B5563",
+        "4": "#26211E",
+        "5": "#1B1714"
       },
       "red": {
-        "1": "#9a3342",
-        "2": "#b84d5c"
-      },
-      "orange": {
-        "1": "#e07a2f",
-        "2": "#f0914a",
-        "3": "#e8c47a",
-        "4": "#f5daa0",
-        "5": "#f5bc5c"
-      },
-      "gold": {
-        "1": "#c4b35a",
-        "2": "#dcc970"
+        "1": "#F87171",
+        "2": "#CC3333"
       },
       "green": {
-        "1": "#6a8562",
-        "2": "#82a078"
+        "1": "#93C572",
+        "2": "#166534"
       }
     }
   }

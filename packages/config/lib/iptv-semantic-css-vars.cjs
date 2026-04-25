@@ -8,7 +8,7 @@ function resolvePaletteRef(dual, ref) {
   const parts = ref.split('.');
   if (parts.length < 3) {
     throw new Error(
-      `[config] Palette ref "${ref}" must be mode.family.step (e.g. light.cream.1)`
+      `[config] Palette ref "${ref}" must be mode.family.step (e.g. light.turquoise.3)`
     );
   }
   const [mode, family, step] = parts;

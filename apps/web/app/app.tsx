@@ -6,7 +6,7 @@ export function App() {
       <Stack className="mx-auto max-w-lg p-6" gap={6}>
         <header>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            IPTV Player — web
+            Lumina-IPTV — web
           </h1>
           <p className="mt-2 text-sm text-foreground-muted">
             Repository bootstrap: Nx + pnpm, shared Tailwind preset (

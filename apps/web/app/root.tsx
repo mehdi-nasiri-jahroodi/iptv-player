@@ -15,7 +15,7 @@ import { SpatialNavigationRoot } from './spatial-navigation-root';
 
 export const meta: MetaFunction = () => [
   {
-    title: 'IPTV Player (web)',
+    title: 'Lumina-IPTV (web)',
   },
 ];
 

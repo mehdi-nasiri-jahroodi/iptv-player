@@ -8,14 +8,46 @@ type DualPalette = {
   dark: Record<string, Record<string, string>>;
 };
 
+type Mode = 'light' | 'dark';
+
 /** Docs: Tailwind utility name (uses CSS var under the hood — flips with `.dark`). */
 function tailwindBgClass(family: string, step: string) {
-  return `bg-iptv-tavern-${family}-${step}`;
+  return `bg-lum-${family}-${step}`;
+}
+
+function resolvePaletteRef(dual: DualPalette, ref: string): string {
+  const [mode, family, step] = ref.split('.');
+  return dual[mode as Mode]?.[family]?.[step] ?? '';
+}
+
+function buildThemeVars(
+  dual: DualPalette,
+  semanticMap: Record<string, Record<string, string>>,
+  mode: Mode
+) {
+  const vars: Record<string, string> = {};
+
+  for (const [family, steps] of Object.entries(dual[mode])) {
+    for (const [step, hex] of Object.entries(steps)) {
+      vars[`--iptv-paint-${family}-${step}`] = hex;
+    }
+  }
+
+  for (const [group, shades] of Object.entries(semanticMap)) {
+    for (const [shade, paletteRef] of Object.entries(shades)) {
+      const suffix = shade === 'DEFAULT' ? group : `${group}-${shade}`;
+      vars[`--iptv-color-${suffix}`] = resolvePaletteRef(dual, paletteRef);
+    }
+  }
+
+  return vars;
 }
 
 export default function DevDesignTokens() {
-  const [darkPreview, setDarkPreview] = useState(false);
+  const [mode, setMode] = useState<Mode>('light');
   const dual = palette.iptvTavern as DualPalette;
+  const semanticMap = semantic[mode] as Record<string, Record<string, string>>;
+  const previewVars = buildThemeVars(dual, semanticMap, mode);
 
   if (!import.meta.env.DEV) {
     return null;
@@ -23,13 +55,13 @@ export default function DevDesignTokens() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="border-b border-dashed border-iptv-tavern-orange-5/80 bg-iptv-tavern-orange-3/20 px-4 py-2 text-center text-sm font-medium text-iptv-tavern-red-1 dark:text-iptv-tavern-cream-2">
+      <div className="border-b border-dashed border-lum-turquoise-4/80 bg-lum-turquoise-5/30 px-4 py-2 text-center text-sm font-medium text-lum-neutral-1 dark:text-lum-neutral-2">
         Development only — this route is omitted from production builds.
       </div>
       <div className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">IPTV token lab</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Lumina-IPTV token lab</h1>
             <p className="mt-1 text-sm text-foreground-muted">
               Dual <code className="rounded bg-surface-raised px-1">light</code> /{' '}
               <code className="rounded bg-surface-raised px-1">dark</code> paints in JSON;{' '}
@@ -40,10 +72,10 @@ export default function DevDesignTokens() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setDarkPreview((v) => !v)}
+              onClick={() => setMode((m) => (m === 'light' ? 'dark' : 'light'))}
               className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground hover:bg-surface-raised"
             >
-              {darkPreview ? 'Preview: light' : 'Preview: dark'}
+              {mode === 'dark' ? 'Preview: light' : 'Preview: dark'}
             </button>
             <Link
               to="/"
@@ -55,12 +87,13 @@ export default function DevDesignTokens() {
         </div>
 
         <div
-          className={`space-y-10 rounded-lg border border-border bg-background p-6 ${darkPreview ? 'dark' : ''}`}
+          className="space-y-10 rounded-lg border border-border bg-background p-6"
+          style={previewVars}
         >
           <section>
             <h2 className="text-lg font-semibold">Semantic roles</h2>
             <p className="mt-1 text-sm text-foreground-muted">
-              Variables flip with the preview wrapper ({darkPreview ? 'dark' : 'light'}).
+              Variables flip with the preview wrapper ({mode}).
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {(
@@ -134,7 +167,7 @@ export default function DevDesignTokens() {
 
           <section>
             <h2 className="text-lg font-semibold">Semantic map (JSON)</h2>
-            <p className="mt-1 text-sm text-foreground-muted">Refs use mode.family.step (e.g. light.cream.1)</p>
+            <p className="mt-1 text-sm text-foreground-muted">Refs use mode.family.step (e.g. light.turquoise.3)</p>
             <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-border bg-surface-raised p-3 text-xs leading-relaxed text-foreground">
               {JSON.stringify(semantic, null, 2)}
             </pre>

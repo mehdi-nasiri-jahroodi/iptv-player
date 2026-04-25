@@ -13,7 +13,7 @@ test('renders home shell', async () => {
   render(<ReactRouterStub />);
 
   await waitFor(() => {
-    expect(screen.getByRole('heading', { name: /IPTV Player — web/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Lumina-IPTV — web/i })).toBeTruthy();
   });
   expect(screen.getByText('Focus target A')).toBeTruthy();
 });

@@ -1,47 +1,47 @@
 {
-  "$comment": "Semantic roles → palette refs as mode.family.step (mode is light|dark). :root / .dark set --iptv-color-* from these; raw paints use --iptv-paint-* and flip automatically.",
-  "version": 3,
+  "$comment": "Semantic roles map to mode.family.step refs (mode is light|dark).",
+  "version": 4,
   "light": {
     "background": {
-      "DEFAULT": "light.cream.1",
-      "subtle": "light.cream.2"
+      "DEFAULT": "light.neutral.5",
+      "subtle": "light.neutral.4"
     },
     "foreground": {
       "DEFAULT": "light.neutral.1",
       "muted": "light.neutral.3"
     },
     "surface": {
-      "DEFAULT": "light.cream.2",
-      "raised": "light.cream.3"
+      "DEFAULT": "light.neutral.5",
+      "raised": "light.neutral.4"
     },
     "accent": {
-      "DEFAULT": "light.orange.1",
-      "foreground": "light.cream.2"
+      "DEFAULT": "light.turquoise.3",
+      "foreground": "light.neutral.5"
     },
     "border": {
       "DEFAULT": "light.neutral.4",
-      "strong": "light.neutral.5"
+      "strong": "light.neutral.3"
     }
   },
   "dark": {
     "background": {
-      "DEFAULT": "dark.brown.1",
-      "subtle": "dark.brown.2"
+      "DEFAULT": "dark.neutral.5",
+      "subtle": "dark.neutral.4"
     },
     "foreground": {
       "DEFAULT": "dark.neutral.1",
-      "muted": "dark.blue.2"
+      "muted": "dark.neutral.3"
     },
     "surface": {
-      "DEFAULT": "dark.brown.3",
-      "raised": "dark.brown.4"
+      "DEFAULT": "dark.ebony.5",
+      "raised": "dark.ebony.4"
     },
     "accent": {
-      "DEFAULT": "dark.orange.2",
-      "foreground": "dark.brown.1"
+      "DEFAULT": "dark.turquoise.2",
+      "foreground": "dark.neutral.5"
     },
     "border": {
-      "DEFAULT": "dark.brown.5",
+      "DEFAULT": "dark.ebony.4",
       "strong": "dark.neutral.3"
     }
   }

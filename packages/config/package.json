@@ -7,6 +7,7 @@
   "exports": {
     "./tailwind-preset": "./tailwind.preset.cjs",
     "./tokens/iptv-tavern-palette": "./tokens/iptv-tavern-palette.json",
+    "./tokens/lum-palette": "./tokens/iptv-tavern-palette.json",
     "./tokens/iptv-semantic-colors": "./tokens/iptv-semantic-colors.json",
     "./package.json": "./package.json"
   }

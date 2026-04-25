@@ -19,7 +19,7 @@ Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope
 | ------- | ------ |
 | UI framework | **React** (functional components, hooks only) |
 | Styling | **Tailwind CSS** (utility-first; shared preset via `packages/config`) |
-| Colors | **IPTV tokens only** — semantic (`bg-background`, …) + `iptv-tavern-*`; extend [`packages/config/tokens/`](../../packages/config/tokens/) when a paint is missing. Rule: root [`AGENTS.md`](../../AGENTS.md) § *UI colors — IPTV tokens only*. |
+| Colors | **IPTV tokens only** — semantic (`bg-background`, …) + `lum-*`; extend [`packages/config/tokens/`](../../packages/config/tokens/) when a paint is missing. Rule: root [`AGENTS.md`](../../AGENTS.md) § *UI colors — Lumina tokens only*. |
 | TV / D-pad navigation | **Norigin Spatial Navigation** (`@noriginmedia/norigin-spatial-navigation`) |
 | Playback | **Shaka Player** (`shaka-player`) |
 | Global state | **Zustand** (small slices; no Redux) |

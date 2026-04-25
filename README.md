@@ -1,4 +1,4 @@
-# IPTV Player
+# Lumina-IPTV
 
 A **bring-your-own-source** live TV and VOD **player** (not a content service). The product goal is a fast, simple, and polished experience across **Web**, **Android TV**, and **LG webOS** — with a shared product vision and an **Nx** monorepo plan: **React + Tailwind**, **Norigin Spatial Navigation** for TV-style input, **Shaka Player** on web/webOS, **Media3** on Android, and **Zod + JSON Schema** for cross-client data contracts (see [docs/architecture.md](docs/architecture.md)).
 
