@@ -10,6 +10,7 @@ import {
 
 import './styles.css';
 import { AppNav } from './app-nav';
+import { AutoTheme } from './auto-theme';
 import { SpatialNavigationRoot } from './spatial-navigation-root';
 
 export const meta: MetaFunction = () => [
@@ -41,6 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
+        <AutoTheme />
         <SpatialNavigationRoot>
           <AppNav />
           {children}

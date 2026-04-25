@@ -19,6 +19,7 @@ Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope
 | ------- | ------ |
 | UI framework | **React** (functional components, hooks only) |
 | Styling | **Tailwind CSS** (utility-first; shared preset via `packages/config`) |
+| Colors | **IPTV tokens only** — semantic (`bg-background`, …) + `iptv-tavern-*`; extend [`packages/config/tokens/`](../../packages/config/tokens/) when a paint is missing. Rule: root [`AGENTS.md`](../../AGENTS.md) § *UI colors — IPTV tokens only*. |
 | TV / D-pad navigation | **Norigin Spatial Navigation** (`@noriginmedia/norigin-spatial-navigation`) |
 | Playback | **Shaka Player** (`shaka-player`) |
 | Global state | **Zustand** (small slices; no Redux) |
@@ -43,8 +44,18 @@ apps/web/
 
 packages/core/                # types, Zod schemas, parsers, storage adapter interface
 packages/ui/                  # shared React + Tailwind (web + webOS)
-packages/config/              # (planned) eslint, tailwind preset, tsconfig bases
+packages/config/              # shared Tailwind preset + IPTV color tokens (JSON)
 ```
+
+### Dev-only: token lab (design / colors)
+
+- **Route:** `/dev/design-tokens` — linked in the top nav as **Token lab** when `import.meta.env.DEV` is true.
+- **Implementation:** `app/routes.tsx` only registers this route in development, so **production client and server bundles do not contain** that page or its strings (the module is dropped from the graph).
+- **Source:** `app/routes/dev.design-tokens.tsx` stays in the repo for local dev and typecheck; it is not part of the shipped product surface.
+
+### Theme (light / dark)
+
+- **`app/auto-theme.tsx`** — toggles **`html.dark`** from **`prefers-color-scheme`** (and on OS changes). Shared tokens in `packages/config` flip `--iptv-paint-*` and `--iptv-color-*` when `.dark` is present.
 
 ---
 

@@ -18,7 +18,10 @@
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
     "rootDir": "app",
-    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo"
+    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
+    "paths": {
+      "config/tokens/*": ["../../packages/config/tokens/*"]
+    }
   },
   "include": [
     "app/**/*.ts",

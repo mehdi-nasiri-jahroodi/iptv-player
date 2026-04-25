@@ -35,6 +35,15 @@ If you add new agent directories, document them here and avoid ignoring them unl
 | Web playback | **Shaka Player** |
 | Data validation | **Zod** (TypeScript) + **JSON Schema** (parity with Android) |
 
+## UI colors — IPTV tokens only
+
+For **web, webOS, and shared React UI** (`packages/ui`, `apps/web`), use **only** the IPTV design system colors — no ad-hoc Tailwind default palette (`bg-gray-500`, `text-blue-600`, etc.) and no arbitrary hex in class strings unless the user explicitly asks for an exception.
+
+- **Semantic roles:** `bg-background`, `text-foreground`, `text-foreground-muted`, `bg-surface`, `border-border`, `bg-accent`, … (they follow light / dark via shared CSS variables).
+- **Raw paints:** `bg-iptv-tavern-*`, `text-iptv-tavern-*`, `border-iptv-tavern-*`, … from [`packages/config`](packages/config) (see [`packages/config/tokens/README.md`](packages/config/tokens/README.md)).
+
+**If you need a color that does not exist yet:** add it to [`packages/config/tokens/iptv-tavern-palette.json`](packages/config/tokens/iptv-tavern-palette.json) under both **`light`** and **`dark`** (same `family` + `step` keys), wire semantics in [`iptv-semantic-colors.json`](packages/config/tokens/iptv-semantic-colors.json) when it should drive a role, update the tokens README if the table changes, then use the new token in UI. For **Android TV**, mirror the same hex values from that JSON in Compose/resources for parity.
+
 ## Agent skills (`.agents/skills/`)
 
 You **cannot** rely on every skill being loaded automatically before every message (context limits). You **can** rely on this contract:
@@ -79,6 +88,7 @@ When working inside a specific app or package, read the scoped context file for 
 - Structure / packages / stack -> `docs/architecture.md`
 - New domain terms -> `docs/glossary.md`
 - Web app conventions / phase rules -> `apps/web/AGENTS.md`
+- New IPTV colors / palette or semantic roles -> `packages/config/tokens/` + `packages/config/tokens/README.md`
 - New agent skills -> `.agents/skills/<name>/SKILL.md` and a row in `.agents/README.md`
 - This file -> only high-level "how to work here" -- keep it short
 

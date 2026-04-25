@@ -22,6 +22,17 @@ export function AppNav() {
         >
           About
         </NavLink>
+        {import.meta.env.DEV ? (
+          <NavLink
+            to="/dev/design-tokens"
+            end
+            className={({ isActive }) =>
+              `rounded-md px-2 py-1 ${isActive ? 'bg-accent text-accent-foreground' : 'text-foreground-muted hover:text-foreground'}`
+            }
+          >
+            Token lab
+          </NavLink>
+        ) : null}
       </div>
     </nav>
   );

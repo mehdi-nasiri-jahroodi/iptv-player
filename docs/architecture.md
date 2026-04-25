@@ -65,7 +65,7 @@ apps/
 packages/
   core/         # types, Zod schemas, shared TS logic; JSON Schema artifacts for Android
   ui/           # shared React + Tailwind components (web + webOS)
-  config/       # eslint, tailwind preset, tsconfig bases (or Nx shared configs)
+  config/       # shared Tailwind preset, IPTV tavern color tokens (JSON) for web/webOS/native parity
 ```
 
 Use Nx **affected** commands and **task pipelines** for CI once projects exist.

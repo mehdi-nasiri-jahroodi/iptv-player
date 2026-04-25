@@ -1,10 +1,22 @@
 /// <reference types='vitest' />
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { reactRouter } from '@react-router/dev/vite';
+
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../..'
+);
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/web',
+  resolve: {
+    alias: {
+      'config/tokens': path.join(workspaceRoot, 'packages/config/tokens'),
+    },
+  },
   server:{
     port: 4200,
     host: 'localhost',

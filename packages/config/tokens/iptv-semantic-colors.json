@@ -1,0 +1,48 @@
+{
+  "$comment": "Semantic roles → palette refs as mode.family.step (mode is light|dark). :root / .dark set --iptv-color-* from these; raw paints use --iptv-paint-* and flip automatically.",
+  "version": 3,
+  "light": {
+    "background": {
+      "DEFAULT": "light.cream.1",
+      "subtle": "light.cream.2"
+    },
+    "foreground": {
+      "DEFAULT": "light.neutral.1",
+      "muted": "light.neutral.3"
+    },
+    "surface": {
+      "DEFAULT": "light.cream.2",
+      "raised": "light.cream.3"
+    },
+    "accent": {
+      "DEFAULT": "light.orange.1",
+      "foreground": "light.cream.2"
+    },
+    "border": {
+      "DEFAULT": "light.neutral.4",
+      "strong": "light.neutral.5"
+    }
+  },
+  "dark": {
+    "background": {
+      "DEFAULT": "dark.brown.1",
+      "subtle": "dark.brown.2"
+    },
+    "foreground": {
+      "DEFAULT": "dark.neutral.1",
+      "muted": "dark.blue.2"
+    },
+    "surface": {
+      "DEFAULT": "dark.brown.3",
+      "raised": "dark.brown.4"
+    },
+    "accent": {
+      "DEFAULT": "dark.orange.2",
+      "foreground": "dark.brown.1"
+    },
+    "border": {
+      "DEFAULT": "dark.brown.5",
+      "strong": "dark.neutral.3"
+    }
+  }
+}
