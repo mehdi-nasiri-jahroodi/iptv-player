@@ -21,7 +21,7 @@ Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope
 | Styling | **Tailwind CSS** (utility-first; shared preset via `packages/config`) |
 | Colors | **IPTV tokens only** — semantic (`bg-background`, …) + `lum-*`; extend [`packages/config/tokens/`](../../packages/config/tokens/) when a paint is missing. Rule: root [`AGENTS.md`](../../AGENTS.md) § *UI colors — Lumina tokens only*. |
 | TV / D-pad navigation | **Norigin Spatial Navigation** (`@noriginmedia/norigin-spatial-navigation`) |
-| Playback | **Shaka Player** (`shaka-player`) |
+| Playback | **Shaka Player** (`shaka-player`) — wrapped by the **`packages/player`** workspace lib (hook + headless `<Player>` component) |
 | Global state | **Zustand** (small slices; no Redux) |
 | Data validation | **Zod** (in `packages/core`; also exported as JSON Schema for Android TV) |
 | Routing | **React Router v7** (`react-router`, file-based `app/`) |
@@ -58,7 +58,7 @@ apps/web/
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
-    lib/                      # shaka loader; (planned) navigation
+    lib/                      # (planned) navigation keybindings
     store/                    # Zustand slices
       catalog-store.ts        # playlist + groupsByKind + per-kind activeGroup + search
 ```
@@ -190,22 +190,37 @@ Document all key bindings in `apps/web/src/lib/navigation/keybindings.ts`.
 
 ## Shaka Player integration
 
-Wrap Shaka in a single hook `useShakaPlayer(videoRef, streamUrl)` in `apps/web/src/lib/shaka/`.
+The Shaka loader, hook, and headless `<Player>` component live in **`packages/player`** (not in `apps/web`) so webOS — and any future React-based target — can reuse them.
 
-Exposed API:
+```ts
+import { useShakaPlayer, Player, loadShakaModule } from 'player';
+```
+
+`useShakaPlayer(videoRef, streamUrl, options?)` exposes:
 
 ```ts
 {
-  tracks: Track[]         // audio and text tracks from Shaka
-  selectTrack(track): void
-  error: ShakaError | null
-  buffering: boolean
-  destroy(): void         // call on unmount
+  status: 'idle' | 'loading' | 'playing' | 'error',
+  buffering: boolean,
+  error: ShakaError | null,
+  tracks: ShakaTrack[],         // variants + text tracks, normalised
+  selectTrack(track): void,     // works for both variants and text
+  retry(): void,                // re-loads the current streamUrl
+  destroy(): Promise<void>,     // safe to call repeatedly; cleanup on unmount
 }
 ```
 
-- Always require an **explicit user gesture** to start playback (route navigation from channel select counts).
-- Never start autoplay speculatively; document this in UX comments.
+Behaviour:
+
+- **Lazy import.** Shaka is only imported after the first non-null `streamUrl`, so SSR and non-playback routes pay zero bytes.
+- **Owns the `<video>` element.** The consumer passes a `RefObject<HTMLVideoElement | null>`; the hook never creates DOM.
+- **Tear-down on `streamUrl` change.** Switching to a new url destroys the previous Shaka instance before instantiating the next one (safe channel-surf).
+- **Errors surface twice.** Through the returned `error` state and through the `onError` option callback (good for telemetry).
+- **Autoplay assumption.** Defaults to `autoPlay: true` because the consumer always calls into the hook after a deliberate user gesture (channel select). Pass `autoPlay: false` if the parent has its own Play button.
+
+The headless `<Player src={...}>` component wraps the hook and accepts a render-prop child: `children?: (api) => ReactNode` so the parent can paint loading / error / track-picker overlays on top of the video.
+
+Always require an **explicit user gesture** to start playback (route navigation from channel select counts).
 
 ---
 

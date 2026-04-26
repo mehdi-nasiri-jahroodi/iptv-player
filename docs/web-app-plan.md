@@ -92,6 +92,20 @@ Keep components **headless-friendly** — logic in hooks, styles via Tailwind cl
 
 ---
 
+## 4b. Shared player package (`packages/player`)
+
+Wraps **Shaka Player** in a single React-friendly hook plus a headless component, so both `apps/web` and a future `apps/webos` mount playback the same way without re-implementing lifecycle or track plumbing.
+
+| Export | Notes |
+| ------ | ----- |
+| `loadShakaModule()` | **Built** — lazy, browser-only `await import('shaka-player')` with polyfills installed; throws on SSR. |
+| `useShakaPlayer(videoRef, streamUrl, options?)` | **Built** — owns the Shaka instance, surfaces `{ status, buffering, error, tracks, selectTrack, retry, destroy }`. Tears down on `streamUrl` change so live channel-surf is safe. Errors fire through both the returned state and the `onError` callback. |
+| `Player` | **Built** — headless React component; consumer styles the frame, optional render-prop child paints overlays from the hook API. |
+
+Listed `react`, `react-dom`, and `shaka-player` as `peerDependencies` to avoid duplicate copies when both `apps/web` and `apps/webos` consume it.
+
+---
+
 ## 5. Web app structure (`apps/web`)
 
 ```
@@ -118,9 +132,9 @@ apps/web/
       sources/                # SourcesStore, PlaylistsStore, newSourceId
       catalog/                # (planned) channel list, groups, search
       guide/                  # (planned) EPG state, now-pointer
-      player/                 # (planned) Shaka integration, track selection
+      player/                 # (planned) page-level player chrome (ui consumes `packages/player`)
       profiles/               # (planned) favorites, recents
-    lib/                      # shaka loader; (planned) navigation helpers
+    lib/                      # (planned) navigation helpers
     store/                    # Zustand slices (catalog-store.ts wraps fetcher with createCachingXtreamFetcher; sources/profiles/settings planned)
 ```
 

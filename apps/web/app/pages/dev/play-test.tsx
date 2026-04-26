@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type shaka from 'shaka-player';
 import { AppScreen, Button, Stack } from 'ui';
-import { loadShakaModule } from '../../lib/shaka/load-shaka';
+import { loadShakaModule } from 'player';
 
 /** Public HLS demo (Mux); used only to verify Shaka wiring — not app content. */
 export const PLAY_TEST_HLS_URL =

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { InMemoryStorageAdapter, parseM3uToPlaylist, type Source } from 'core';
+import {
+  createCachingXtreamFetcher,
+  InMemoryStorageAdapter,
+  parseM3uToPlaylist,
+  type Source,
+} from 'core';
 import {
   selectChannelCount,
   useCatalogStore,
@@ -187,7 +192,6 @@ describe('catalogStore — xtream sources', () => {
       })();
       return { text: async () => body };
     });
-    const { createCachingXtreamFetcher } = await import('core');
     const xtreamFetcher = createCachingXtreamFetcher(inner);
 
     const xtreamSource: Source = {

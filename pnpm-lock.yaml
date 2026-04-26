@@ -183,6 +183,9 @@ importers:
       lucide-react:
         specifier: ^1.11.0
         version: 1.11.0(react@19.2.5)
+      player:
+        specifier: workspace:^
+        version: link:../../packages/player
       react:
         specifier: ^19.0.0
         version: 19.2.5
@@ -244,6 +247,18 @@ importers:
       zod-to-json-schema:
         specifier: ^3.25.2
         version: 3.25.2(zod@4.3.6)
+
+  packages/player:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.5
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.5(react@19.2.5)
+      shaka-player:
+        specifier: ^5.1.0
+        version: 5.1.1
 
   packages/ui:
     dependencies:
