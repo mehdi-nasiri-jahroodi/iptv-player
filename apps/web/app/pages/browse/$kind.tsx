@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import type { Source } from 'core';
 import { AppScreen, Button, Stack } from 'ui';
 import { BrowseView } from '../../components/browse-view';
+import { RefreshSourceButton } from '../../components/refresh-source-button';
 import { SourcesStore } from '../../features/sources/sources-storage';
 import {
   CHANNEL_KINDS,
@@ -68,14 +69,19 @@ export function BrowseKindPage() {
               {meta?.subtitle ?? ''}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            focusKey="BROWSE_BACK"
-            onClick={() => void navigate('/')}
-          >
-            Back to home
-          </Button>
+          <div className="flex items-center gap-2">
+            {activeSource ? (
+              <RefreshSourceButton source={activeSource} focusKey="BROWSE_REFRESH" />
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              focusKey="BROWSE_BACK"
+              onClick={() => void navigate('/')}
+            >
+              Back to home
+            </Button>
+          </div>
         </header>
 
         {!kind ? (

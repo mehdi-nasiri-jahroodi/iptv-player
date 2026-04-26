@@ -113,6 +113,7 @@ apps/web/
         play-test.tsx         # dev-only Shaka HLS smoke test
     components/               # cross-page presentational components
       browse-view.tsx         # group sidebar + search + ChannelList for one kind
+      refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
     features/                 # feature folders (hooks + state)
       sources/                # SourcesStore, PlaylistsStore, newSourceId
       catalog/                # (planned) channel list, groups, search
@@ -120,7 +121,7 @@ apps/web/
       player/                 # (planned) Shaka integration, track selection
       profiles/               # (planned) favorites, recents
     lib/                      # shaka loader; (planned) navigation helpers
-    store/                    # Zustand slices (catalog-store.ts; sources/profiles/settings planned)
+    store/                    # Zustand slices (catalog-store.ts wraps fetcher with createCachingXtreamFetcher; sources/profiles/settings planned)
 ```
 
 ---

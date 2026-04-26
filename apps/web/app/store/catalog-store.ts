@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import {
+  buildPlayerApiUrl,
+  createCachingXtreamFetcher,
   loadXtreamPlaylist,
+  type CachingXtreamFetcher,
   type Channel,
   type ChannelGroup,
   type Playlist,
@@ -55,24 +58,68 @@ export interface CatalogState {
   searchQuery: string;
 
   // ---- actions ---------------------------------------------------------------
-  loadForSource(source: Source, deps?: CatalogStoreDeps): Promise<void>;
+  loadForSource(
+    source: Source,
+    options?: LoadForSourceOptions,
+    deps?: CatalogStoreDeps
+  ): Promise<void>;
   setActiveGroup(kind: ChannelKind, groupId: string): void;
   setSearch(query: string): void;
   clear(): void;
+}
+
+/** Per-call options for {@link CatalogState.loadForSource}. */
+export interface LoadForSourceOptions {
+  /**
+   * When `true`, bypass the Xtream cache for this load and re-issue every API
+   * request against the panel. Used by the Refresh button so users can force
+   * a fresh catalog after editing channels in their provider's dashboard.
+   * No-op for M3U sources (they read from the on-disk Playlist snapshot).
+   */
+  force?: boolean;
 }
 
 /**
  * Injectable side-effect deps. Tests pass an in-memory `PlaylistsStore` and a
  * mock `XtreamFetcher`; production calls fall back to live browser fetch and
  * the localStorage-backed snapshot store.
+ *
+ * `xtreamFetcher` is consumed as-is; if you want test calls to share the
+ * production TTL cache you must inject the wrapped fetcher yourself. The
+ * default production fetcher (used when no override is passed) IS wrapped
+ * with `createCachingXtreamFetcher` so repeat catalog loads in the same tab
+ * collapse to one network round-trip per Xtream action.
  */
 export interface CatalogStoreDeps {
   playlistsStore?: PlaylistsStore;
   xtreamFetcher?: XtreamFetcher;
 }
 
-function defaultXtreamFetcher(url: string): Promise<{ text(): Promise<string> }> {
+function rawXtreamFetcher(url: string): Promise<{ text(): Promise<string> }> {
   return fetch(url, { redirect: 'follow' }).then((r) => ({ text: () => r.text() }));
+}
+
+/**
+ * Module-singleton caching fetcher. One cache per tab — survives navigations
+ * between Home and `/browse/:kind`, dies with the page (which is what we want
+ * for credential safety; a persistent cache lands in a follow-up if profiling
+ * shows reload latency matters).
+ */
+const defaultCachingXtreamFetcher: CachingXtreamFetcher =
+  createCachingXtreamFetcher(rawXtreamFetcher);
+
+/** Exposed for tests + a future "clear cache" diagnostics action. */
+export function _getDefaultXtreamCache(): CachingXtreamFetcher {
+  return defaultCachingXtreamFetcher;
+}
+
+function isCachingFetcher(
+  fetcher: XtreamFetcher
+): fetcher is CachingXtreamFetcher {
+  return (
+    typeof (fetcher as Partial<CachingXtreamFetcher>).invalidateSource ===
+    'function'
+  );
 }
 
 export const useCatalogStore = create<CatalogState>((set, get) => ({
@@ -84,7 +131,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   activeGroupByKind: EMPTY_ACTIVE_GROUP,
   searchQuery: '',
 
-  async loadForSource(source, deps = {}) {
+  async loadForSource(source, options = {}, deps = {}) {
     set({
       sourceId: source.id,
       status: 'loading',
@@ -92,7 +139,16 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     });
 
     const playlistsStore = deps.playlistsStore ?? new PlaylistsStore();
-    const xtreamFetcher = deps.xtreamFetcher ?? defaultXtreamFetcher;
+    const xtreamFetcher = deps.xtreamFetcher ?? defaultCachingXtreamFetcher;
+
+    // `force: true` bypasses the Xtream cache for this load. M3U sources are
+    // unaffected (they read from a persisted snapshot, no HTTP).
+    if (options.force && source.type === 'xtream' && source.credentials) {
+      const cache = isCachingFetcher(xtreamFetcher) ? xtreamFetcher : null;
+      if (cache) {
+        cache.invalidateSource(buildPlayerApiUrl(source.credentials));
+      }
+    }
 
     try {
       let playlist: Playlist | null = null;

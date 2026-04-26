@@ -53,6 +53,7 @@ apps/web/
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
       browse-view.tsx         # group sidebar + search + ChannelList for one kind
+      refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
     features/                 # feature folders co-locating hooks + state
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
@@ -205,6 +206,25 @@ Exposed API:
 
 - Always require an **explicit user gesture** to start playback (route navigation from channel select counts).
 - Never start autoplay speculatively; document this in UX comments.
+
+---
+
+## Xtream API caching
+
+`apps/web/app/store/catalog-store.ts` wraps its production `XtreamFetcher` with `createCachingXtreamFetcher` from `core` (a single module-level instance per tab).
+
+- **Per-action TTLs** (defaults in `packages/core/src/lib/xtream-cache.ts`):
+  - categories (`get_*_categories`) → **1 hour**
+  - listings (`get_live_streams`, `get_vod_streams`, `get_series`) → **10 minutes**
+  - per-item info (`get_vod_info`, `get_series_info`) → **24 hours**
+  - **EPG (`get_short_epg`, `get_simple_data_table`) → never cached** — caching now/next would break Phase 3.
+  - Auth probe (no `action` param) → **never cached** — fresh auth surfaces banned/expired accounts immediately.
+- **In-flight dedupe**: concurrent identical requests share one network round-trip.
+- **Credential safety**: cache keys strip `password`. Username is kept (different accounts on the same host must NOT share entries).
+- **Manual refresh**: the `RefreshSourceButton` in `apps/web/app/components/` calls `loadForSource(source, { force: true })`; the store invalidates that source's cache entries (`invalidateSource(buildPlayerApiUrl(credentials))`) before reloading.
+- **No persistence yet**: the cache is in-memory and dies on reload. A persistent backend (IndexedDB) is a follow-up if profiling shows reload latency matters.
+
+If you ship a new caller that consumes the catalog, prefer `useCatalogStore.loadForSource` over hand-rolled `loadXtreamPlaylist` calls so it benefits from the cache automatically.
 
 ---
 

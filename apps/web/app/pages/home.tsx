@@ -10,6 +10,7 @@ import {
   Stack,
 } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
+import { RefreshSourceButton } from '../components/refresh-source-button';
 import {
   selectChannelCount,
   useCatalogStore,
@@ -200,11 +201,14 @@ function Launcher({
 
   return (
     <Stack gap={6} data-testid="home-launcher">
-      <SourceSwitcher
-        sources={sources}
-        activeSourceId={activeSource.id}
-        onActivate={onActivate}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SourceSwitcher
+          sources={sources}
+          activeSourceId={activeSource.id}
+          onActivate={onActivate}
+        />
+        <RefreshSourceButton source={activeSource} focusKey="HOME_REFRESH" />
+      </div>
 
       {status === 'loading' ? (
         <p className="text-sm text-foreground-muted" data-testid="catalog-loading">

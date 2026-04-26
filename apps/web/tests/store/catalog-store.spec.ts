@@ -39,7 +39,9 @@ describe('catalogStore — m3u sources', () => {
       parseM3uToPlaylist(SAMPLE_M3U, 'src_m3u')
     );
 
-    await useCatalogStore.getState().loadForSource(M3U_SOURCE, { playlistsStore });
+    await useCatalogStore
+      .getState()
+      .loadForSource(M3U_SOURCE, {}, { playlistsStore });
 
     const state = useCatalogStore.getState();
     expect(state.status).toBe('ready');
@@ -57,7 +59,9 @@ describe('catalogStore — m3u sources', () => {
     const storage = new InMemoryStorageAdapter();
     const playlistsStore = new PlaylistsStore(storage);
 
-    await useCatalogStore.getState().loadForSource(M3U_SOURCE, { playlistsStore });
+    await useCatalogStore
+      .getState()
+      .loadForSource(M3U_SOURCE, {}, { playlistsStore });
 
     const state = useCatalogStore.getState();
     expect(state.status).toBe('error');
@@ -72,7 +76,9 @@ describe('catalogStore — m3u sources', () => {
       parseM3uToPlaylist(SAMPLE_M3U, 'src_m3u')
     );
 
-    await useCatalogStore.getState().loadForSource(M3U_SOURCE, { playlistsStore });
+    await useCatalogStore
+      .getState()
+      .loadForSource(M3U_SOURCE, {}, { playlistsStore });
 
     const liveGroups = useCatalogStore.getState().groupsByKind.live;
     const sportsGroup = liveGroups.find((g) => g.name === 'Sports');
@@ -153,12 +159,66 @@ describe('catalogStore — xtream sources', () => {
 
     await useCatalogStore
       .getState()
-      .loadForSource(xtreamSource, { xtreamFetcher });
+      .loadForSource(xtreamSource, {}, { xtreamFetcher });
 
     const state = useCatalogStore.getState();
     expect(state.status).toBe('ready');
     expect(state.groupsByKind.live).toHaveLength(1);
     expect(state.groupsByKind.live[0].name).toBe('News');
     expect(state.groupsByKind.live[0].channels).toHaveLength(1);
+  });
+
+  test('force: true invalidates the matching account in a CachingXtreamFetcher before reloading', async () => {
+    // Build a real caching wrapper around a counted fetcher so we can prove
+    // that the second load issues fresh requests (no cache hits).
+    const inner = vi.fn(async (u: string) => {
+      const action = new URL(u).searchParams.get('action');
+      const body = (() => {
+        switch (action) {
+          case 'get_live_categories':
+            return JSON.stringify([{ category_id: '1', category_name: 'News' }]);
+          case 'get_live_streams':
+            return JSON.stringify([
+              { stream_id: 100, name: 'Channel 1', category_id: '1' },
+            ]);
+          default:
+            return JSON.stringify([]);
+        }
+      })();
+      return { text: async () => body };
+    });
+    const { createCachingXtreamFetcher } = await import('core');
+    const xtreamFetcher = createCachingXtreamFetcher(inner);
+
+    const xtreamSource: Source = {
+      id: 'src_xt',
+      label: 'Xtream',
+      type: 'xtream',
+      credentials: {
+        host: 'https://example.com',
+        username: 'u',
+        password: 'p',
+      },
+    };
+
+    // First load — every action misses, then populates the cache.
+    await useCatalogStore
+      .getState()
+      .loadForSource(xtreamSource, {}, { xtreamFetcher });
+    const callsAfterFirst = inner.mock.calls.length;
+
+    // Second load WITHOUT force — every cacheable action returns from the
+    // cache, so the inner fetcher count stays put.
+    await useCatalogStore
+      .getState()
+      .loadForSource(xtreamSource, {}, { xtreamFetcher });
+    expect(inner.mock.calls.length).toBe(callsAfterFirst);
+
+    // Third load WITH force — the matching account's entries get evicted
+    // before the load, so every action goes back to the network.
+    await useCatalogStore
+      .getState()
+      .loadForSource(xtreamSource, { force: true }, { xtreamFetcher });
+    expect(inner.mock.calls.length).toBeGreaterThan(callsAfterFirst);
   });
 });
