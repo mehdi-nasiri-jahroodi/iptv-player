@@ -56,7 +56,27 @@ export function createProxyApp(config: ProxyAppConfig): Hono {
 
   const app = new Hono();
 
-  app.get('/healthz', (c) => c.text('ok'));
+  // /healthz is fetched cross-origin by the web app's "Test connection"
+  // button. We must include the same CORS allow-origin header here, or
+  // the browser blocks the response even though the proxy returned 200.
+  // Also handles preflight for cases where the client adds custom
+  // headers (none today, but this keeps the surface symmetrical with
+  // /stream and avoids future surprises).
+  app.options('/healthz', () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+        'access-control-max-age': '600',
+      },
+    });
+  });
+  app.get('/healthz', (c) => {
+    c.header('access-control-allow-origin', '*');
+    c.header('cache-control', 'no-store');
+    return c.text('ok');
+  });
 
   // CORS preflight for /stream — Shaka may issue a preflight on Range requests
   // even though they're "simple"; respond permissively and quickly.

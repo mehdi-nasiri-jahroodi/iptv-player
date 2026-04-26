@@ -25,6 +25,21 @@ describe('proxy /healthz', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
   });
+
+  test('includes CORS allow-origin so the web app can read the body', async () => {
+    // The web app fetches /healthz from a different origin (web dev
+    // server vs. the proxy). Without this header the browser surfaces
+    // the response as a CORS failure even though the server returned
+    // 200, breaking the Settings "Test connection" button.
+    const res = await buildApp().request('/healthz');
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  test('responds 204 to OPTIONS preflight on /healthz', async () => {
+    const res = await buildApp().request('/healthz', { method: 'OPTIONS' });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
 });
 
 describe('proxy /stream — auth', () => {
