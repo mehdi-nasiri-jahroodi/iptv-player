@@ -22,7 +22,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Film, GripVertical, Heart, Tv } from 'lucide-react';
-import type { Channel, Source, VodChannel } from 'core';
+import type {
+  Channel,
+  SeriesChannel,
+  SeriesEpisode,
+  Source,
+  VodChannel,
+} from 'core';
 import {
   Button,
   ChannelList,
@@ -45,10 +51,6 @@ import { useGuideStore } from '../store/guide-store';
 import { useMinuteClock } from '../hooks/use-minute-clock';
 import { parseRecentKey } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
-import {
-  collectVodGenreOptions,
-  vodChannelMatchesGenreFilter,
-} from '../lib/vod-genre-filter';
 import { sortVodChannels, type VodSortDir, type VodSortKey } from '../lib/vod-sort';
 import { ChannelFavoriteButton } from './favorite-channel-button';
 import { useVodXtreamDetail } from '../hooks/use-vod-xtream-detail';
@@ -217,7 +219,6 @@ export function BrowseView({
 
   const [vodSortKey, setVodSortKey] = useState<VodSortKey>('default');
   const [vodSortDir, setVodSortDir] = useState<VodSortDir>('asc');
-  const [vodGenreFilter, setVodGenreFilter] = useState('');
 
   const onGroupSelect = useCallback(
     (id: string) => {
@@ -236,7 +237,6 @@ export function BrowseView({
       if (kind === 'vod') {
         setVodSortKey('default');
         setVodSortDir('asc');
-        setVodGenreFilter('');
       }
       setActiveGroup(kind, id);
     },
@@ -315,7 +315,6 @@ export function BrowseView({
 
   useEffect(() => {
     setSelectedChannel(null);
-    setVodGenreFilter('');
     setVodSortKey('default');
     setVodSortDir('asc');
   }, [kind, activeSource.id]);
@@ -401,29 +400,9 @@ export function BrowseView({
   // Fanning out 72 calls on every category change is what got us rate-
   // limited (HTTP 461) by Xtream panels.
 
-  const vodGenreOptions = useMemo(
-    () => collectVodGenreOptions(vodRows),
-    [vodRows]
-  );
-
-  useEffect(() => {
-    if (kind !== 'vod') return;
-    if (vodGenreOptions.length === 0) {
-      if (vodGenreFilter) setVodGenreFilter('');
-      return;
-    }
-    if (!vodGenreFilter) return;
-    if (!vodGenreOptions.includes(vodGenreFilter)) setVodGenreFilter('');
-  }, [kind, vodGenreFilter, vodGenreOptions]);
-
-  const genreFilteredVodRows = useMemo(
-    () => vodRows.filter((ch) => vodChannelMatchesGenreFilter(ch, vodGenreFilter)),
-    [vodRows, vodGenreFilter]
-  );
-
   const sortedVodRows = useMemo(
-    () => sortVodChannels(genreFilteredVodRows, vodSortKey, vodSortDir),
-    [genreFilteredVodRows, vodSortKey, vodSortDir]
+    () => sortVodChannels(vodRows, vodSortKey, vodSortDir),
+    [vodRows, vodSortKey, vodSortDir]
   );
 
   useEffect(() => {
@@ -696,25 +675,6 @@ export function BrowseView({
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search movies…"
             />
-            {vodGenreOptions.length > 0 ? (
-              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-56">
-                Genre
-                <select
-                  data-testid="vod-genre-filter"
-                  className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
-                  value={vodGenreFilter}
-                  onChange={(event) => setVodGenreFilter(event.target.value)}
-                  aria-label="Filter by genre"
-                >
-                  <option value="">All genres</option>
-                  {vodGenreOptions.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
             <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-52">
               Sort by
               <select
@@ -767,8 +727,6 @@ export function BrowseView({
                   ? 'No movies match your search.'
                   : vodFavoritesRail
                     ? 'No favorites yet. Use the heart on a movie to add it here.'
-                  : vodGenreFilter.trim()
-                    ? 'No movies with this genre in this category.'
                     : 'This category is empty.'
               }
             />
@@ -806,7 +764,11 @@ export function BrowseView({
         </Stack>
       </div>
       {selectedChannel && sourceId ? (
-        <SelectedChannelPanel channel={selectedChannel} sourceId={sourceId} />
+        selectedChannel.type === 'series' ? (
+          <SeriesDetailPanel channel={selectedChannel} sourceId={sourceId} />
+        ) : (
+          <SelectedChannelPanel channel={selectedChannel} sourceId={sourceId} />
+        )
       ) : null}
     </Stack>
   );
@@ -1207,6 +1169,135 @@ function SelectedChannelPanel({
           </Button>
         </div>
       </div>
+    </aside>
+  );
+}
+
+function SeriesDetailPanel({
+  channel,
+  sourceId,
+}: {
+  channel: SeriesChannel;
+  sourceId: string;
+}) {
+  const navigate = useNavigate();
+  const recents = useProfileStore((s) => s.profile.recents);
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+
+  const sortedSeasons = useMemo(
+    () => [...channel.seasons].sort((a, b) => a.seasonNumber - b.seasonNumber),
+    [channel.seasons]
+  );
+
+  useEffect(() => {
+    if (sortedSeasons.length === 0) {
+      setSelectedSeason(null);
+      return;
+    }
+    if (!selectedSeason || !sortedSeasons.some((s) => s.seasonNumber === selectedSeason)) {
+      setSelectedSeason(sortedSeasons[0].seasonNumber);
+    }
+  }, [sortedSeasons, selectedSeason]);
+
+  const activeSeason = useMemo(
+    () => sortedSeasons.find((s) => s.seasonNumber === selectedSeason) ?? null,
+    [sortedSeasons, selectedSeason]
+  );
+
+  const watchedEpisodeIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const key of recents) {
+      const p = parseRecentKey(key);
+      if (!p || p.sourceId !== sourceId || p.kind !== 'series') continue;
+      out.add(p.channelId);
+    }
+    return out;
+  }, [recents, sourceId]);
+
+  const playEpisode = (ep: SeriesEpisode) => {
+    void navigate(
+      `/play/${encodeURIComponent(sourceId)}/series/${encodeURIComponent(ep.id)}`
+    );
+  };
+
+  return (
+    <aside
+      data-testid="series-detail-panel"
+      className="rounded-md border border-border bg-surface-raised p-3 text-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-foreground">Selected: {channel.name}</div>
+          {channel.plot ? (
+            <p className="mt-1 line-clamp-2 text-xs text-foreground-muted">{channel.plot}</p>
+          ) : (
+            <p className="mt-1 text-xs text-foreground-muted">
+              Pick a season and episode to start playback.
+            </p>
+          )}
+        </div>
+        <ChannelFavoriteButton
+          sourceId={sourceId}
+          channelId={channel.id}
+          focusKey={`FAV_PANEL_${channel.id}`}
+        />
+      </div>
+
+      {sortedSeasons.length > 0 ? (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {sortedSeasons.map((season) => {
+              const active = season.seasonNumber === selectedSeason;
+              return (
+                <Button
+                  key={season.seasonNumber}
+                  variant={active ? 'primary' : 'ghost'}
+                  size="sm"
+                  focusKey={`SERIES_SEASON_${channel.id}_${season.seasonNumber}`}
+                  className={!active ? 'border border-border bg-background/65' : ''}
+                  onClick={() => setSelectedSeason(season.seasonNumber)}
+                >
+                  {season.name?.trim() || `Season ${season.seasonNumber}`}
+                </Button>
+              );
+            })}
+          </div>
+          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+            {(activeSeason?.episodes ?? []).map((ep) => {
+              const watched = watchedEpisodeIds.has(ep.id);
+              return (
+                <div
+                  key={ep.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      E{ep.episodeNumber} · {ep.title}
+                    </p>
+                    {watched ? (
+                      <p className="text-[11px] text-accent">Watched</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    focusKey={`SERIES_EP_PLAY_${ep.id}`}
+                    className="border border-border bg-background/65"
+                    onClick={() => playEpisode(ep)}
+                  >
+                    Play
+                  </Button>
+                </div>
+              );
+            })}
+            {activeSeason && activeSeason.episodes.length === 0 ? (
+              <p className="text-xs text-foreground-muted">No episodes in this season.</p>
+            ) : null}
+          </div>
+        </>
+      ) : (
+        <p className="mt-3 text-xs text-foreground-muted">No seasons available for this series.</p>
+      )}
     </aside>
   );
 }

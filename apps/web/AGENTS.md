@@ -54,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); **series:** sidebar + detail panel (seasons/episodes) + episode Play
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -70,7 +70,6 @@ apps/web/
       use-vod-xtream-grid-enrichment.ts  # batched `get_vod_info` for visible VOD posters + sort fields (Xtream, capped)
     lib/
       layout-shell.ts         # `LAYOUT_CONTENT_CLASS` — shared max-width + horizontal padding (nav + home + browse + EPG)
-      vod-genre-filter.ts     # split genre strings, collect options, filter VOD rows by genre tag
       vod-sort.ts             # `sortVodChannels` — VOD browse sort (year, rating, duration, director, date added, title)
       playback-stream-proxy.ts  # merges Settings stream proxy + Source.userAgent for `<Player>`
       epg-display.ts          # pick preview live channels + format now/next line
@@ -103,10 +102,9 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
 | 2 — MVP core flows | complete | AddSource (M3U URL + file + **Xtream Codes**), per-source UA, tile launcher, per-kind browsers, inline live + fullscreen `/play`, proxy + **ResponsibilityNotice**, profile/favorites/recents, track picker, Shaka 1002 proxy hint |
 | 3 — EPG (minimal) | complete | XMLTV URL on source, `parseXmltvToGuide` + now/next helpers in `core`, `guideStore`, Home spotlight + browse live rows, `/epg` schedule |
-| 4 — Polish | in progress | **VOD:** poster grid + detail hero; tiles update hero, **Watch** opens `/play` (`/browse/vod`). Remaining: series detail / episode picker, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
+| 4 — Polish | in progress | **VOD:** poster grid + detail hero; tiles update hero, **Watch** opens `/play` (`/browse/vod`). **Series:** detail panel with seasons/episodes + episode play route (`/browse/series` → `/play/.../series/:episodeId`). Remaining: catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
 **Things that are explicitly deferred — do not build them early:**
-- **Series detail** (seasons/episodes) UI (Phase 4). Basic `/browse/series` list remains; episode pickers wait.
 - Catchup / time-shift playback UI (Phase 4). `buildCatchupUrl` exists in `packages/core` and live channels carry `catchupDays` / `catchupMode` already.
 - Rich multi-day EPG grid with channel columns (beyond `/epg` today + tomorrow list).
 - Multiple profiles (Phase 4).

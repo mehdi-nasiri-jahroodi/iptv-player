@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import type { Channel, Source } from 'core';
+import type { Channel, SeriesChannel, SeriesEpisode, Source } from 'core';
 import {
   Player,
   PlayerControls,
@@ -82,6 +82,20 @@ export function PlayPage() {
     return null;
   }, [groups, channelId]);
 
+  const seriesEpisodeMatch = useMemo(() => {
+    if (kind !== 'series' || !groups) return null;
+    for (const group of groups) {
+      for (const ch of group.channels) {
+        if (ch.type !== 'series') continue;
+        for (const season of ch.seasons) {
+          const ep = season.episodes.find((e) => e.id === channelId);
+          if (ep) return { series: ch as SeriesChannel, episode: ep as SeriesEpisode };
+        }
+      }
+    }
+    return null;
+  }, [kind, groups, channelId]);
+
   const [error, setError] = useState<ShakaError | null>(null);
   useEffect(() => {
     setError(null);
@@ -94,18 +108,23 @@ export function PlayPage() {
     [streamProxyConfig, source]
   );
 
-  const streamUrl =
-    channel && 'streamUrl' in channel ? channel.streamUrl : null;
+  const streamUrl = (() => {
+    if (channel && 'streamUrl' in channel) return channel.streamUrl;
+    if (kind === 'series') return seriesEpisodeMatch?.episode.streamUrl ?? null;
+    return null;
+  })();
 
   const pushRecent = useProfileStore((s) => s.pushRecent);
   const recentPushedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!source || !channel || !kind || !streamUrl) return;
-    const key = recentKey(source.id, kind, channel.id);
+    if (!source || !kind || !streamUrl) return;
+    const itemId = kind === 'series' ? (seriesEpisodeMatch?.episode.id ?? channel?.id) : channel?.id;
+    if (!itemId) return;
+    const key = recentKey(source.id, kind, itemId);
     if (recentPushedRef.current === key) return;
     recentPushedRef.current = key;
     pushRecent(key);
-  }, [source, channel, kind, streamUrl, pushRecent]);
+  }, [source, channel, kind, streamUrl, seriesEpisodeMatch, pushRecent]);
 
   // Status banner state — kept minimal so the player remains the focal point.
   const banner = (() => {
@@ -115,7 +134,8 @@ export function PlayPage() {
     if (status === 'loading' && !channel)
       return { kind: 'loading-catalog' } as const;
     if (status === 'error') return { kind: 'catalog-error' } as const;
-    if (!channel) return { kind: 'missing-channel' } as const;
+    if (!channel && !(kind === 'series' && seriesEpisodeMatch))
+      return { kind: 'missing-channel' } as const;
     if (!streamUrl) return { kind: 'no-stream' } as const;
     return { kind: 'ready' } as const;
   })();
@@ -128,10 +148,12 @@ export function PlayPage() {
       <header className="flex items-center justify-between gap-3 px-6 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">
-            {channel?.name ?? 'Loading…'}
+            {seriesEpisodeMatch
+              ? `${seriesEpisodeMatch.series.name} · E${seriesEpisodeMatch.episode.episodeNumber} ${seriesEpisodeMatch.episode.title}`
+              : (channel?.name ?? 'Loading…')}
           </div>
           <div className="truncate text-xs text-foreground-muted">
-            {channel?.groupTitle ?? '\u00a0'}
+            {seriesEpisodeMatch?.series.groupTitle ?? channel?.groupTitle ?? '\u00a0'}
           </div>
         </div>
         <Button
@@ -178,8 +200,7 @@ export function PlayPage() {
           </Banner>
         ) : banner.kind === 'no-stream' ? (
           <Banner testid="play-no-stream">
-            This item has no playable stream yet (series episodes are
-            wired up in Phase 4).
+            This item has no playable stream.
           </Banner>
         ) : (
           <div
