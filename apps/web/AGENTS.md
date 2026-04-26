@@ -155,7 +155,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`, `Carousel` (horizontal strip, drag to pan, prev/next, no visible scrollbar). All headless — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`, `Carousel` (horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
 
 ---
 

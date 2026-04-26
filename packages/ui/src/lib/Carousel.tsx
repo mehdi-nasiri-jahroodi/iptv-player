@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type FocusEvent as ReactFocusEvent,
   type HTMLAttributes,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -34,9 +35,10 @@ type PanState = {
 };
 
 /**
- * Horizontal carousel: **drag** to pan, prev/next buttons, optional keyboard,
- * **no visible scrollbar** (CSS). After a drag, the next `click` is swallowed
- * so list items (e.g. channel cards) do not activate accidentally.
+ * Horizontal carousel: **drag** to pan, prev/next buttons (hidden until hover
+ * or focus-within on fine pointers), optional keyboard, **no visible scrollbar**
+ * (CSS). After a drag, the next `click` is swallowed so list items (e.g. channel
+ * cards) do not activate accidentally.
  */
 export function Carousel({
   ariaLabel,
@@ -47,10 +49,30 @@ export function Carousel({
   children,
   ...rest
 }: CarouselProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<PanState | null>(null);
   const [isPointerPanning, setIsPointerPanning] = useState(false);
   const [edges, setEdges] = useState({ canPrev: false, canNext: false });
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  /** `null` until matchMedia runs — assume arrows visible to avoid a touch-only flash. */
+  const [finePointer, setFinePointer] = useState<boolean | null>(null);
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      setFinePointer(false);
+      return;
+    }
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const sync = () => setFinePointer(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  const showNavChrome =
+    finePointer == null ? true : !finePointer || pointerInside || focusInside;
 
   const updateEdges = useCallback(() => {
     const el = scrollerRef.current;
@@ -147,21 +169,41 @@ export function Carousel({
     el.scrollLeft = pan.startScroll - dx;
   };
 
+  const onRootFocusCapture = () => setFocusInside(true);
+  const onRootBlurCapture = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const root = rootRef.current;
+    if (!root) return;
+    const next = e.relatedTarget as Node | null;
+    if (!next || !root.contains(next)) {
+      setFocusInside(false);
+    }
+  };
+
   const items = Children.toArray(children);
 
   return (
-    <div className={`relative ${className}`.trim()} {...rest}>
+    <div
+      ref={rootRef}
+      className={`relative ${className}`.trim()}
+      onMouseEnter={() => setPointerInside(true)}
+      onMouseLeave={() => setPointerInside(false)}
+      onFocusCapture={onRootFocusCapture}
+      onBlurCapture={onRootBlurCapture}
+      {...rest}
+    >
       <CarouselNavButton
         direction="prev"
         focusKey={prevFocusKey}
         disabled={!edges.canPrev}
         onPress={() => scrollStep(-1)}
+        visuallyRecessed={finePointer === true && !showNavChrome}
       />
       <CarouselNavButton
         direction="next"
         focusKey={nextFocusKey}
         disabled={!edges.canNext}
         onPress={() => scrollStep(1)}
+        visuallyRecessed={finePointer === true && !showNavChrome}
       />
       <div
         ref={scrollerRef}
@@ -211,11 +253,13 @@ function CarouselNavButton({
   focusKey,
   disabled,
   onPress,
+  visuallyRecessed,
 }: {
   direction: 'prev' | 'next';
   focusKey: string;
   disabled: boolean;
   onPress: () => void;
+  visuallyRecessed: boolean;
 }) {
   const { ref, focused } = useFocusable<object>({
     focusKey,
@@ -243,8 +287,9 @@ function CarouselNavButton({
       className={[
         'absolute top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full',
         'border border-border bg-surface text-foreground shadow-md',
-        'transition-opacity hover:bg-surface-raised disabled:pointer-events-none disabled:opacity-25',
+        'transition-opacity duration-200 hover:bg-surface-raised disabled:pointer-events-none disabled:opacity-25',
         'outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+        visuallyRecessed ? 'pointer-events-none opacity-0' : 'opacity-100',
         isPrev ? 'left-1' : 'right-1',
       ].join(' ')}
     >
