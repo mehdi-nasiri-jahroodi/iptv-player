@@ -122,6 +122,7 @@ apps/web/
       about.tsx               # placeholder
       browse/
         $kind.tsx             # /browse/:kind — wraps the shared BrowseView
+      play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
       dev/
         design-tokens.tsx     # dev-only Token lab
         play-test.tsx         # dev-only Shaka HLS smoke test

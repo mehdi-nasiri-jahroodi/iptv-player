@@ -48,6 +48,7 @@ apps/web/
       add-source.tsx
       browse/
         $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
+      play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
       dev/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
