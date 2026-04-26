@@ -21,7 +21,11 @@ export interface ShakaTrack {
 export interface ShakaError {
   /** Stable code if Shaka provided one (`shaka.util.Error.Code`). */
   code?: number;
+  /** Numeric `shaka.util.Error.Category` if available. */
+  category?: number;
   message: string;
+  /** Free-form details Shaka attaches (URL, HTTP status, etc.). */
+  data?: unknown;
   /** Original error object (kept for diagnostics; do NOT log credentials). */
   cause?: unknown;
 }
@@ -91,6 +95,47 @@ export function useShakaPlayer(
     setStatus('error');
     setError(err);
     onErrorRef.current?.(err);
+  }, []);
+
+  /**
+   * Translate any thrown / event-dispatched value into a `ShakaError`.
+   *
+   * `shaka.util.Error` is NOT a real `Error` subclass — it has `code`,
+   * `category`, `data` (URL / HTTP status / details), `severity`, but no
+   * `.message`. Falling through to `'Failed to load'` for those was hiding
+   * the real reason (CORS, 403, unsupported manifest, …).
+   */
+  const toShakaError = useCallback((value: unknown): ShakaError => {
+    if (value && typeof value === 'object') {
+      const v = value as {
+        code?: number;
+        category?: number;
+        data?: unknown;
+        message?: unknown;
+      };
+      if (typeof v.code === 'number') {
+        const name = SHAKA_ERROR_CODE_NAMES[v.code];
+        const dataSummary = summarizeShakaErrorData(v.data);
+        const parts = [
+          `Playback error ${v.code}${name ? ` \u2014 ${name}` : ''}`,
+        ];
+        if (dataSummary) parts.push(dataSummary);
+        return {
+          code: v.code,
+          category: v.category,
+          data: v.data,
+          message: parts.join(' \u2014 '),
+          cause: value,
+        };
+      }
+      if (typeof v.message === 'string') {
+        return { message: v.message, cause: value };
+      }
+    }
+    if (value instanceof Error) {
+      return { message: value.message || 'Failed to load', cause: value };
+    }
+    return { message: 'Failed to load', cause: value };
   }, []);
 
   const refreshTracks = useCallback(() => {
@@ -168,12 +213,8 @@ export function useShakaPlayer(
           // Shaka dispatches its own `Error` event objects; their `detail`
           // field is the actual `shaka.util.Error`.
           const detail = (event as { detail?: shaka.util.Error }).detail;
-          const err = detail ?? (event as shaka.util.Error);
-          reportError({
-            code: err?.code,
-            message: `Playback error (${err?.code ?? 'unknown'})`,
-            cause: err,
-          });
+          const err = detail ?? event;
+          reportError(toShakaError(err));
         };
         const onBuffering = (event: Event) => {
           const buf = (event as { buffering?: boolean }).buffering;
@@ -200,10 +241,7 @@ export function useShakaPlayer(
         }
       } catch (cause) {
         if (cancelled || token !== reloadTokenRef.current) return;
-        reportError({
-          message: cause instanceof Error ? cause.message : 'Failed to load',
-          cause,
-        });
+        reportError(toShakaError(cause));
       }
     })();
 
@@ -211,7 +249,7 @@ export function useShakaPlayer(
       cancelled = true;
       void destroy();
     };
-  }, [videoRef, streamUrl, autoPlay, destroy, refreshTracks, reportError]);
+  }, [videoRef, streamUrl, autoPlay, destroy, refreshTracks, reportError, toShakaError]);
 
   const selectTrack = useCallback((track: ShakaTrack) => {
     const player = playerRef.current;
@@ -249,12 +287,59 @@ export function useShakaPlayer(
         setStatus('playing');
       })
       .catch((cause) => {
-        reportError({
-          message: cause instanceof Error ? cause.message : 'Failed to load',
-          cause,
-        });
+        reportError(toShakaError(cause));
       });
-  }, [streamUrl, videoRef, refreshTracks, reportError]);
+  }, [streamUrl, videoRef, refreshTracks, reportError, toShakaError]);
 
   return { status, buffering, error, tracks, selectTrack, retry, destroy };
+}
+
+/**
+ * Friendly names for the most common `shaka.util.Error.Code` values users
+ * actually see in the wild. We don't ship the full table — Shaka has
+ * hundreds — but covering the realistic IPTV failure modes makes the
+ * inline error overlay actionable instead of showing a bare number.
+ *
+ * Keep in sync with shaka-player's Error.Code enum if you bump versions.
+ */
+const SHAKA_ERROR_CODE_NAMES: Record<number, string> = {
+  // Network category (1xxx)
+  1001: 'BAD_HTTP_STATUS',
+  1002: 'HTTP_ERROR',
+  1003: 'TIMEOUT',
+  1006: 'REQUEST_FILTER_ERROR',
+  1007: 'RESPONSE_FILTER_ERROR',
+  // Manifest / parser (4xxx)
+  4001: 'UNABLE_TO_GUESS_MANIFEST_TYPE',
+  4002: 'DASH_INVALID_XML',
+  4003: 'DASH_NO_INIT_DATA',
+  4032: 'HLS_PLAYLIST_HEADER_MISSING',
+  4034: 'HLS_VARIABLE_NOT_FOUND',
+  4036: 'HLS_COULD_NOT_GUESS_CODECS',
+  // Media (3xxx)
+  3016: 'VIDEO_ERROR',
+  3017: 'QUOTA_EXCEEDED_ERROR',
+  // Streaming (3xxx)
+  3022: 'STREAMING_ENGINE_STARTUP_INVALID_STATE',
+};
+
+/**
+ * Pull the bits out of `shaka.util.Error.data` that are useful in an
+ * error overlay. Shaka stuffs a tuple `[url, status, body]` into network
+ * errors, while manifest errors might just have a code or a string.
+ */
+function summarizeShakaErrorData(data: unknown): string | null {
+  if (!Array.isArray(data) || data.length === 0) return null;
+  const [first, second] = data;
+  if (typeof first === 'string' && /^https?:/.test(first)) {
+    // Network error: [url, status, ...]
+    if (typeof second === 'number') return `HTTP ${second} \u2014 ${first}`;
+    return first;
+  }
+  // Fall back to a JSON-ish summary for anything else.
+  try {
+    return JSON.stringify(data).slice(0, 240);
+  } catch {
+    return null;
+  }
 }

@@ -283,26 +283,43 @@ function LivePlayerPane({ channel }: { channel: Channel | null }) {
       className="flex flex-col gap-2"
     >
       <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-black">
-        <Player
-          src={streamUrl}
-          onError={setError}
-          className="h-full w-full"
-        />
+        <Player src={streamUrl} onError={setError} className="h-full w-full">
+          {(api) =>
+            error ? (
+              <div
+                role="alert"
+                data-testid="live-player-error"
+                className="absolute inset-x-2 bottom-2 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{error.message}</div>
+                  {typeof error.data === 'object' && error.data !== null ? (
+                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] opacity-80">
+                      {JSON.stringify(error.data, null, 2)}
+                    </pre>
+                  ) : null}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  focusKey="LIVE_PLAYER_RETRY"
+                  onClick={() => {
+                    setError(null);
+                    api.retry();
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : null
+          }
+        </Player>
         {!streamUrl ? (
           <div
             className="absolute inset-0 flex items-center justify-center text-xs text-foreground-muted"
             data-testid="live-player-idle"
           >
             Pick a channel to start watching
-          </div>
-        ) : null}
-        {error ? (
-          <div
-            role="alert"
-            data-testid="live-player-error"
-            className="absolute inset-x-2 bottom-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
-          >
-            {error.message}
           </div>
         ) : null}
       </div>
