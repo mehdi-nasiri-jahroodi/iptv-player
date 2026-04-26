@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type HTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { useFocusable } from '@noriginmedia/norigin-spatial-navigation';
@@ -22,10 +23,20 @@ export type CarouselProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
   children: ReactNode;
 };
 
+/** Pixels before we treat pointer movement as a drag (vs a tap on a child control). */
+const DRAG_THRESHOLD_PX = 8;
+
+type PanState = {
+  pointerId: number;
+  startX: number;
+  startScroll: number;
+  dragged: boolean;
+};
+
 /**
- * Horizontal carousel: prev/next controls, smooth scroll, **no visible scrollbar**
- * (overflow hidden from scrollbars via CSS). Intended for lean-back / TV use
- * without relying on drag-to-scroll.
+ * Horizontal carousel: **drag** to pan, prev/next buttons, optional keyboard,
+ * **no visible scrollbar** (CSS). After a drag, the next `click` is swallowed
+ * so list items (e.g. channel cards) do not activate accidentally.
  */
 export function Carousel({
   ariaLabel,
@@ -37,6 +48,8 @@ export function Carousel({
   ...rest
 }: CarouselProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<PanState | null>(null);
+  const [isPointerPanning, setIsPointerPanning] = useState(false);
   const [edges, setEdges] = useState({ canPrev: false, canNext: false });
 
   const updateEdges = useCallback(() => {
@@ -79,6 +92,61 @@ export function Carousel({
     window.setTimeout(updateEdges, 350);
   }, [updateEdges]);
 
+  const endPointerPan = useCallback(
+    (e: ReactPointerEvent) => {
+      const pan = panRef.current;
+      const el = scrollerRef.current;
+      if (!pan || e.pointerId !== pan.pointerId) return;
+      panRef.current = null;
+      setIsPointerPanning(false);
+      try {
+        el?.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      if (pan.dragged) {
+        const swallowClick = (evt: Event) => {
+          evt.preventDefault();
+          evt.stopPropagation();
+          document.removeEventListener('click', swallowClick, true);
+        };
+        document.addEventListener('click', swallowClick, true);
+        window.setTimeout(() => document.removeEventListener('click', swallowClick, true), 100);
+      }
+      updateEdges();
+    },
+    [updateEdges]
+  );
+
+  const onScrollerPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = scrollerRef.current;
+    if (!el || !el.contains(e.target as Node)) return;
+    panRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startScroll: el.scrollLeft,
+      dragged: false,
+    };
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    setIsPointerPanning(true);
+  };
+
+  const onScrollerPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    const el = scrollerRef.current;
+    if (!pan || !el || e.pointerId !== pan.pointerId) return;
+    const dx = e.clientX - pan.startX;
+    if (Math.abs(dx) > DRAG_THRESHOLD_PX) {
+      pan.dragged = true;
+    }
+    el.scrollLeft = pan.startScroll - dx;
+  };
+
   const items = Children.toArray(children);
 
   return (
@@ -111,9 +179,14 @@ export function Carousel({
             scrollStep(1);
           }
         }}
+        onPointerDownCapture={onScrollerPointerDown}
+        onPointerMove={onScrollerPointerMove}
+        onPointerUp={endPointerPan}
+        onPointerCancel={endPointerPan}
         className={[
-          'flex snap-x snap-mandatory flex-nowrap overflow-x-auto overflow-y-hidden scroll-smooth pb-1 pl-10 pr-10 pt-0.5',
+          'flex touch-pan-x snap-x snap-mandatory flex-nowrap overflow-x-auto overflow-y-hidden pb-1 pl-10 pr-10 pt-0.5',
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          isPointerPanning ? 'scroll-auto cursor-grabbing' : 'scroll-smooth cursor-grab',
           gapClassName,
         ].join(' ')}
       >
