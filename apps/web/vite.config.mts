@@ -13,6 +13,13 @@ export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/web',
   resolve: {
+    // Resolve workspace packages (`player`, `core`, `ui`) directly to their
+    // TS source via the custom `iptv-player` export condition declared in
+    // each package.json. Without this Vite would pick the `import` condition
+    // (`./dist/index.js`), which means every edit to a `packages/*/src`
+    // file would require a manual `nx build` before HMR sees it. With the
+    // condition, Vite imports the source files and HMR works as expected.
+    conditions: ['iptv-player', 'import', 'module', 'browser', 'default'],
     alias: {
       'config/tokens': path.join(workspaceRoot, 'packages/config/tokens'),
     },

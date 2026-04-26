@@ -62,7 +62,16 @@ export function Player(props: PlayerProps) {
   }
 
   return (
-    <div className={className} data-player-status={api.status}>
+    // `relative` so absolutely-positioned overlays in `children` (the
+    // PlayerControls bar, error banner, etc.) anchor to the player frame
+    // itself \u2014 not to whatever ancestor happens to have `position: relative`.
+    // Without this the bar would render below the video and span the wrong
+    // width because `absolute inset-x-0 bottom-0` walks up the DOM until it
+    // finds a positioned container.
+    <div
+      className={`relative ${className ?? ''}`.trim()}
+      data-player-status={api.status}
+    >
       <video
         ref={videoRef}
         controls={controls}

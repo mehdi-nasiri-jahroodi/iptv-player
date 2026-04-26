@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
   Pause,
   Play,
@@ -52,23 +52,15 @@ export function PlayerControls({
 }: PlayerControlsProps): ReactNode {
   const { media, status, buffering } = api;
   const [pointerActiveAt, setPointerActiveAt] = useState<number>(() => Date.now());
-  const [hasFocusInside, setHasFocusInside] = useState(false);
+  // Track focus inside the bar by timestamp instead of a sticky boolean.
+  // Reason: a clicked control (e.g. the Fullscreen button) keeps DOM focus
+  // until something else takes it. With a boolean we'd treat that as
+  // "user is interacting" forever and never hide the bar. Treating focus
+  // like pointer activity — counted only when *recent* — lets D-pad/TV
+  // users keep the bar open while navigating (each arrow keydown bumps
+  // this) but lets a click-then-idle case fade out normally.
+  const [focusActiveAt, setFocusActiveAt] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Pulse `pointerActiveAt` whenever the user moves the mouse over the
-  // wrapping frame, so a quick hover resets the auto-hide timer.
-  useEffect(() => {
-    if (alwaysVisible) return;
-    const frame = containerRef.current?.parentElement;
-    if (!frame) return;
-    const bump = () => setPointerActiveAt(Date.now());
-    frame.addEventListener('pointermove', bump);
-    frame.addEventListener('pointerdown', bump);
-    return () => {
-      frame.removeEventListener('pointermove', bump);
-      frame.removeEventListener('pointerdown', bump);
-    };
-  }, [alwaysVisible]);
 
   // Re-render once after the idle window elapses so `visible` flips off.
   // We don't need a continuous ticker — pointer/focus events already trigger
@@ -77,17 +69,36 @@ export function PlayerControls({
   const [, setTick] = useState(0);
   useEffect(() => {
     if (alwaysVisible) return;
-    const timer = window.setTimeout(() => setTick((n) => n + 1), idleHideMs);
+    const lastActivity = Math.max(pointerActiveAt, focusActiveAt);
+    const elapsed = Date.now() - lastActivity;
+    const remaining = Math.max(0, idleHideMs - elapsed);
+    const timer = window.setTimeout(() => setTick((n) => n + 1), remaining);
     return () => window.clearTimeout(timer);
-  }, [pointerActiveAt, alwaysVisible, idleHideMs]);
+  }, [pointerActiveAt, focusActiveAt, alwaysVisible, idleHideMs]);
 
-  const sinceIdle = Date.now() - pointerActiveAt;
+  const bump = () => setPointerActiveAt(Date.now());
+  const bumpFocus = () => setFocusActiveAt(Date.now());
+
+  // Track last cursor coords so we only treat a `mousemove` as "activity"
+  // when the cursor actually moved. Browsers (esp. on fullscreen enter,
+  // and on some macOS configurations with trackpad jitter) fire
+  // `mousemove` even when the user is holding still, which would keep the
+  // bar visible forever. We require a >2px delta to count.
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const handleMouseMove = (e: ReactMouseEvent) => {
+    const last = lastPointer.current;
+    if (!last || Math.abs(e.clientX - last.x) > 2 || Math.abs(e.clientY - last.y) > 2) {
+      lastPointer.current = { x: e.clientX, y: e.clientY };
+      bump();
+    }
+  };
+
+  const sinceIdle = Date.now() - Math.max(pointerActiveAt, focusActiveAt);
   const visible =
     alwaysVisible
     || media.paused
     || buffering
     || status !== 'playing'
-    || hasFocusInside
     || sinceIdle < idleHideMs;
 
   const togglePlay = () => {
@@ -98,30 +109,54 @@ export function PlayerControls({
   const toggleMute = () => api.setMuted(!media.muted);
 
   return (
+    // Full-frame overlay sits on top of the <video>. We listen to mouse
+    // events here directly so we don't have to chase ancestor refs (which
+    // get stale across fullscreen enter/exit, HMR, and re-parenting). The
+    // overlay is `pointer-events-none` so clicks pass through to the
+    // video, but mousemove still fires while the cursor is over it
+    // because pointer-events doesn't gate `mousemove` listeners on the
+    // element itself \u2014 wait, it actually does. So instead, we keep
+    // `pointer-events-auto` on the overlay BUT forward clicks via
+    // onClick to api.play/pause when the user clicks empty space (i.e.
+    // not on a child control).
     <div
       ref={containerRef}
       data-testid="player-controls"
       data-visible={visible}
-      // Bottom-anchored bar; pointer-events disabled when invisible so the
-      // user can click the video underneath.
-      className={[
-        'pointer-events-none absolute inset-x-0 bottom-0',
-        'bg-gradient-to-t from-black/80 to-transparent',
-        'transition-opacity duration-200',
-        visible ? 'opacity-100' : 'opacity-0',
-      ].join(' ')}
-      onFocusCapture={() => setHasFocusInside(true)}
-      onBlurCapture={(e) => {
-        // Only flip off when focus has actually left the bar.
-        const next = e.relatedTarget as Node | null;
-        if (!next || !containerRef.current?.contains(next)) {
-          setHasFocusInside(false);
-        }
+      className="absolute inset-0"
+      style={{ cursor: visible ? 'default' : 'none' }}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={bump}
+      onMouseLeave={() => {
+        // Force the timer to re-evaluate so the bar fades right away
+        // when the cursor leaves the player.
+        setPointerActiveAt(Date.now() - idleHideMs);
       }}
+      onClick={(e) => {
+        // Click on empty area (not a button / range) toggles play. Lets
+        // the user resume from anywhere in the frame.
+        if (e.target === e.currentTarget) togglePlay();
+      }}
+      onFocusCapture={bumpFocus}
+      onKeyDownCapture={bumpFocus}
     >
+      {/* The bar itself \u2014 absolute child of the overlay so it can fade
+          independently and only the bottom strip catches pointer events
+          on the controls. */}
       <div
         className={[
-          'pointer-events-auto flex items-center gap-3 px-3 pb-2 pt-8',
+          'absolute inset-x-0 bottom-0',
+          'bg-gradient-to-t from-black/80 to-transparent',
+          'transition-opacity duration-200',
+          visible ? 'opacity-100' : 'opacity-0',
+          // When hidden, take the bar out of the click path so the empty-
+          // area click handler above can still toggle play.
+          visible ? '' : 'pointer-events-none',
+        ].join(' ')}
+      >
+      <div
+        className={[
+          'pointer-events-auto flex w-full items-center gap-3 px-3 pb-2 pt-8',
           'text-foreground',
         ].join(' ')}
       >
@@ -169,9 +204,10 @@ export function PlayerControls({
           />
         ) : (
           <div
-            className="flex-1 text-center text-xs uppercase tracking-wide text-foreground-muted"
+            className="ml-auto text-xs font-semibold uppercase tracking-wider text-danger"
             data-testid="player-controls-live-badge"
           >
+            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-danger align-middle" />
             Live
           </div>
         )}
@@ -183,6 +219,7 @@ export function PlayerControls({
         >
           <FullscreenIcon />
         </ControlButton>
+      </div>
       </div>
     </div>
   );
