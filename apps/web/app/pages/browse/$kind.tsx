@@ -64,32 +64,43 @@ export function BrowseKindPage() {
 
   const meta = useMemo(() => (kind ? KIND_TITLES[kind] : null), [kind]);
 
+  const hideBrowsePageHeader = kind === 'live' && Boolean(activeSource);
+
   return (
     <AppScreen>
-      <Stack className="mx-auto max-w-[1400px] p-6" gap={6}>
-        <header className="flex items-baseline justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              {meta?.title ?? 'Browse'}
-            </h1>
-            <p className="mt-1 text-sm text-foreground-muted">
-              {meta?.subtitle ?? ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {activeSource ? (
-              <RefreshSourceButton source={activeSource} focusKey="BROWSE_REFRESH" />
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              focusKey="BROWSE_BACK"
-              onClick={() => void navigate('/')}
-            >
-              Back to home
-            </Button>
-          </div>
-        </header>
+      <Stack
+        className={
+          hideBrowsePageHeader
+            ? 'mx-auto max-w-[1680px] gap-0 px-0 pb-6 pt-2 md:px-4'
+            : 'mx-auto max-w-[1400px] p-6'
+        }
+        gap={hideBrowsePageHeader ? 2 : 6}
+      >
+        {!hideBrowsePageHeader ? (
+          <header className="flex items-baseline justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                {meta?.title ?? 'Browse'}
+              </h1>
+              <p className="mt-1 text-sm text-foreground-muted">
+                {meta?.subtitle ?? ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeSource ? (
+                <RefreshSourceButton source={activeSource} focusKey="BROWSE_REFRESH" />
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                focusKey="BROWSE_BACK"
+                onClick={() => void navigate('/')}
+              >
+                Back to home
+              </Button>
+            </div>
+          </header>
+        ) : null}
 
         {!kind ? (
           <UnknownKind value={params.kind ?? ''} />

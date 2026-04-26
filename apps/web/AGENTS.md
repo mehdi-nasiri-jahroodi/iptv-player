@@ -53,7 +53,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # group sidebar + search + ChannelList + favorites + inline live player
+      browse-view.tsx         # live: rail + hero (Shaka) + category select + table; vod/series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })

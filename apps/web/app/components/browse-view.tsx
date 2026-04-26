@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
 import {
   closestCenter,
   DndContext,
@@ -21,9 +21,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Tv } from 'lucide-react';
 import type { Channel, Source } from 'core';
-import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
 import {
   Button,
   ChannelList,
@@ -45,10 +44,25 @@ import { useMinuteClock } from '../hooks/use-minute-clock';
 import { formatNowNextLine, parseRecentKey } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { ChannelFavoriteButton } from './favorite-channel-button';
+import { LiveBrowseHero } from './live-browse-hero';
+import { LiveChannelTable } from './live-channel-table';
+import { RefreshSourceButton } from './refresh-source-button';
 
 const EMPTY_GROUP_ORDER: string[] = [];
 
 type CatalogGroup = CatalogState['groupsByKind'][ChannelKind][number];
+
+type GroupsSidebarProps = {
+  groups: CatalogState['groupsByKind'][ChannelKind];
+  reorderMode: boolean;
+  onToggleReorderMode: (next: boolean) => void;
+  onCommitGroupOrder: (orderedIds: string[]) => void;
+  activeGroupId: string | null;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  onSelect: (id: string) => void;
+  className?: string;
+};
 
 /**
  * Per-kind browser shared by `/browse/live`, `/browse/vod`, `/browse/series`.
@@ -126,6 +140,35 @@ export function BrowseView({
   const guide = useGuideStore((s) => s.guide);
   const guideReady = useGuideStore((s) => s.status === 'ready');
   const clock = useMinuteClock();
+  const navigate = useNavigate();
+  const playlist = useCatalogStore((s) => s.playlist);
+  const recents = useProfileStore((s) => s.profile.recents);
+  const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
+  const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
+  const playbackProxy = useMemo(
+    () => streamProxyForPlayback(streamProxyConfig, activeSource),
+    [streamProxyConfig, activeSource]
+  );
+  const recentChannels = useMemo(() => {
+    if (kind !== 'live' || !sourceId || !playlist) return [];
+    const byId = new Map(
+      playlist.groups.flatMap((group) => group.channels.map((c) => [c.id, c] as const))
+    );
+    const picked: Channel[] = [];
+    for (const item of recents) {
+      const parsed = parseRecentKey(item);
+      if (!parsed || parsed.sourceId !== sourceId || parsed.kind !== 'live') continue;
+      const found = byId.get(parsed.channelId);
+      if (found && !picked.some((p) => p.id === found.id)) {
+        picked.push(found);
+      }
+      if (picked.length >= 8) break;
+    }
+    return picked;
+  }, [kind, sourceId, playlist, recents]);
+  const totalLiveChannels = useCatalogStore((s) =>
+    kind === 'live' ? selectChannelCount(s, 'live') : 0
+  );
 
   // Reset the selected channel when the kind or active group changes so the
   // selection panel never shows a stale pick from another section.
@@ -180,29 +223,136 @@ export function BrowseView({
     };
   });
 
-  // Live gets the split layout: groups | channels | inline player.
-  // Other kinds keep the 2-column layout + a detail panel below; their
-  // playback flows through the fullscreen /play route (Step 3).
   const isLive = kind === 'live';
-  const gridClassName = isLive
-    ? 'grid gap-4 md:grid-cols-[220px_minmax(280px,1fr)_minmax(360px,1.4fr)]'
-    : 'grid gap-4 md:grid-cols-[220px_1fr]';
+
+  const goPlaySelectedLive = () => {
+    if (!selectedChannel || !sourceId || !('streamUrl' in selectedChannel)) return;
+    void navigate(
+      `/play/${encodeURIComponent(sourceId)}/live/${encodeURIComponent(selectedChannel.id)}`
+    );
+  };
+
+  const sidebarProps: GroupsSidebarProps = {
+    groups: groupReorderMode ? orderedGroups : visibleGroups,
+    reorderMode: groupReorderMode,
+    onToggleReorderMode: setGroupReorderMode,
+    onCommitGroupOrder: (orderedIds) =>
+      setCatalogGroupOrder(activeSource.id, kind, orderedIds),
+    activeGroupId,
+    searchValue: groupSearch,
+    onSearchChange: setGroupSearch,
+    onSelect: (id) => setActiveGroup(kind, id),
+  };
+
+  if (isLive) {
+    return (
+      <div
+        className="flex min-h-0 flex-col gap-0 md:flex-row md:items-stretch"
+        data-testid="browse-view-live"
+      >
+        <LiveCatalogRail {...sidebarProps} />
+        <div className="flex min-w-0 flex-1 flex-col gap-5 px-3 py-4 md:px-6">
+          <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                Channel list
+              </p>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+                {activeGroup?.name ?? 'Channels'}{' '}
+                <span className="text-accent">({visibleChannels.length})</span>
+              </h2>
+              <p className="mt-1 text-sm text-foreground-muted">
+                {totalLiveChannels} channels in this source · EPG when configured
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <RefreshSourceButton source={activeSource} focusKey="LIVE_TOOLBAR_REFRESH" />
+              <Button
+                variant="ghost"
+                size="sm"
+                focusKey="LIVE_TOOLBAR_SETTINGS"
+                onClick={() => void navigate('/settings')}
+              >
+                Settings
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                focusKey="LIVE_TOOLBAR_HOME"
+                onClick={() => void navigate('/')}
+              >
+                Back to home
+              </Button>
+            </div>
+          </div>
+
+          <LiveBrowseHero
+            channel={selectedChannel}
+            sourceId={sourceId}
+            playbackProxy={playbackProxy}
+            streamProxyConfigured={streamProxyConfigured}
+            recentChannels={recentChannels}
+            onSelectRecent={(next) => setSelectedChannel(next)}
+            onNavigatePlay={goPlaySelectedLive}
+            onNavigateFullscreen={goPlaySelectedLive}
+            onNavigateGuide={() => void navigate('/epg')}
+            guide={guide}
+            guideReady={guideReady}
+            nowMs={clock.getTime()}
+          />
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-60">
+              Category
+              <select
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
+                value={activeGroupId ?? ''}
+                onChange={(event) => setActiveGroup(kind, event.target.value)}
+                aria-label="Jump to category"
+              >
+                {orderedGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.channels.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <TextField
+              className="min-w-0 flex-1"
+              focusKey={`BROWSE_SEARCH_${kind.toUpperCase()}`}
+              aria-label="Search channels"
+              value={searchQuery}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search channels…"
+            />
+          </div>
+
+          <LiveChannelTable
+            channels={visibleChannels}
+            selectedId={selectedChannel?.id ?? null}
+            onSelect={(id) => {
+              const channel = visibleChannels.find((c) => c.id === id) ?? null;
+              setSelectedChannel(channel);
+            }}
+            sourceId={sourceId}
+            guide={guide}
+            guideReady={guideReady}
+            nowMs={clock.getTime()}
+            empty={
+              searchQuery.trim()
+                ? 'No channels match your search.'
+                : 'This group is empty.'
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Stack gap={4} data-testid={`browse-view-${kind}`}>
-      <div className={gridClassName}>
-        <GroupsSidebar
-          groups={groupReorderMode ? orderedGroups : visibleGroups}
-          reorderMode={groupReorderMode}
-          onToggleReorderMode={setGroupReorderMode}
-          onCommitGroupOrder={(orderedIds) =>
-            setCatalogGroupOrder(activeSource.id, kind, orderedIds)
-          }
-          activeGroupId={activeGroupId}
-          searchValue={groupSearch}
-          onSearchChange={setGroupSearch}
-          onSelect={(id) => setActiveGroup(kind, id)}
-        />
+      <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+        <GroupsSidebar {...sidebarProps} />
         <Stack gap={3}>
           <TextField
             focusKey={`BROWSE_SEARCH_${kind.toUpperCase()}`}
@@ -225,15 +375,8 @@ export function BrowseView({
             }
           />
         </Stack>
-        {isLive ? (
-          <LivePlayerPane
-            channel={selectedChannel}
-            activeSource={activeSource}
-            onSelectChannel={(next) => setSelectedChannel(next)}
-          />
-        ) : null}
       </div>
-      {!isLive && selectedChannel && sourceId ? (
+      {selectedChannel && sourceId ? (
         <SelectedChannelPanel channel={selectedChannel} sourceId={sourceId} />
       ) : null}
     </Stack>
@@ -322,16 +465,8 @@ function GroupsSidebar({
   searchValue,
   onSearchChange,
   onSelect,
-}: {
-  groups: CatalogState['groupsByKind'][ChannelKind];
-  reorderMode: boolean;
-  onToggleReorderMode: (next: boolean) => void;
-  onCommitGroupOrder: (orderedIds: string[]) => void;
-  activeGroupId: string | null;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
-  onSelect: (id: string) => void;
-}) {
+  className = '',
+}: GroupsSidebarProps) {
   const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
   const [sortableIds, setSortableIds] = useState<string[]>(groupIds);
   const orderRef = useRef(sortableIds);
@@ -407,7 +542,12 @@ function GroupsSidebar({
       aria-label="Channel groups"
       data-testid="groups-sidebar"
       data-reordering={reorderMode ? 'true' : 'false'}
-      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-2"
+      className={[
+        'flex flex-col gap-2 rounded-lg border border-border bg-surface p-2',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div className="flex items-center justify-between gap-2 px-0.5">
         <span className="text-xs font-medium text-foreground-muted">Groups</span>
@@ -495,6 +635,33 @@ function GroupsSidebar({
   );
 }
 
+function LiveCatalogRail(props: GroupsSidebarProps) {
+  return (
+    <aside className="flex w-full shrink-0 flex-col border-border bg-surface/95 md:w-64 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-4">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
+          <Tv className="size-5" aria-hidden />
+        </div>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Live TV</h1>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <GroupsSidebar
+          {...props}
+          className="rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
+        />
+      </div>
+      <div className="border-t border-border p-3">
+        <NavLink
+          to="/epg"
+          className="block rounded-lg px-3 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-raised hover:text-foreground"
+        >
+          Guide (EPG)
+        </NavLink>
+      </div>
+    </aside>
+  );
+}
+
 function CatalogError({ error }: { error: string | null }) {
   return (
     <div
@@ -561,146 +728,6 @@ function SelectedChannelPanel({
             Play
           </Button>
         </div>
-      </div>
-    </aside>
-  );
-}
-
-/**
- * Inline player pane used by `/browse/live`. Renders a 16:9 frame even when
- * nothing is selected so the layout doesn't jump on first selection. The
- * `<video>` element re-binds whenever `channel.streamUrl` changes — Shaka
- * tears down the previous instance, so D-pad up/down on the channel list
- * channel-surfs without needing a route change.
- */
-function LivePlayerPane({
-  channel,
-  activeSource,
-  onSelectChannel,
-}: {
-  channel: Channel | null;
-  activeSource: Source;
-  onSelectChannel: (channel: Channel) => void;
-}) {
-  const navigate = useNavigate();
-  const sourceId = useCatalogStore((s) => s.sourceId);
-  const playlist = useCatalogStore((s) => s.playlist);
-  const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
-  const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
-  const recents = useProfileStore((s) => s.profile.recents);
-  const playbackProxy = useMemo(
-    () => streamProxyForPlayback(streamProxyConfig, activeSource),
-    [streamProxyConfig, activeSource]
-  );
-  const streamUrl =
-    channel && 'streamUrl' in channel ? channel.streamUrl : null;
-  const recentChannels = useMemo(() => {
-    if (!sourceId || !playlist) return [];
-    const byId = new Map(
-      playlist.groups.flatMap((group) => group.channels.map((c) => [c.id, c] as const))
-    );
-    const picked: Channel[] = [];
-    for (const item of recents) {
-      const parsed = parseRecentKey(item);
-      if (!parsed || parsed.sourceId !== sourceId || parsed.kind !== 'live') continue;
-      const found = byId.get(parsed.channelId);
-      if (found && !picked.some((p) => p.id === found.id)) {
-        picked.push(found);
-      }
-      if (picked.length >= 8) break;
-    }
-    return picked;
-  }, [sourceId, playlist, recents]);
-  const [error, setError] = useState<ShakaError | null>(null);
-
-  useEffect(() => {
-    setError(null);
-  }, [streamUrl]);
-
-  return (
-    <aside
-      aria-label="Live player"
-      data-testid="live-player"
-      className="flex flex-col gap-2"
-    >
-      <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-black">
-        <Player
-          src={streamUrl}
-          onError={setError}
-          streamProxy={playbackProxy}
-          className="h-full w-full"
-        >
-          {(api) => (
-            <>
-              {streamUrl ? <PlayerControls api={api} /> : null}
-              {error ? (
-                <PlayerErrorOverlay
-                  error={error}
-                  compact
-                  streamProxyConfigured={streamProxyConfigured}
-                  onRetry={() => api.retry()}
-                  onDismiss={() => setError(null)}
-                />
-              ) : null}
-            </>
-          )}
-        </Player>
-        {!streamUrl ? (
-          <div
-            className="absolute inset-0 flex items-center justify-center text-xs text-foreground-muted"
-            data-testid="live-player-idle"
-          >
-            Pick a channel to start watching
-          </div>
-        ) : null}
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">
-            {channel?.name ?? 'No channel'}
-          </div>
-          <div className="truncate text-xs text-foreground-muted">
-            {channel?.groupTitle ?? '\u00a0'}
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          focusKey="LIVE_PLAYER_FULLSCREEN"
-          disabled={!channel || !sourceId}
-          onClick={() => {
-            if (!channel || !sourceId) return;
-            void navigate(
-              `/play/${encodeURIComponent(sourceId)}/live/${encodeURIComponent(channel.id)}`
-            );
-          }}
-        >
-          Fullscreen
-        </Button>
-      </div>
-      <div className="rounded-md border border-border bg-surface p-2">
-        <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-foreground-muted">
-          Recently viewed
-        </div>
-        {recentChannels.length === 0 ? (
-          <p className="px-1 pb-1 text-xs text-foreground-muted">No recent channels yet.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {recentChannels.map((recentChannel) => (
-              <Button
-                key={recentChannel.id}
-                variant={channel?.id === recentChannel.id ? 'primary' : 'ghost'}
-                size="sm"
-                focusKey={`RECENT_${recentChannel.id}`}
-                onClick={() => {
-                  onSelectChannel(recentChannel);
-                }}
-              >
-                {recentChannel.name}
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
     </aside>
   );
