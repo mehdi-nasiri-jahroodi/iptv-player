@@ -246,7 +246,7 @@ export function BrowseView({
         data-testid="browse-view-live"
       >
         <LiveCatalogRail {...sidebarProps} />
-        <div className="scrollbar-slim flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 md:px-6">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden py-3 md:gap-3">
           <div className="shrink-0">
             <LiveBrowseHero
               channel={selectedChannel}
@@ -260,7 +260,7 @@ export function BrowseView({
             />
           </div>
 
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-end">
             <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-60">
               Category
               <select
@@ -286,23 +286,25 @@ export function BrowseView({
             />
           </div>
 
-          <LiveChannelTable
-            channels={visibleChannels}
-            selectedId={selectedChannel?.id ?? null}
-            onSelect={(id) => {
-              const channel = visibleChannels.find((c) => c.id === id) ?? null;
-              setSelectedChannel(channel);
-            }}
-            sourceId={sourceId}
-            guide={guide}
-            guideReady={guideReady}
-            nowMs={clock.getTime()}
-            empty={
-              searchQuery.trim()
-                ? 'No channels match your search.'
-                : 'This group is empty.'
-            }
-          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <LiveChannelTable
+              channels={visibleChannels}
+              selectedId={selectedChannel?.id ?? null}
+              onSelect={(id) => {
+                const channel = visibleChannels.find((c) => c.id === id) ?? null;
+                setSelectedChannel(channel);
+              }}
+              sourceId={sourceId}
+              guide={guide}
+              guideReady={guideReady}
+              nowMs={clock.getTime()}
+              empty={
+                searchQuery.trim()
+                  ? 'No channels match your search.'
+                  : 'This group is empty.'
+              }
+            />
+          </div>
         </div>
       </div>
     );
@@ -596,7 +598,7 @@ function GroupsSidebar({
 
 function LiveCatalogRail(props: GroupsSidebarProps) {
   return (
-    <aside className="flex max-h-[42vh] w-full shrink-0 flex-col border-border bg-surface/95 md:max-h-none md:h-full md:min-h-0 md:w-64 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
+    <aside className="flex max-h-[42vh] w-full shrink-0 flex-col border-border bg-surface/95 md:max-h-none md:h-full md:min-h-0 md:w-72 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
           <Tv className="size-5" aria-hidden />

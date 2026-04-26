@@ -39,7 +39,7 @@ apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
     root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav + `<main>` viewport flex segment for routes
     routes.tsx                # URL → page-module manifest
-    layout/app-nav.tsx        # top nav (NavLinks + catalog **Refresh** on `/browse/*` via `browse-nav-toolbar` + ThemeToggle)
+    layout/app-nav.tsx        # top nav — **`max-w-[1400px]`** inner column + `px-4`, aligned with page stacks (home, `/browse/live`, epg)
     layout/browse-nav-toolbar.tsx  # optional `RefreshSourceButton` when browsing a loaded catalog
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
@@ -54,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: full-height rail + main column; **new group → first channel auto-selected** for inline preview; vod/series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: full-height rail + main column; hero = player + **Continue watching** (right column, height-matched, up to **5** recents); **new group → first channel auto-selected** for inline preview; vod/series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })

@@ -24,7 +24,7 @@ function ChannelLogo({ logoUrl, name }: { logoUrl?: string; name: string }) {
         src={logoUrl}
         alt=""
         loading="lazy"
-        className="size-9 shrink-0 rounded-md bg-surface-raised object-contain"
+        className="size-11 shrink-0 rounded-md bg-surface-raised object-contain p-0.5"
         onError={(event) => {
           (event.currentTarget as HTMLImageElement).style.visibility = 'hidden';
         }}
@@ -35,7 +35,7 @@ function ChannelLogo({ logoUrl, name }: { logoUrl?: string; name: string }) {
   return (
     <div
       aria-hidden
-      className="flex size-9 shrink-0 items-center justify-center rounded-md bg-surface-raised text-xs font-semibold text-foreground-muted"
+      className="flex size-11 shrink-0 items-center justify-center rounded-md bg-surface-raised text-sm font-semibold text-foreground-muted"
     >
       {initial}
     </div>
@@ -104,7 +104,7 @@ function SortColumnHeader({
     align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left';
 
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 w-full">
       <button
         ref={setRef}
         type="button"
@@ -317,7 +317,7 @@ export function LiveChannelTable({
     return (
       <div
         ref={ref}
-        className="flex min-h-[160px] items-center justify-center rounded-xl border border-border bg-surface text-sm text-foreground-muted"
+        className="flex min-h-0 min-w-0 flex-1 items-center justify-center rounded-xl border border-border bg-surface px-4 py-8 text-sm text-foreground-muted"
         data-testid="channel-list"
       >
         <span data-testid="channel-list-empty">{empty ?? 'No channels in this group.'}</span>
@@ -330,18 +330,18 @@ export function LiveChannelTable({
       <div
         ref={ref}
         data-testid="channel-list"
-        className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm"
       >
         {/*
-          Header lives inside the same scroll width as rows so the column grid lines up
-          when a vertical scrollbar is present (otherwise the body is narrower and columns drift).
+          One scrollport so header and rows share the same (scrollbar) width; sticky
+          header stays aligned with the grid. Height fills the browse column via flex-1.
         */}
         <div
-          className="scrollbar-slim max-h-[min(52vh,560px)] overflow-y-auto [scrollbar-gutter:stable]"
+          className="scrollbar-slim min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
           role="presentation"
         >
           <div
-            className={`sticky top-0 z-[1] grid ${TABLE_GRID_COLS} ${TABLE_COL_GAP} border-b border-border bg-surface-raised/95 px-3 py-2 backdrop-blur-sm supports-[backdrop-filter]:bg-surface-raised/80`}
+            className={`sticky top-0 z-[1] grid ${TABLE_GRID_COLS} ${TABLE_COL_GAP} items-center border-b border-border bg-surface-raised/95 px-3 py-2.5 backdrop-blur-sm supports-[backdrop-filter]:bg-surface-raised/80`}
           >
             <SortColumnHeader
               label="#"
@@ -390,7 +390,7 @@ export function LiveChannelTable({
               focusKey="LIVE_TABLE_SORT_FAVORITE"
             />
           </div>
-          <div role="list" className="pb-8">
+          <div role="list" className="pb-4">
             {sortedChannels.map((channel, index) => {
               const nowPlaying =
                 channel.type === 'live' && guideReady

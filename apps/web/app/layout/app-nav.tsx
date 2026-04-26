@@ -28,8 +28,8 @@ function ThemeToggle() {
 
 export function AppNav() {
   return (
-    <nav className="shrink-0 border-b border-border bg-surface px-4 py-3">
-      <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 text-sm font-medium">
+    <nav className="shrink-0 border-b border-border bg-surface py-3">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-3 px-4 text-sm font-medium">
         <NavLink
           to="/"
           end

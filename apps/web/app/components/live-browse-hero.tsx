@@ -8,12 +8,15 @@ import {
   type StreamProxyOption,
   type UseShakaPlayerResult,
 } from 'player';
-import { Button, Carousel } from 'ui';
+import { Button } from 'ui';
 import { formatNowNextLine } from '../lib/epg-display';
 import { inferStreamQualityHints } from '../lib/live-channel-badges';
 
 /** Match {@link PlayerControls} default so title strip hides with the bar. */
 const CHROME_IDLE_MS = 3000;
+
+/** Max recent channels shown in the Continue watching column (newest first). */
+const CONTINUE_WATCHING_MAX_ITEMS = 5;
 
 function LiveHeroMetadataOverlay({
   api,
@@ -139,41 +142,39 @@ function RecentChannelCard({
       focusKey={`RECENT_${channel.id}`}
       onClick={onPick}
       className={[
-        'h-auto min-h-0 w-[7.25rem] shrink-0 flex-col items-stretch justify-start gap-1.5 rounded-lg',
-        'border border-border px-2 py-1.5 text-left shadow-sm',
+        'h-auto min-h-0 w-full shrink-0 flex-row items-center justify-start gap-2 rounded-lg',
+        'border border-border px-2 py-2 text-left shadow-sm',
         selected
-          ? 'border-2 border-accent bg-accent/100'
-          : 'border-2 border-transparent bg-surface-raised hover:border-accent/40',
+          ? 'border-l-2 border-l-accent bg-accent/10'
+          : 'border-l-2 border-l-transparent bg-surface-raised hover:border-accent/40',
       ].join(' ')}
     >
-      <div className="flex items-start gap-2">
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="size-11 shrink-0 rounded-md bg-surface-raised object-contain p-0.5"
-            loading="lazy"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-            }}
-          />
-        ) : (
-          <div
-            aria-hidden
-            className="flex size-11 shrink-0 items-center justify-center rounded-md bg-accent/15 text-sm font-semibold text-accent"
-          >
-            {initial}
-          </div>
-        )}
-        <span className="line-clamp-2 min-w-0 flex-1 text-[11px] font-medium leading-tight text-foreground">
-          {channel.name}
-        </span>
-      </div>
+      {logoUrl ? (
+        <img
+          src={logoUrl}
+          alt=""
+          className="size-11 shrink-0 rounded-md bg-surface-raised object-contain p-0.5"
+          loading="lazy"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+          }}
+        />
+      ) : (
+        <div
+          aria-hidden
+          className="flex size-11 shrink-0 items-center justify-center rounded-md bg-accent/15 text-sm font-semibold text-accent"
+        >
+          {initial}
+        </div>
+      )}
+      <span className="line-clamp-2 min-w-0 flex-1 text-left text-[11px] font-medium leading-tight text-foreground">
+        {channel.name}
+      </span>
     </Button>
   );
 }
 
-function LiveRecentStrip({
+function LiveRecentColumn({
   recentChannels,
   currentChannelId,
   onPick,
@@ -182,21 +183,23 @@ function LiveRecentStrip({
   currentChannelId: string | null | undefined;
   onPick: (c: Channel) => void;
 }) {
-  if (recentChannels.length === 0) return null;
+  const visible = useMemo(
+    () => recentChannels.slice(0, CONTINUE_WATCHING_MAX_ITEMS),
+    [recentChannels]
+  );
+  const overflow = recentChannels.length - visible.length;
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface px-3 py-2 md:px-4">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+    <aside
+      data-testid="live-continue-watching"
+      className="flex min-h-0 min-w-0 flex-col border-t border-border bg-surface pb-2 md:border-l md:border-t-0"
+      aria-label="Continue watching"
+    >
+      <p className="shrink-0 px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
         Continue watching
       </p>
-      <Carousel
-        ariaLabel="Recently viewed channels"
-        prevFocusKey="CONTINUE_CAROUSEL_PREV"
-        nextFocusKey="CONTINUE_CAROUSEL_NEXT"
-        gapClassName="gap-2"
-        edgePaddingClassName="pl-8 pr-8"
-      >
-        {recentChannels.map((ch) => (
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden px-2">
+        {visible.map((ch) => (
           <RecentChannelCard
             key={ch.id}
             channel={ch}
@@ -204,8 +207,13 @@ function LiveRecentStrip({
             onPick={() => onPick(ch)}
           />
         ))}
-      </Carousel>
-    </div>
+      </div>
+      {overflow > 0 ? (
+        <p className="shrink-0 px-2 pt-1 text-[10px] text-foreground-muted" aria-live="polite">
+          +{overflow} more in history
+        </p>
+      ) : null}
+    </aside>
   );
 }
 
@@ -248,16 +256,26 @@ export function LiveBrowseHero({
 
   const logoUrl = channel && 'logoUrl' in channel ? channel.logoUrl : undefined;
   const playerShellRef = useRef<HTMLDivElement>(null);
+  const hasRecents = recentChannels.length > 0;
 
   return (
     <section
       aria-label="Channel preview"
-      className="relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-lg"
+      className={[
+        'relative grid shrink-0 grid-cols-1 overflow-hidden rounded-2xl border border-border bg-background shadow-lg',
+        hasRecents
+          ? 'md:grid-cols-[minmax(0,1fr)_13.5rem] md:grid-rows-[minmax(10.5rem,min(36vh,23.75rem))]'
+          : 'md:grid-rows-[minmax(10.5rem,min(36vh,23.75rem))]',
+      ].join(' ')}
       data-testid="live-browse-hero"
     >
       <div
         ref={playerShellRef}
-        className="relative aspect-[21/9] min-h-[160px] max-h-[min(36vh,380px)] w-full shrink-0 bg-black md:aspect-[2.35/1]"
+        className={[
+          'relative min-h-[160px] w-full min-w-0 bg-black',
+          'aspect-[21/9] max-h-[min(36vh,380px)] shrink-0',
+          'md:aspect-auto md:h-full md:max-h-none md:min-h-0',
+        ].join(' ')}
         data-testid="live-player"
       >
         {logoUrl ? (
@@ -320,11 +338,13 @@ export function LiveBrowseHero({
         ) : null}
       </div>
 
-      <LiveRecentStrip
-        recentChannels={recentChannels}
-        currentChannelId={channel?.id}
-        onPick={onSelectRecent}
-      />
+      {hasRecents ? (
+        <LiveRecentColumn
+          recentChannels={recentChannels}
+          currentChannelId={channel?.id}
+          onPick={onSelectRecent}
+        />
+      ) : null}
     </section>
   );
 }

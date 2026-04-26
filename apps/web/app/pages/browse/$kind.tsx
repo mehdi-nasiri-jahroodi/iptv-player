@@ -70,7 +70,7 @@ export function BrowseKindPage() {
       <Stack
         className={
           hideBrowsePageHeader
-            ? 'mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 flex-col gap-0 px-0 pb-2 pt-1 md:px-4'
+            ? 'mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col gap-0 px-4 pb-2 pt-1'
             : 'mx-auto max-w-[1400px] p-6'
         }
         gap={hideBrowsePageHeader ? 2 : 6}

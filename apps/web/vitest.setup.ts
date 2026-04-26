@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 
 /**
- * Embla Carousel (Continue watching, etc.) needs these in JSDOM — same as
+ * Embla Carousel and other layout code need these in JSDOM — same as
  * `packages/ui/vitest.setup.ts`.
  */
 function ensureMatchMedia() {
