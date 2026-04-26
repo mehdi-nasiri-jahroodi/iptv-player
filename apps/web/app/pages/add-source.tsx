@@ -69,7 +69,7 @@ export default function AddSourceRoute() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
+    <main className="scrollbar-slim mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-y-auto p-6">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold text-foreground">Add a source</h1>
         <p className="mt-1 text-sm text-foreground-muted">

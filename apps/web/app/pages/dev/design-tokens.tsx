@@ -20,6 +20,15 @@ function resolvePaletteRef(dual: DualPalette, ref: string): string {
   return dual[mode as Mode]?.[family]?.[step] ?? '';
 }
 
+/** Space-separated `r g b` for Tailwind `rgb(var(--…) / α)` (matches preset `semanticRgbCssVars`). */
+function hexToRgbSpaceSeparated(hex: string): string {
+  const h = hex.replace('#', '');
+  const r = Number.parseInt(h.slice(0, 2), 16);
+  const g = Number.parseInt(h.slice(2, 4), 16);
+  const b = Number.parseInt(h.slice(4, 6), 16);
+  return `${r} ${g} ${b}`;
+}
+
 function buildThemeVars(
   dual: DualPalette,
   semanticMap: Record<string, Record<string, string>>,
@@ -36,7 +45,9 @@ function buildThemeVars(
   for (const [group, shades] of Object.entries(semanticMap)) {
     for (const [shade, paletteRef] of Object.entries(shades)) {
       const suffix = shade === 'DEFAULT' ? group : `${group}-${shade}`;
-      vars[`--iptv-color-${suffix}`] = resolvePaletteRef(dual, paletteRef);
+      const hex = resolvePaletteRef(dual, paletteRef);
+      vars[`--iptv-color-${suffix}`] = hex;
+      vars[`--iptv-color-${suffix}-rgb`] = hexToRgbSpaceSeparated(hex);
     }
   }
 
@@ -54,7 +65,7 @@ export default function DevDesignTokens() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="scrollbar-slim flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground">
       <div className="border-b border-dashed border-lum-turquoise-4/80 bg-lum-turquoise-5/30 px-4 py-2 text-center text-sm font-medium text-lum-neutral-1 dark:text-lum-neutral-2">
         Development only — this route is omitted from production builds.
       </div>

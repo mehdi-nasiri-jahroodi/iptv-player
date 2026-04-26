@@ -116,7 +116,7 @@ export function PlayPage() {
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-black text-foreground"
+      className="flex min-h-0 flex-1 flex-col bg-black text-foreground"
       data-testid="play-page"
     >
       <header className="flex items-center justify-between gap-3 px-6 py-3">

@@ -19,12 +19,20 @@ export function Stack({
 
 export function AppScreen({
   className = '',
+  /** When false, fills the main viewport segment and does not scroll at this root (use internal panes). */
+  scrollPage = true,
   children,
   ...rest
-}: HTMLAttributes<HTMLDivElement> & { children?: ReactNode }) {
+}: HTMLAttributes<HTMLDivElement> & { children?: ReactNode; scrollPage?: boolean }) {
   return (
     <div
-      className={`min-h-screen bg-background text-foreground ${className}`.trim()}
+      className={[
+        'flex min-h-0 flex-1 flex-col bg-background text-foreground',
+        scrollPage ? 'scrollbar-slim overflow-y-auto' : 'overflow-hidden',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       {...rest}
     >
       {children}

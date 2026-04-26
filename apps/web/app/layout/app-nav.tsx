@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router';
 import { cycleTheme, getThemePref } from './auto-theme';
+import { BrowseNavToolbar } from './browse-nav-toolbar';
 
 function ThemeToggle() {
   const [pref, setPref] = useState<'light' | 'dark' | 'auto'>('auto');
@@ -18,7 +19,7 @@ function ThemeToggle() {
         cycleTheme();
         setPref(getThemePref());
       }}
-      className="ml-auto rounded-md border border-border px-2 py-1 text-foreground-muted hover:text-foreground"
+      className="rounded-md border border-border px-2 py-1 text-foreground-muted hover:text-foreground"
     >
       {label}
     </button>
@@ -27,8 +28,8 @@ function ThemeToggle() {
 
 export function AppNav() {
   return (
-    <nav className="border-b border-border bg-surface px-4 py-3">
-      <div className="mx-auto flex max-w-[1400px] items-center gap-4 text-sm font-medium">
+    <nav className="shrink-0 border-b border-border bg-surface px-4 py-3">
+      <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 text-sm font-medium">
         <NavLink
           to="/"
           end
@@ -87,7 +88,10 @@ export function AppNav() {
             </NavLink>
           </>
         ) : null}
-        <ThemeToggle />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <BrowseNavToolbar />
+          <ThemeToggle />
+        </div>
       </div>
     </nav>
   );

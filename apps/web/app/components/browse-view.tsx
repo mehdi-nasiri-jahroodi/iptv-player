@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import {
   closestCenter,
   DndContext,
@@ -46,7 +46,6 @@ import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { ChannelFavoriteButton } from './favorite-channel-button';
 import { LiveBrowseHero } from './live-browse-hero';
 import { LiveChannelTable } from './live-channel-table';
-import { RefreshSourceButton } from './refresh-source-button';
 
 const EMPTY_GROUP_ORDER: string[] = [];
 
@@ -140,7 +139,6 @@ export function BrowseView({
   const guide = useGuideStore((s) => s.guide);
   const guideReady = useGuideStore((s) => s.status === 'ready');
   const clock = useMinuteClock();
-  const navigate = useNavigate();
   const playlist = useCatalogStore((s) => s.playlist);
   const recents = useProfileStore((s) => s.profile.recents);
   const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
@@ -166,15 +164,19 @@ export function BrowseView({
     }
     return picked;
   }, [kind, sourceId, playlist, recents]);
-  const totalLiveChannels = useCatalogStore((s) =>
-    kind === 'live' ? selectChannelCount(s, 'live') : 0
-  );
-
-  // Reset the selected channel when the kind or active group changes so the
-  // selection panel never shows a stale pick from another section.
+  // Live: picking a category auto-selects the first channel in that group so the
+  // inline preview starts immediately. Other kinds keep no implicit selection.
   useEffect(() => {
-    setSelectedChannel(null);
-  }, [kind, activeGroupId]);
+    if (kind !== 'live') {
+      setSelectedChannel(null);
+      return;
+    }
+    if (!activeGroup || activeGroup.channels.length === 0) {
+      setSelectedChannel(null);
+      return;
+    }
+    setSelectedChannel(activeGroup.channels[0]);
+  }, [kind, activeGroupId, activeGroup]);
 
   useEffect(() => {
     if (!selectedChannel || !sourceId) return;
@@ -240,63 +242,23 @@ export function BrowseView({
   if (isLive) {
     return (
       <div
-        className="flex min-h-0 flex-col gap-0 md:flex-row md:items-stretch"
+        className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row md:items-stretch md:overflow-hidden"
         data-testid="browse-view-live"
       >
         <LiveCatalogRail {...sidebarProps} />
-        <div className="flex min-w-0 flex-1 flex-col gap-5 px-3 py-4 md:px-6">
-          <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
-                Channel list
-              </p>
-              <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-                {activeGroup?.name ?? 'Channels'}{' '}
-                <span className="text-accent">({visibleChannels.length})</span>
-              </h2>
-              <p className="mt-1 text-sm text-foreground-muted">
-                {totalLiveChannels} channels in this source · EPG when configured
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <RefreshSourceButton source={activeSource} focusKey="LIVE_TOOLBAR_REFRESH" />
-              <Button
-                variant="ghost"
-                size="sm"
-                focusKey="LIVE_TOOLBAR_GUIDE"
-                onClick={() => void navigate('/epg')}
-              >
-                Guide
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                focusKey="LIVE_TOOLBAR_SETTINGS"
-                onClick={() => void navigate('/settings')}
-              >
-                Settings
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                focusKey="LIVE_TOOLBAR_HOME"
-                onClick={() => void navigate('/')}
-              >
-                Back to home
-              </Button>
-            </div>
+        <div className="scrollbar-slim flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 md:px-6">
+          <div className="shrink-0">
+            <LiveBrowseHero
+              channel={selectedChannel}
+              playbackProxy={playbackProxy}
+              streamProxyConfigured={streamProxyConfigured}
+              recentChannels={recentChannels}
+              onSelectRecent={(next) => setSelectedChannel(next)}
+              guide={guide}
+              guideReady={guideReady}
+              nowMs={clock.getTime()}
+            />
           </div>
-
-          <LiveBrowseHero
-            channel={selectedChannel}
-            playbackProxy={playbackProxy}
-            streamProxyConfigured={streamProxyConfigured}
-            recentChannels={recentChannels}
-            onSelectRecent={(next) => setSelectedChannel(next)}
-            guide={guide}
-            guideReady={guideReady}
-            nowMs={clock.getTime()}
-          />
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-60">
@@ -634,26 +596,18 @@ function GroupsSidebar({
 
 function LiveCatalogRail(props: GroupsSidebarProps) {
   return (
-    <aside className="flex w-full shrink-0 flex-col border-border bg-surface/95 md:w-64 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-4">
+    <aside className="flex max-h-[42vh] w-full shrink-0 flex-col border-border bg-surface/95 md:max-h-none md:h-full md:min-h-0 md:w-64 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
           <Tv className="size-5" aria-hidden />
         </div>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">Live TV</h1>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
         <GroupsSidebar
           {...props}
           className="rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
         />
-      </div>
-      <div className="border-t border-border p-3">
-        <NavLink
-          to="/epg"
-          className="block rounded-lg px-3 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-raised hover:text-foreground"
-        >
-          Guide (EPG)
-        </NavLink>
       </div>
     </aside>
   );

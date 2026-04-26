@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router';
 import type { Source } from 'core';
 import { AppScreen, Button, Stack } from 'ui';
 import { BrowseView } from '../../components/browse-view';
-import { RefreshSourceButton } from '../../components/refresh-source-button';
 import { SourcesStore } from '../../features/sources/sources-storage';
 import {
   CHANNEL_KINDS,
@@ -67,11 +66,11 @@ export function BrowseKindPage() {
   const hideBrowsePageHeader = kind === 'live' && Boolean(activeSource);
 
   return (
-    <AppScreen>
+    <AppScreen scrollPage={!hideBrowsePageHeader}>
       <Stack
         className={
           hideBrowsePageHeader
-            ? 'mx-auto max-w-[1680px] gap-0 px-0 pb-6 pt-2 md:px-4'
+            ? 'mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 flex-col gap-0 px-0 pb-2 pt-1 md:px-4'
             : 'mx-auto max-w-[1400px] p-6'
         }
         gap={hideBrowsePageHeader ? 2 : 6}
@@ -87,9 +86,6 @@ export function BrowseKindPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {activeSource ? (
-                <RefreshSourceButton source={activeSource} focusKey="BROWSE_REFRESH" />
-              ) : null}
               <Button
                 variant="ghost"
                 size="sm"

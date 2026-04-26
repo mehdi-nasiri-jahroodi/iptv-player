@@ -46,8 +46,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <AutoTheme />
         <SpatialNavigationRoot>
           <AppNav />
-          <ResponsibilityNotice />
-          {children}
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ResponsibilityNotice />
+            {children}
+          </main>
         </SpatialNavigationRoot>
         <ScrollRestoration />
         <Scripts />

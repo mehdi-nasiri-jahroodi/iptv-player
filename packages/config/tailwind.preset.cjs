@@ -8,6 +8,7 @@
 const plugin = require('tailwindcss/plugin');
 const {
   semanticCssVars,
+  semanticRgbCssVars,
   flattenPaintVars,
   buildIptvTavernTailwindColors,
 } = require('./lib/iptv-semantic-css-vars.cjs');
@@ -22,29 +23,30 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        /** Semantic roles use `rgb(… / <alpha-value>)` so utilities like `bg-accent/20` work. */
         background: {
-          DEFAULT: 'var(--iptv-color-background)',
-          subtle: 'var(--iptv-color-background-subtle)',
+          DEFAULT: 'rgb(var(--iptv-color-background-rgb) / <alpha-value>)',
+          subtle: 'rgb(var(--iptv-color-background-subtle-rgb) / <alpha-value>)',
         },
         foreground: {
-          DEFAULT: 'var(--iptv-color-foreground)',
-          muted: 'var(--iptv-color-foreground-muted)',
+          DEFAULT: 'rgb(var(--iptv-color-foreground-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--iptv-color-foreground-muted-rgb) / <alpha-value>)',
         },
         surface: {
-          DEFAULT: 'var(--iptv-color-surface)',
-          raised: 'var(--iptv-color-surface-raised)',
+          DEFAULT: 'rgb(var(--iptv-color-surface-rgb) / <alpha-value>)',
+          raised: 'rgb(var(--iptv-color-surface-raised-rgb) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: 'var(--iptv-color-accent)',
-          foreground: 'var(--iptv-color-accent-foreground)',
+          DEFAULT: 'rgb(var(--iptv-color-accent-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--iptv-color-accent-foreground-rgb) / <alpha-value>)',
         },
         border: {
-          DEFAULT: 'var(--iptv-color-border)',
-          strong: 'var(--iptv-color-border-strong)',
+          DEFAULT: 'rgb(var(--iptv-color-border-rgb) / <alpha-value>)',
+          strong: 'rgb(var(--iptv-color-border-strong-rgb) / <alpha-value>)',
         },
         danger: {
-          DEFAULT: 'var(--iptv-color-danger)',
-          foreground: 'var(--iptv-color-danger-foreground)',
+          DEFAULT: 'rgb(var(--iptv-color-danger-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--iptv-color-danger-foreground-rgb) / <alpha-value>)',
         },
         lum: buildIptvTavernTailwindColors(dual.light),
         'iptv-tavern': buildIptvTavernTailwindColors(dual.light),
@@ -64,10 +66,12 @@ module.exports = {
         ':root': {
           ...flattenPaintVars(dual.light),
           ...semanticCssVars(dual, semanticJson.light),
+          ...semanticRgbCssVars(dual, semanticJson.light),
         },
         '.dark': {
           ...flattenPaintVars(dual.dark),
           ...semanticCssVars(dual, semanticJson.dark),
+          ...semanticRgbCssVars(dual, semanticJson.dark),
         },
       });
     }),

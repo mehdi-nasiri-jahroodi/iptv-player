@@ -37,9 +37,10 @@ Follow [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for phase scope
 ```
 apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
-    root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav
+    root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav + `<main>` viewport flex segment for routes
     routes.tsx                # URL → page-module manifest
-    layout/app-nav.tsx        # top nav (NavLinks + ThemeToggle)
+    layout/app-nav.tsx        # top nav (NavLinks + catalog **Refresh** on `/browse/*` via `browse-nav-toolbar` + ThemeToggle)
+    layout/browse-nav-toolbar.tsx  # optional `RefreshSourceButton` when browsing a loaded catalog
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
     pages/                    # one file per route module — exported as default
@@ -53,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: rail + hero (Shaka) + category select + table; vod/series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: full-height rail + main column; **new group → first channel auto-selected** for inline preview; vod/series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -155,7 +156,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`, `Carousel` (horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`, `Carousel` (Embla-powered horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
 
 ---
 

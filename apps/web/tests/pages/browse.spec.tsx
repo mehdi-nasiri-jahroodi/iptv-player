@@ -1,5 +1,5 @@
 import { createRoutesStub } from 'react-router';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { parseM3uToPlaylist } from 'core';
 import BrowseKindPage from '../../app/pages/browse/$kind';
@@ -57,19 +57,25 @@ test('renders the live browse view for /browse/live', async () => {
   });
 
   expect(screen.getByRole('heading', { name: /live tv/i })).toBeTruthy();
-  expect(screen.getByText('News One')).toBeTruthy();
+  expect(within(screen.getByTestId('channel-list')).getByText('News One')).toBeTruthy();
 });
 
-test('mounts the inline live player pane (idle until a channel is picked)', async () => {
+test('live browse auto-selects the first channel in the active group for preview', async () => {
   await seed();
   stubAt('/browse/:kind', '/browse/live');
 
   await waitFor(() => {
     expect(screen.getByTestId('live-player')).toBeTruthy();
   });
-  // No channel picked yet — idle copy is shown; Shaka controls (incl. fullscreen) mount only when a stream URL exists.
-  expect(screen.getByTestId('live-player-idle')).toBeTruthy();
-  expect(screen.queryByTestId('player-controls')).toBeNull();
+
+  await waitFor(() => {
+    const list = screen.getByTestId('channel-list');
+    const selected = list.querySelector('[data-selected="true"]');
+    expect(selected?.textContent).toMatch(/News One/);
+  });
+
+  // First channel has a stream URL — idle overlay should not cover the player shell.
+  expect(screen.queryByTestId('live-player-idle')).toBeNull();
 });
 
 test('does NOT mount the inline player pane on /browse/vod', async () => {

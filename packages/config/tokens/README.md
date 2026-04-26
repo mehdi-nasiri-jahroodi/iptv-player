@@ -12,9 +12,9 @@ Brand color is **Persian Turquoise** (`#00A693`) and it drives semantic `accent`
 
 ## Theme automation
 
-1. `:root` gets light `--iptv-paint-*` and `--iptv-color-*`.
+1. `:root` gets light `--iptv-paint-*` and `--iptv-color-*` (hex) plus matching `--iptv-color-*-rgb` (space-separated `r g b` for Tailwind opacity).
 2. `.dark` overrides those same variables from dark tokens.
-3. Tailwind semantic classes (`bg-background`, `bg-accent`, `text-foreground`, ...) and raw paint classes (`bg-lum-turquoise-3`) switch automatically with `.dark`.
+3. Tailwind semantic classes (`bg-background`, `bg-accent/30`, `text-foreground`, …) and raw paint classes (`bg-lum-turquoise-3`) switch automatically with `.dark`.
 4. Web app auto-applies `.dark` from `prefers-color-scheme` in `apps/web/app/auto-theme.tsx`.
 
 ## Families

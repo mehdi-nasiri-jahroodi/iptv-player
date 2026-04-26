@@ -58,6 +58,26 @@ function semanticCssVars(dual, semantic, prefix = '--iptv-color') {
 }
 
 /**
+ * Space-separated RGB triplets for Tailwind opacity modifiers (`bg-accent/20`).
+ * Pairs with {@link semanticCssVars} hex vars on `:root` / `.dark`.
+ * @param {{ light: Record<string, Record<string, string>>; dark: Record<string, Record<string, string>> }} dual
+ * @param {Record<string, Record<string, string>>} semantic
+ * @param {string} [prefix='--iptv-color']
+ */
+function semanticRgbCssVars(dual, semantic, prefix = '--iptv-color') {
+  /** @type {Record<string, string>} */
+  const vars = {};
+  for (const [group, shades] of Object.entries(semantic)) {
+    for (const [shade, paletteRef] of Object.entries(shades)) {
+      const hex = resolvePaletteRef(dual, paletteRef);
+      const suffix = shade === 'DEFAULT' ? group : `${group}-${shade}`;
+      vars[`${prefix}-${suffix}-rgb`] = hexToRgbSpaceSeparated(hex);
+    }
+  }
+  return vars;
+}
+
+/**
  * Build Tailwind nested color object: each leaf is var(--iptv-paint-family-step).
  * @param {Record<string, Record<string, string>>} lightBranch shape only (keys must match dark)
  */
@@ -87,6 +107,7 @@ function hexToRgbSpaceSeparated(hex) {
 
 module.exports = {
   semanticCssVars,
+  semanticRgbCssVars,
   hexToRgbSpaceSeparated,
   resolvePaletteRef,
   flattenPaintVars,

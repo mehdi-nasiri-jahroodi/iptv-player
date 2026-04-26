@@ -9,3 +9,13 @@ export function inferStreamQualityHints(channelName: string): string[] {
   if (/\bhd\b/.test(n)) return ['HD'];
   return [];
 }
+
+/** Higher = better inferred tier (for sorting). */
+export function streamQualityRank(channelName: string): number {
+  const hints = inferStreamQualityHints(channelName);
+  if (hints.includes('4K')) return 5;
+  if (hints.some((h) => h === '1080p')) return 4;
+  if (hints.includes('720p')) return 3;
+  if (hints.includes('HD')) return 2;
+  return 0;
+}

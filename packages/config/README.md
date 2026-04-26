@@ -10,7 +10,7 @@ Workspace **Tailwind CSS preset** and **IPTV tavern color tokens** shared by web
 
 **Package exports**
 
-- `config/tailwind-preset` — Tailwind preset (`--iptv-paint-*` + `--iptv-color-*` on `:root` / `.dark`; `lum-*` utilities use paint vars).
+- `config/tailwind-preset` — Tailwind preset (`--iptv-paint-*` + `--iptv-color-*` + `--iptv-color-*-rgb` on `:root` / `.dark`; semantic utilities use the RGB vars so `bg-accent/20` works; `lum-*` uses paint hex vars).
 - `config/tokens/iptv-tavern-palette` — JSON for Android, scripts, or documentation.
 - `config/tokens/iptv-semantic-colors` — JSON for parity with Kotlin theming.
 

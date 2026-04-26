@@ -3,7 +3,41 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    @apply h-dvh;
+  }
   body {
-    @apply min-h-screen bg-background text-foreground antialiased;
+    @apply flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground antialiased;
+  }
+}
+
+/**
+ * Slim scrollbars using Lumina semantic CSS vars (`--iptv-color-*`).
+ */
+@layer components {
+  .scrollbar-slim {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--iptv-color-foreground) 28%, var(--iptv-color-surface))
+      var(--iptv-color-background);
+  }
+  html.dark .scrollbar-slim {
+    scrollbar-color: color-mix(in srgb, var(--iptv-color-foreground) 42%, var(--iptv-color-surface))
+      var(--iptv-color-background);
+  }
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: var(--iptv-color-background);
+    border-radius: 9999px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--iptv-color-foreground) 28%, var(--iptv-color-surface));
+    border-radius: 9999px;
+  }
+  html.dark .scrollbar-slim::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--iptv-color-foreground) 42%, var(--iptv-color-surface));
   }
 }

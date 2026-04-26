@@ -134,14 +134,16 @@ function RecentChannelCard({
   return (
     <Button
       type="button"
-      variant={selected ? 'primary' : 'ghost'}
-      size="md"
+      variant="ghost"
+      size="sm"
       focusKey={`RECENT_${channel.id}`}
       onClick={onPick}
       className={[
-        'h-auto min-h-[5.5rem] w-[10.5rem] shrink-0 flex-col items-stretch justify-start gap-2 rounded-xl',
-        'border border-border px-3 py-2.5 text-left shadow-sm',
-        selected ? 'ring-2 ring-accent/40' : 'bg-surface-raised hover:border-accent/40',
+        'h-auto min-h-0 w-[7.25rem] shrink-0 flex-col items-stretch justify-start gap-1.5 rounded-lg',
+        'border border-border px-2 py-1.5 text-left shadow-sm',
+        selected
+          ? 'border-2 border-accent bg-accent/100'
+          : 'border-2 border-transparent bg-surface-raised hover:border-accent/40',
       ].join(' ')}
     >
       <div className="flex items-start gap-2">
@@ -149,7 +151,7 @@ function RecentChannelCard({
           <img
             src={logoUrl}
             alt=""
-            className="size-9 shrink-0 rounded-md bg-surface-raised object-contain"
+            className="size-11 shrink-0 rounded-md bg-surface-raised object-contain p-0.5"
             loading="lazy"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
@@ -158,12 +160,12 @@ function RecentChannelCard({
         ) : (
           <div
             aria-hidden
-            className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/15 text-xs font-semibold text-accent"
+            className="flex size-11 shrink-0 items-center justify-center rounded-md bg-accent/15 text-sm font-semibold text-accent"
           >
             {initial}
           </div>
         )}
-        <span className="line-clamp-3 min-w-0 flex-1 text-xs font-medium leading-snug text-foreground">
+        <span className="line-clamp-2 min-w-0 flex-1 text-[11px] font-medium leading-tight text-foreground">
           {channel.name}
         </span>
       </div>
@@ -183,14 +185,16 @@ function LiveRecentStrip({
   if (recentChannels.length === 0) return null;
 
   return (
-    <div className="border-t border-border bg-surface px-4 py-4">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+    <div className="shrink-0 border-t border-border bg-surface px-3 py-2 md:px-4">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
         Continue watching
       </p>
       <Carousel
         ariaLabel="Recently viewed channels"
         prevFocusKey="CONTINUE_CAROUSEL_PREV"
         nextFocusKey="CONTINUE_CAROUSEL_NEXT"
+        gapClassName="gap-2"
+        edgePaddingClassName="pl-8 pr-8"
       >
         {recentChannels.map((ch) => (
           <RecentChannelCard
@@ -248,12 +252,12 @@ export function LiveBrowseHero({
   return (
     <section
       aria-label="Channel preview"
-      className="relative overflow-hidden rounded-2xl border border-border bg-background shadow-lg"
+      className="relative flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-lg"
       data-testid="live-browse-hero"
     >
       <div
         ref={playerShellRef}
-        className="relative aspect-[21/9] min-h-[200px] max-h-[min(42vh,440px)] w-full bg-black md:aspect-[2.35/1]"
+        className="relative aspect-[21/9] min-h-[160px] max-h-[min(36vh,380px)] w-full shrink-0 bg-black md:aspect-[2.35/1]"
         data-testid="live-player"
       >
         {logoUrl ? (

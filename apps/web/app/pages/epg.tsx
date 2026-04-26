@@ -177,7 +177,7 @@ export default function EpgPage() {
         ) : (
           <div
             ref={scrollRef}
-            className="max-h-[min(70vh,720px)] overflow-y-auto rounded-lg border border-border bg-surface"
+            className="scrollbar-slim max-h-[min(70vh,720px)] overflow-y-auto rounded-lg border border-border bg-surface"
             data-testid="epg-list"
           >
             <EpgDaySection title="Today" rows={rowsByDay.todayRows} nowMs={nowMs} />

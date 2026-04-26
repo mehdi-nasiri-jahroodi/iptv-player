@@ -2,14 +2,15 @@ import {
   Children,
   isValidElement,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type FocusEvent as ReactFocusEvent,
   type HTMLAttributes,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import useEmblaCarousel from 'embla-carousel-react';
 import { useFocusable } from '@noriginmedia/norigin-spatial-navigation';
 
 export type CarouselProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
@@ -21,43 +22,67 @@ export type CarouselProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
   nextFocusKey?: string;
   /** Tailwind gap between items (default `gap-3`). */
   gapClassName?: string;
+  /** Horizontal inset for the viewport (room for overlay arrows). Default `pl-10 pr-10`. */
+  edgePaddingClassName?: string;
   children: ReactNode;
 };
 
-/** Pixels before we treat pointer movement as a drag (vs a tap on a child control). */
-const DRAG_THRESHOLD_PX = 8;
-
-type PanState = {
-  pointerId: number;
-  startX: number;
-  startScroll: number;
-  dragged: boolean;
-};
-
 /**
- * Horizontal carousel: **drag** to pan, prev/next buttons (hidden until hover
- * or focus-within on fine pointers), optional keyboard, **no visible scrollbar**
- * (CSS). After a drag, the next `click` is swallowed so list items (e.g. channel
- * cards) do not activate accidentally.
+ * Horizontal carousel powered by **Embla Carousel** (`embla-carousel-react`):
+ * natural drag (correct direction / physics), prev/next, optional keyboard.
+ * Prev/next hide until hover or focus-within on fine pointers. No visible
+ * scrollbar on the viewport.
  */
 export function Carousel({
   ariaLabel,
   prevFocusKey = 'CAROUSEL_PREV',
   nextFocusKey = 'CAROUSEL_NEXT',
   gapClassName = 'gap-3',
+  edgePaddingClassName = 'pl-10 pr-10',
   className = '',
   children,
   ...rest
 }: CarouselProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const panRef = useRef<PanState | null>(null);
-  const [isPointerPanning, setIsPointerPanning] = useState(false);
   const [edges, setEdges] = useState({ canPrev: false, canNext: false });
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
   /** `null` until matchMedia runs — assume arrows visible to avoid a touch-only flash. */
   const [finePointer, setFinePointer] = useState<boolean | null>(null);
+
+  const itemCount = Children.count(children);
+  const items = Children.toArray(children);
+
+  const [emblaRef, emblaApi] = useEmblaCarousel({
+    axis: 'x',
+    dragFree: true,
+    containScroll: 'trimSnaps',
+  });
+
+  const syncEdges = useCallback(() => {
+    if (!emblaApi) return;
+    setEdges({
+      canPrev: emblaApi.canScrollPrev(),
+      canNext: emblaApi.canScrollNext(),
+    });
+  }, [emblaApi]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    syncEdges();
+    emblaApi.on('select', syncEdges);
+    emblaApi.on('reInit', syncEdges);
+    emblaApi.on('resize', syncEdges);
+    return () => {
+      emblaApi.off('select', syncEdges);
+      emblaApi.off('reInit', syncEdges);
+      emblaApi.off('resize', syncEdges);
+    };
+  }, [emblaApi, syncEdges]);
+
+  useEffect(() => {
+    emblaApi?.reInit();
+  }, [emblaApi, itemCount]);
 
   useLayoutEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -74,100 +99,14 @@ export function Carousel({
   const showNavChrome =
     finePointer == null ? true : !finePointer || pointerInside || focusInside;
 
-  const updateEdges = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    const maxScroll = scrollWidth - clientWidth;
-    setEdges({
-      canPrev: scrollLeft > 2,
-      canNext: scrollLeft < maxScroll - 2,
-    });
-  }, []);
-
-  const itemCount = Children.count(children);
-
-  useLayoutEffect(() => {
-    updateEdges();
-    const el = scrollerRef.current;
-    if (!el) return;
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(() => updateEdges());
-      ro.observe(el);
-    }
-    const onWin = () => updateEdges();
-    window.addEventListener('resize', onWin);
-    el.addEventListener('scroll', updateEdges, { passive: true });
-    return () => {
-      ro?.disconnect();
-      window.removeEventListener('resize', onWin);
-      el.removeEventListener('scroll', updateEdges);
-    };
-  }, [updateEdges, itemCount]);
-
-  const scrollStep = useCallback((dir: -1 | 1) => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const amount = Math.max(160, Math.floor(el.clientWidth * 0.85)) * dir;
-    el.scrollBy({ left: amount, behavior: 'smooth' });
-    window.setTimeout(updateEdges, 350);
-  }, [updateEdges]);
-
-  const endPointerPan = useCallback(
-    (e: ReactPointerEvent) => {
-      const pan = panRef.current;
-      const el = scrollerRef.current;
-      if (!pan || e.pointerId !== pan.pointerId) return;
-      panRef.current = null;
-      setIsPointerPanning(false);
-      try {
-        el?.releasePointerCapture(e.pointerId);
-      } catch {
-        /* already released */
-      }
-      if (pan.dragged) {
-        const swallowClick = (evt: Event) => {
-          evt.preventDefault();
-          evt.stopPropagation();
-          document.removeEventListener('click', swallowClick, true);
-        };
-        document.addEventListener('click', swallowClick, true);
-        window.setTimeout(() => document.removeEventListener('click', swallowClick, true), 100);
-      }
-      updateEdges();
+  const scrollStep = useCallback(
+    (dir: -1 | 1) => {
+      if (!emblaApi) return;
+      if (dir < 0) emblaApi.scrollPrev();
+      else emblaApi.scrollNext();
     },
-    [updateEdges]
+    [emblaApi]
   );
-
-  const onScrollerPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    const el = scrollerRef.current;
-    if (!el || !el.contains(e.target as Node)) return;
-    panRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startScroll: el.scrollLeft,
-      dragged: false,
-    };
-    try {
-      el.setPointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-    setIsPointerPanning(true);
-  };
-
-  const onScrollerPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const pan = panRef.current;
-    const el = scrollerRef.current;
-    if (!pan || !el || e.pointerId !== pan.pointerId) return;
-    const dx = e.clientX - pan.startX;
-    if (Math.abs(dx) > DRAG_THRESHOLD_PX) {
-      pan.dragged = true;
-    }
-    el.scrollLeft = pan.startScroll - dx;
-  };
 
   const onRootFocusCapture = () => setFocusInside(true);
   const onRootBlurCapture = (e: ReactFocusEvent<HTMLDivElement>) => {
@@ -178,8 +117,6 @@ export function Carousel({
       setFocusInside(false);
     }
   };
-
-  const items = Children.toArray(children);
 
   return (
     <div
@@ -206,7 +143,7 @@ export function Carousel({
         visuallyRecessed={finePointer === true && !showNavChrome}
       />
       <div
-        ref={scrollerRef}
+        ref={emblaRef}
         role="region"
         aria-roledescription="carousel"
         aria-label={ariaLabel}
@@ -221,28 +158,25 @@ export function Carousel({
             scrollStep(1);
           }
         }}
-        onPointerDownCapture={onScrollerPointerDown}
-        onPointerMove={onScrollerPointerMove}
-        onPointerUp={endPointerPan}
-        onPointerCancel={endPointerPan}
         className={[
-          'flex touch-pan-x snap-x snap-mandatory flex-nowrap overflow-x-auto overflow-y-hidden pb-1 pl-10 pr-10 pt-0.5',
+          'cursor-grab overflow-hidden pb-1 pt-0.5 active:cursor-grabbing',
+          edgePaddingClassName,
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-          isPointerPanning ? 'scroll-auto cursor-grabbing' : 'scroll-smooth cursor-grab',
-          gapClassName,
         ].join(' ')}
       >
-        {items.map((child, index) => {
-          const slideKey =
-            isValidElement(child) && child.key != null
-              ? String(child.key)
-              : `carousel-slide-${index}`;
-          return (
-            <div key={slideKey} className="shrink-0 snap-start">
-              {child}
-            </div>
-          );
-        })}
+        <div className={['flex touch-pan-x', gapClassName].filter(Boolean).join(' ')}>
+          {items.map((child, index) => {
+            const slideKey =
+              isValidElement(child) && child.key != null
+                ? String(child.key)
+                : `carousel-slide-${index}`;
+            return (
+              <div key={slideKey} className="min-w-0 shrink-0">
+                {child}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
