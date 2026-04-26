@@ -99,10 +99,11 @@ Wraps **Shaka Player** in a single React-friendly hook plus a headless component
 | Export | Notes |
 | ------ | ----- |
 | `loadShakaModule()` | **Built** — lazy, browser-only `await import('shaka-player')` with polyfills installed; throws on SSR. |
-| `useShakaPlayer(videoRef, streamUrl, options?)` | **Built** — owns the Shaka instance, surfaces `{ status, buffering, error, tracks, selectTrack, retry, destroy }`. Tears down on `streamUrl` change so live channel-surf is safe. Errors fire through both the returned state and the `onError` callback. |
+| `useShakaPlayer(videoRef, streamUrl, options?)` | **Built** — owns the Shaka instance, surfaces `{ status, buffering, error, tracks, media, selectTrack, retry, destroy, play, pause, seek, setVolume, setMuted, toggleFullscreen }`. `media` mirrors the `<video>` element's state (paused, currentTime, duration, seekable, volume, muted) for control overlays. Tears down on `streamUrl` change so live channel-surf is safe. Errors fire through both the returned state and the `onError` callback. |
 | `Player` | **Built** — headless React component; consumer styles the frame, optional render-prop child paints overlays from the hook API. |
+| `PlayerControls` | **Built** — Lumina-themed playback bar (play/pause, mute, volume, time, scrubber, fullscreen). Hides scrubber for live (uses `media.seekable`); auto-hides 3s after last pointer/focus event while playing. Each control is a focusable `<button>` so Norigin picks them up via the consumer's `useFocusable` boundary. |
 
-Listed `react`, `react-dom`, and `shaka-player` as `peerDependencies` to avoid duplicate copies when both `apps/web` and `apps/webos` consume it.
+Listed `react`, `react-dom`, `shaka-player`, and `lucide-react` as `peerDependencies` to avoid duplicate copies when both `apps/web` and `apps/webos` consume it.
 
 ---
 

@@ -46,19 +46,57 @@ export interface UseShakaPlayerOptions {
   autoPlay?: boolean;
 }
 
+/**
+ * Live-updating snapshot of `<video>` element state, surfaced for use by
+ * custom control overlays. Updated via direct `addEventListener` on the
+ * media element; `useShakaPlayer` keeps this in sync with React state on
+ * `play`, `pause`, `timeupdate`, `durationchange`, `volumechange`, and
+ * `seeking` / `seeked`.
+ */
+export interface ShakaMedia {
+  paused: boolean;
+  currentTime: number;
+  /** `Infinity` for live, `NaN` while metadata loads, finite seconds for VOD. */
+  duration: number;
+  /** `true` when the stream advertises a finite seek window (VOD/series). */
+  seekable: boolean;
+  volume: number;
+  muted: boolean;
+}
+
 /** Return shape of {@link useShakaPlayer}. */
 export interface UseShakaPlayerResult {
   status: ShakaStatus;
   buffering: boolean;
   error: ShakaError | null;
   tracks: ShakaTrack[];
+  media: ShakaMedia;
   /** Switch to a track previously returned in `tracks`. */
   selectTrack(track: ShakaTrack): void;
   /** Re-load the current `streamUrl`. No-op if `streamUrl` is `null`. */
   retry(): void;
   /** Destroy the underlying Shaka instance. Safe to call multiple times. */
   destroy(): Promise<void>;
+  /** Resume playback. Best-effort; rejection swallowed (autoplay policy). */
+  play(): void;
+  pause(): void;
+  /** Seek to absolute seconds; clamped to `[0, duration]` when finite. */
+  seek(seconds: number): void;
+  /** Volume in `[0, 1]`. */
+  setVolume(volume: number): void;
+  setMuted(muted: boolean): void;
+  /** Toggle browser fullscreen on the `<video>` element's parent. */
+  toggleFullscreen(): void;
 }
+
+const DEFAULT_MEDIA: ShakaMedia = {
+  paused: true,
+  currentTime: 0,
+  duration: Number.NaN,
+  seekable: false,
+  volume: 1,
+  muted: false,
+};
 
 /**
  * Manages a single `shaka.Player` instance attached to `videoRef.current`.
@@ -83,6 +121,7 @@ export function useShakaPlayer(
   const [buffering, setBuffering] = useState(false);
   const [error, setError] = useState<ShakaError | null>(null);
   const [tracks, setTracks] = useState<ShakaTrack[]>([]);
+  const [media, setMedia] = useState<ShakaMedia>(DEFAULT_MEDIA);
 
   // Keep onError stable inside the load effect without re-running it on every
   // render of the consumer.
@@ -291,7 +330,119 @@ export function useShakaPlayer(
       });
   }, [streamUrl, videoRef, refreshTracks, reportError, toShakaError]);
 
-  return { status, buffering, error, tracks, selectTrack, retry, destroy };
+  // ---------------------------------------------------------------------------
+  // Media-element state subscription (drives custom control overlays).
+  //
+  // We mirror a small slice of the `<video>` element's state into React so
+  // controls can render reactively without polling. The events we listen to
+  // cover everything the overlay needs without firing more than necessary
+  // (`timeupdate` is intentionally throttled by the browser to ~4Hz).
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const sync = () => {
+      // `seekable` length 0 means live HLS / pre-metadata; otherwise the
+      // stream advertises a window we can scrub through.
+      const seekable = video.seekable && video.seekable.length > 0
+        && Number.isFinite(video.duration);
+      setMedia({
+        paused: video.paused,
+        currentTime: video.currentTime,
+        duration: video.duration,
+        seekable: Boolean(seekable),
+        volume: video.volume,
+        muted: video.muted,
+      });
+    };
+
+    const events: (keyof HTMLMediaElementEventMap)[] = [
+      'play', 'pause', 'timeupdate', 'durationchange',
+      'volumechange', 'seeking', 'seeked', 'loadedmetadata', 'emptied',
+    ];
+    for (const ev of events) video.addEventListener(ev, sync);
+    sync();
+    return () => {
+      for (const ev of events) video.removeEventListener(ev, sync);
+    };
+  }, [videoRef]);
+
+  // ---------------------------------------------------------------------------
+  // Imperative actions for control overlays. These are thin wrappers around
+  // the `<video>` element; we expose them from the hook so the overlay does
+  // not need its own ref to the same element.
+  // ---------------------------------------------------------------------------
+  const play = useCallback(() => {
+    videoRef.current?.play().catch(() => undefined);
+  }, [videoRef]);
+
+  const pause = useCallback(() => {
+    videoRef.current?.pause();
+  }, [videoRef]);
+
+  const seek = useCallback((seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const dur = video.duration;
+    const clamped = Number.isFinite(dur)
+      ? Math.max(0, Math.min(seconds, dur))
+      : Math.max(0, seconds);
+    video.currentTime = clamped;
+  }, [videoRef]);
+
+  const setVolume = useCallback((volume: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = Math.max(0, Math.min(1, volume));
+    // Setting volume above 0 implicitly unmutes — matches the native
+    // <video> control behaviour and prevents the slider feeling broken.
+    if (volume > 0 && video.muted) video.muted = false;
+  }, [videoRef]);
+
+  const setMuted = useCallback((muted: boolean) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = muted;
+  }, [videoRef]);
+
+  const toggleFullscreen = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    // Prefer the parent (so overlays + video go fullscreen together);
+    // fall back to the element if we don't have one (shouldn't happen).
+    const target: Element = video.parentElement ?? video;
+    const doc = video.ownerDocument as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void>;
+    };
+    const el = target as Element & {
+      webkitRequestFullscreen?: () => Promise<void>;
+    };
+    const inFullscreen = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+    if (inFullscreen) {
+      void (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.());
+    } else {
+      void (el.requestFullscreen?.() ?? el.webkitRequestFullscreen?.());
+    }
+  }, [videoRef]);
+
+  return {
+    status,
+    buffering,
+    error,
+    tracks,
+    media,
+    selectTrack,
+    retry,
+    destroy,
+    play,
+    pause,
+    seek,
+    setVolume,
+    setMuted,
+    toggleFullscreen,
+  };
 }
 
 /**

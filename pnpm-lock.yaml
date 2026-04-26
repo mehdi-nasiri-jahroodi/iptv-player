@@ -250,6 +250,9 @@ importers:
 
   packages/player:
     dependencies:
+      lucide-react:
+        specifier: ^1.11.0
+        version: 1.11.0(react@19.2.5)
       react:
         specifier: ^19.0.0
         version: 19.2.5
@@ -5285,7 +5288,6 @@ packages:
 
   shaka-player@5.1.1:
     resolution: {integrity: sha512-z9Pa44Ana5VOtnQHkzTq5R3uI6hP+eXCLsXHpwT2mWfaz1ofRgRwNlDlX0S4aUycEmN4zl11r4bfhqpVNYLBYQ==}
-    engines: {node: '>=18'}
 
   shebang-command@2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}

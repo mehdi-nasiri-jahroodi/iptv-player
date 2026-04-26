@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { Channel, Source } from 'core';
-import { Player, type ShakaError } from 'player';
+import { Player, PlayerControls, type ShakaError } from 'player';
 import { Button, Stack } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
 import {
@@ -157,41 +157,43 @@ export function PlayPage() {
             <Player
               src={streamUrl}
               onError={setError}
-              controls
               className="h-full w-full"
             >
-              {(api) =>
-                error ? (
-                  <Stack
-                    gap={2}
-                    role="alert"
-                    data-testid="play-error"
-                    className="absolute inset-x-4 bottom-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">{error.message}</div>
-                        {typeof error.data === 'object' && error.data !== null ? (
-                          <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-xs opacity-80">
-                            {JSON.stringify(error.data, null, 2)}
-                          </pre>
-                        ) : null}
+              {(api) => (
+                <>
+                  <PlayerControls api={api} />
+                  {error ? (
+                    <Stack
+                      gap={2}
+                      role="alert"
+                      data-testid="play-error"
+                      className="absolute inset-x-4 bottom-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">{error.message}</div>
+                          {typeof error.data === 'object' && error.data !== null ? (
+                            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-xs opacity-80">
+                              {JSON.stringify(error.data, null, 2)}
+                            </pre>
+                          ) : null}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          focusKey="PLAY_RETRY"
+                          onClick={() => {
+                            setError(null);
+                            api.retry();
+                          }}
+                        >
+                          Retry
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        focusKey="PLAY_RETRY"
-                        onClick={() => {
-                          setError(null);
-                          api.retry();
-                        }}
-                      >
-                        Retry
-                      </Button>
-                    </div>
-                  </Stack>
-                ) : null
-              }
+                    </Stack>
+                  ) : null}
+                </>
+              )}
             </Player>
           </div>
         )}

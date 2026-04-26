@@ -32,7 +32,7 @@ export default defineConfig(() => ({
     },
     rollupOptions: {
       // External packages that should not be bundled into your library.
-      external: ['react', 'react-dom', 'react/jsx-runtime', 'shaka-player']
+      external: ['react', 'react-dom', 'react/jsx-runtime', 'shaka-player', 'lucide-react']
     },
   },
   test: {

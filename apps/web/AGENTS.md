@@ -194,7 +194,7 @@ Document all key bindings in `apps/web/src/lib/navigation/keybindings.ts`.
 The Shaka loader, hook, and headless `<Player>` component live in **`packages/player`** (not in `apps/web`) so webOS — and any future React-based target — can reuse them.
 
 ```ts
-import { useShakaPlayer, Player, loadShakaModule } from 'player';
+import { useShakaPlayer, Player, PlayerControls, loadShakaModule } from 'player';
 ```
 
 `useShakaPlayer(videoRef, streamUrl, options?)` exposes:
@@ -205,9 +205,18 @@ import { useShakaPlayer, Player, loadShakaModule } from 'player';
   buffering: boolean,
   error: ShakaError | null,
   tracks: ShakaTrack[],         // variants + text tracks, normalised
+  media: {                      // mirrored slice of <video> state
+    paused, currentTime, duration, seekable, volume, muted,
+  },
   selectTrack(track): void,     // works for both variants and text
   retry(): void,                // re-loads the current streamUrl
   destroy(): Promise<void>,     // safe to call repeatedly; cleanup on unmount
+  play(): void,
+  pause(): void,
+  seek(seconds): void,
+  setVolume(volume): void,      // 0..1
+  setMuted(muted): void,
+  toggleFullscreen(): void,     // requests fullscreen on the player frame
 }
 ```
 
@@ -218,8 +227,16 @@ Behaviour:
 - **Tear-down on `streamUrl` change.** Switching to a new url destroys the previous Shaka instance before instantiating the next one (safe channel-surf).
 - **Errors surface twice.** Through the returned `error` state and through the `onError` option callback (good for telemetry).
 - **Autoplay assumption.** Defaults to `autoPlay: true` because the consumer always calls into the hook after a deliberate user gesture (channel select). Pass `autoPlay: false` if the parent has its own Play button.
+- **`media` mirror.** A second effect subscribes to the `<video>` element's `play`, `pause`, `timeupdate`, `durationchange`, `volumechange`, `seeking`, `seeked`, `loadedmetadata`, `emptied` events so custom control overlays can render reactively without polling. `seekable` is `false` for live HLS and `true` for VOD/series — flip the scrubber on it.
 
-The headless `<Player src={...}>` component wraps the hook and accepts a render-prop child: `children?: (api) => ReactNode` so the parent can paint loading / error / track-picker overlays on top of the video.
+The headless `<Player src={...}>` component wraps the hook and accepts a render-prop child: `children?: (api) => ReactNode` so the parent can paint loading / error / track-picker overlays on top of the video. **Do not pass `controls={true}`** — we ship our own `<PlayerControls>` (next section); the prop only exists for the dev-only `/dev/play-test` smoke route.
+
+`<PlayerControls api={api}>` is the Lumina-themed playback bar:
+
+- Play/pause, mute toggle, volume slider, time readout, scrubber (hidden when `!media.seekable` — replaced by a `LIVE` badge), fullscreen toggle.
+- Each control is a focusable `<button>` so Norigin picks them up via the surrounding `useFocusable` boundary the consumer mounts.
+- Auto-hides 3s after the last pointer/focus event while playing; always visible when paused, buffering, or any control inside the bar holds focus. Pass `alwaysVisible` to disable the auto-hide (used in tests / TV).
+- Lives in `packages/player` so webOS and Android-React reuse it. Used by both `LivePlayerPane` (inline live) and `apps/web/app/pages/play.tsx` (fullscreen).
 
 Always require an **explicit user gesture** to start playback (route navigation from channel select counts).
 
