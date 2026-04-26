@@ -57,6 +57,30 @@ test('renders the live browse view for /browse/live', async () => {
   expect(screen.getByText('News One')).toBeTruthy();
 });
 
+test('mounts the inline live player pane (idle until a channel is picked)', async () => {
+  await seed();
+  stubAt('/browse/:kind', '/browse/live');
+
+  await waitFor(() => {
+    expect(screen.getByTestId('live-player')).toBeTruthy();
+  });
+  // No channel picked yet \u2014 the idle hint is shown and Fullscreen is disabled.
+  expect(screen.getByTestId('live-player-idle')).toBeTruthy();
+  const fullscreen = screen.getByRole('button', { name: /fullscreen/i });
+  expect((fullscreen as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('does NOT mount the inline player pane on /browse/vod', async () => {
+  await seed();
+  stubAt('/browse/:kind', '/browse/vod');
+
+  await waitFor(() => {
+    // VOD page short-circuits to the empty hint with this seed; the live
+    // player pane must never appear on a non-live kind.
+    expect(screen.queryByTestId('live-player')).toBeNull();
+  });
+});
+
 test('shows the empty hint for a kind with no content', async () => {
   await seed();
   stubAt('/browse/:kind', '/browse/vod');

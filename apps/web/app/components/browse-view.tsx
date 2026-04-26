@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import type { Channel } from 'core';
+import { Player, type ShakaError } from 'player';
 import {
+  Button,
   ChannelList,
   FocusableItem,
   Stack,
@@ -90,9 +93,17 @@ export function BrowseView({
     logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
   }));
 
+  // Live gets the split layout: groups | channels | inline player.
+  // Other kinds keep the 2-column layout + a detail panel below; their
+  // playback flows through the fullscreen /play route (Step 3).
+  const isLive = kind === 'live';
+  const gridClassName = isLive
+    ? 'grid gap-4 md:grid-cols-[220px_minmax(280px,1fr)_minmax(360px,1.4fr)]'
+    : 'grid gap-4 md:grid-cols-[220px_1fr]';
+
   return (
     <Stack gap={4} data-testid={`browse-view-${kind}`}>
-      <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+      <div className={gridClassName}>
         <GroupsSidebar
           groups={groups}
           activeGroupId={activeGroupId}
@@ -120,8 +131,11 @@ export function BrowseView({
             }
           />
         </Stack>
+        {isLive ? <LivePlayerPane channel={selectedChannel} /> : null}
       </div>
-      {selectedChannel ? <SelectedChannelPanel channel={selectedChannel} /> : null}
+      {!isLive && selectedChannel ? (
+        <SelectedChannelPanel channel={selectedChannel} />
+      ) : null}
     </Stack>
   );
 }
@@ -198,23 +212,123 @@ function CatalogError({ error }: { error: string | null }) {
 }
 
 function SelectedChannelPanel({ channel }: { channel: Channel }) {
-  // Phase 2 placeholder until the player route lands. Surfacing the stream URL
-  // here gives a clear "yes, my pick produced a playable URL" signal during
-  // development without us shipping a half-built player.
+  const navigate = useNavigate();
+  const sourceId = useCatalogStore((s) => s.sourceId);
+  // VOD has a stream URL; series doesn't (we'd need an episode pick first).
+  // For Phase 2 we only wire VOD playback; series Play stays disabled until
+  // the seasons/episodes UI lands (Phase 4 per docs/web-app-plan.md).
   const streamUrl = 'streamUrl' in channel ? channel.streamUrl : null;
+  const canPlay = Boolean(streamUrl && sourceId);
   return (
     <aside
       data-testid="selected-channel"
       className="rounded-md border border-border bg-surface-raised p-3 text-sm"
     >
-      <div className="font-medium text-foreground">Selected: {channel.name}</div>
-      {streamUrl ? (
-        <div className="mt-1 break-all text-xs text-foreground-muted">
-          {streamUrl}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-foreground">
+            Selected: {channel.name}
+          </div>
+          {streamUrl ? (
+            <div className="mt-1 break-all text-xs text-foreground-muted">
+              {streamUrl}
+            </div>
+          ) : (
+            <div className="mt-1 text-xs text-foreground-muted">
+              Pick an episode to play (coming in Phase 4).
+            </div>
+          )}
         </div>
-      ) : null}
-      <div className="mt-1 text-xs text-foreground-muted">
-        Player route lands in the next step.
+        <Button
+          variant="primary"
+          size="sm"
+          focusKey={`PLAY_${channel.id}`}
+          disabled={!canPlay}
+          onClick={() => {
+            if (!canPlay || !sourceId) return;
+            void navigate(
+              `/play/${encodeURIComponent(sourceId)}/${channel.type}/${encodeURIComponent(channel.id)}`
+            );
+          }}
+        >
+          Play
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * Inline player pane used by `/browse/live`. Renders a 16:9 frame even when
+ * nothing is selected so the layout doesn't jump on first selection. The
+ * `<video>` element re-binds whenever `channel.streamUrl` changes — Shaka
+ * tears down the previous instance, so D-pad up/down on the channel list
+ * channel-surfs without needing a route change.
+ */
+function LivePlayerPane({ channel }: { channel: Channel | null }) {
+  const navigate = useNavigate();
+  const sourceId = useCatalogStore((s) => s.sourceId);
+  const streamUrl =
+    channel && 'streamUrl' in channel ? channel.streamUrl : null;
+  const [error, setError] = useState<ShakaError | null>(null);
+
+  useEffect(() => {
+    setError(null);
+  }, [streamUrl]);
+
+  return (
+    <aside
+      aria-label="Live player"
+      data-testid="live-player"
+      className="flex flex-col gap-2"
+    >
+      <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-black">
+        <Player
+          src={streamUrl}
+          onError={setError}
+          className="h-full w-full"
+        />
+        {!streamUrl ? (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-xs text-foreground-muted"
+            data-testid="live-player-idle"
+          >
+            Pick a channel to start watching
+          </div>
+        ) : null}
+        {error ? (
+          <div
+            role="alert"
+            data-testid="live-player-error"
+            className="absolute inset-x-2 bottom-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+          >
+            {error.message}
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">
+            {channel?.name ?? 'No channel'}
+          </div>
+          <div className="truncate text-xs text-foreground-muted">
+            {channel?.groupTitle ?? '\u00a0'}
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          focusKey="LIVE_PLAYER_FULLSCREEN"
+          disabled={!channel || !sourceId}
+          onClick={() => {
+            if (!channel || !sourceId) return;
+            void navigate(
+              `/play/${encodeURIComponent(sourceId)}/live/${encodeURIComponent(channel.id)}`
+            );
+          }}
+        >
+          Fullscreen
+        </Button>
       </div>
     </aside>
   );
