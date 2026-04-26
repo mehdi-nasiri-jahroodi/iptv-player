@@ -179,9 +179,10 @@ apps/web/
 
 **Playback**
 
-- [ ] `Player` page: fullscreen Shaka Player, overlay on interaction.
-- [ ] Audio/subtitle track picker (populated from Shaka track API).
-- [ ] Error state with human-readable message and retry action.
+- [x] **Inline live player** on `/browse/live` (3-column split: groups | channels | player). D-pad up/down on the channel list channel-surfs without leaving the page; Shaka tears down + reloads on `streamUrl` change.
+- [x] **Fullscreen `/play/:sourceId/:kind/:channelId` route** for promote-to-fullscreen (live) and Play (VOD). The `<Player>` from `packages/player` owns Shaka in both surfaces. Distinct banner states for unknown kind, missing source, missing channel, no-stream (series).
+- [ ] Audio/subtitle track picker (populated from `useShakaPlayer` `tracks` API \u2014 contract is ready, UI lands next).
+- [ ] Error state with human-readable message and **retry** action surfaced in the player chrome (`useShakaPlayer.retry()` is wired; error overlay exists, retry button TBD).
 - [ ] "Copy diagnostics" button (redacted log blob to clipboard).
 
 **Onboarding**

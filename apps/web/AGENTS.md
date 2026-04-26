@@ -84,7 +84,7 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
 | 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
-| 2 — MVP core flows | not started | AddSource (M3U URL + file + **Xtream Codes**), live channel browser, playback, onboarding |
+| 2 — MVP core flows | in progress | AddSource (M3U URL + file + **Xtream Codes**), tile launcher, per-kind browsers, **inline live player + fullscreen `/play` route** wired through `packages/player`, onboarding |
 | 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
 | 4 — Polish | not started | VOD/Series browsers, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
