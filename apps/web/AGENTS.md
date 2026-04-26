@@ -59,6 +59,8 @@ apps/web/
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
+      cache/
+        indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
     lib/                      # (planned) navigation keybindings
     store/                    # Zustand slices
       catalog-store.ts        # playlist + groupsByKind + per-kind activeGroup + search
@@ -255,7 +257,7 @@ Always require an **explicit user gesture** to start playback (route navigation 
 - **In-flight dedupe**: concurrent identical requests share one network round-trip.
 - **Credential safety**: cache keys strip `password`. Username is kept (different accounts on the same host must NOT share entries).
 - **Manual refresh**: the `RefreshSourceButton` in `apps/web/app/components/` calls `loadForSource(source, { force: true })`; the store invalidates that source's cache entries (`invalidateSource(buildPlayerApiUrl(credentials))`) before reloading.
-- **No persistence yet**: the cache is in-memory and dies on reload. A persistent backend (IndexedDB) is a follow-up if profiling shows reload latency matters.
+- **Persistence**: a pluggable `XtreamCacheStorage` lives in `core` (`packages/core/src/lib/xtream-cache.ts`); the web app supplies an IndexedDB-backed adapter (`apps/web/app/features/cache/indexeddb-cache-storage.ts`) so cache entries survive reloads. Storage is hydrated lazily — `cached.ready` resolves once the on-disk snapshot has been merged in. If IndexedDB is unavailable (SSR, private mode, denied permissions) the adapter degrades to a no-op and the cache behaves as in-memory only.
 
 If you ship a new caller that consumes the catalog, prefer `useCatalogStore.loadForSource` over hand-rolled `loadXtreamPlaylist` calls so it benefits from the cache automatically.
 

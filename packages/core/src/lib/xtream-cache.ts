@@ -33,6 +33,36 @@ interface CacheEntry {
   body: string;
 }
 
+export type XtreamCacheEntry = CacheEntry;
+
+/**
+ * Pluggable persistence layer. Lets a host app keep cache entries across
+ * page reloads (e.g. via IndexedDB) without dragging the storage backend
+ * into `core`.
+ *
+ * Mutations are fire-and-forget by design — the in-memory map is always
+ * the source of truth for synchronous reads. The storage adapter just
+ * mirrors writes asynchronously and replays surviving entries on
+ * startup via {@link XtreamCacheStorage.load}.
+ *
+ * Adapters MUST tolerate concurrent calls; we do not serialise writes.
+ * Adapters SHOULD swallow their own errors — a failing storage layer
+ * must never break the network path.
+ */
+export interface XtreamCacheStorage {
+  /** Resolve to every persisted entry. Expired entries may be returned;
+   *  the cache filters them on hydration. */
+  load(): Promise<Iterable<readonly [string, CacheEntry]>>;
+  /** Persist (or overwrite) one entry. Fire-and-forget. */
+  set(key: string, entry: CacheEntry): void;
+  /** Drop one entry. Fire-and-forget. */
+  delete(key: string): void;
+  /** Drop every entry whose key matches `predicate`. */
+  deleteMatching(predicate: (key: string) => boolean): void;
+  /** Drop every entry. */
+  clear(): void;
+}
+
 /**
  * Read-only stats for diagnostics & tests. Not part of the wire schema.
  */
@@ -53,12 +83,17 @@ export interface CachingXtreamFetcher extends XtreamFetcher {
   clear(): void;
   /** Snapshot of the current counters. */
   stats(): XtreamCacheStats;
+  /** Resolves once the optional persistent storage layer has hydrated.
+   *  Always resolves immediately when no storage adapter was provided. */
+  ready: Promise<void>;
 }
 
 export interface CachingXtreamFetcherOptions {
   ttls?: XtreamCacheTTLs;
   /** Inject a clock for deterministic tests. Defaults to `Date.now`. */
   now?: () => number;
+  /** Optional persistence layer. See {@link XtreamCacheStorage}. */
+  storage?: XtreamCacheStorage;
 }
 
 /**
@@ -91,12 +126,33 @@ export function createCachingXtreamFetcher(
     ...(options.ttls ?? {}),
   };
   const now = options.now ?? Date.now;
+  const storage = options.storage;
 
   const cache = new Map<string, CacheEntry>();
   const inflight = new Map<string, Promise<{ text(): Promise<string> }>>();
   let hits = 0;
   let misses = 0;
   let bypasses = 0;
+
+  // Hydrate from persistent storage in the background. We deliberately
+  // don't block the fetcher on this — the first few requests may miss
+  // the cache and refetch, which is acceptable. Once `ready` resolves
+  // every later request benefits from the persisted entries.
+  const ready: Promise<void> = storage
+    ? (async () => {
+        try {
+          const entries = await storage.load();
+          for (const [key, entry] of entries) {
+            // Skip already-expired entries so they don't waste memory; the
+            // adapter is free to clean them up too.
+            if (entry.expiresAt > now()) cache.set(key, entry);
+            else storage.delete(key);
+          }
+        } catch {
+          // Storage failures must not break the network path.
+        }
+      })()
+    : Promise.resolve();
 
   const wrapped = ((url: string) => {
     const key = cacheKey(url);
@@ -125,7 +181,9 @@ export function createCachingXtreamFetcher(
         const response = await inner(url);
         // Materialise the body so subsequent cache hits can replay it.
         const body = await response.text();
-        cache.set(key, { body, expiresAt: now() + ttl });
+        const entry: CacheEntry = { body, expiresAt: now() + ttl };
+        cache.set(key, entry);
+        storage?.set(key, entry);
         return makeBodyResponse(body);
       } finally {
         inflight.delete(key);
@@ -136,7 +194,9 @@ export function createCachingXtreamFetcher(
   }) as CachingXtreamFetcher;
 
   wrapped.invalidate = (url) => {
-    cache.delete(cacheKey(url));
+    const key = cacheKey(url);
+    cache.delete(key);
+    storage?.delete(key);
   };
   wrapped.invalidateSource = (url) => {
     const target = sourceIdentity(url);
@@ -145,9 +205,14 @@ export function createCachingXtreamFetcher(
       const id = sourceIdentity(key);
       if (id && id === target) cache.delete(key);
     }
+    storage?.deleteMatching((key) => {
+      const id = sourceIdentity(key);
+      return Boolean(id && id === target);
+    });
   };
   wrapped.clear = () => {
     cache.clear();
+    storage?.clear();
   };
   wrapped.stats = () => ({
     size: cache.size,
@@ -156,6 +221,7 @@ export function createCachingXtreamFetcher(
     bypasses,
     inflight: inflight.size,
   });
+  wrapped.ready = ready;
 
   return wrapped;
 }

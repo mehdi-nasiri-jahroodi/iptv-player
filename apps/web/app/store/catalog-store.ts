@@ -11,6 +11,7 @@ import {
   type XtreamFetcher,
 } from 'core';
 import { PlaylistsStore } from '../features/sources/playlists-storage';
+import { createIndexedDBCacheStorage } from '../features/cache/indexeddb-cache-storage';
 
 /**
  * catalogStore — the active source's parsed playlist plus browse-time state
@@ -101,12 +102,19 @@ function rawXtreamFetcher(url: string): Promise<{ text(): Promise<string> }> {
 
 /**
  * Module-singleton caching fetcher. One cache per tab — survives navigations
- * between Home and `/browse/:kind`, dies with the page (which is what we want
- * for credential safety; a persistent cache lands in a follow-up if profiling
- * shows reload latency matters).
+ * between Home and `/browse/:kind` AND survives page reloads via
+ * IndexedDB persistence. The TTLs in `xtream-cache.ts` keep the on-disk
+ * snapshot from going stale; manual refresh via `RefreshSourceButton`
+ * still wipes the affected source's entries.
+ *
+ * In environments without IndexedDB (SSR, sandboxed iframes, private
+ * mode in some browsers) the storage adapter degrades to a no-op and the
+ * cache behaves like the previous in-memory-only version.
  */
 const defaultCachingXtreamFetcher: CachingXtreamFetcher =
-  createCachingXtreamFetcher(rawXtreamFetcher);
+  createCachingXtreamFetcher(rawXtreamFetcher, {
+    storage: createIndexedDBCacheStorage(),
+  });
 
 /** Exposed for tests + a future "clear cache" diagnostics action. */
 export function _getDefaultXtreamCache(): CachingXtreamFetcher {
@@ -156,6 +164,14 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       if (source.type === 'xtream') {
         if (!source.credentials) {
           throw new Error('Xtream source is missing credentials.');
+        }
+        // Wait for the persistent cache to hydrate from IndexedDB before
+        // we start any network requests, otherwise a reload races the
+        // hydration and refetches everything before the on-disk
+        // entries land in memory. `ready` resolves immediately when the
+        // fetcher has no storage adapter (e.g. tests).
+        if (isCachingFetcher(xtreamFetcher)) {
+          await xtreamFetcher.ready;
         }
         playlist = await loadXtreamPlaylist(source.credentials, xtreamFetcher, {
           sourceId: source.id,
