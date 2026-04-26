@@ -1,0 +1,45 @@
+{
+  "name": "web-proxy",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "iptv-player": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "targets": {
+      "serve": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/web-proxy",
+          "command": "tsx watch src/main.ts"
+        }
+      },
+      "start": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["build"],
+        "options": {
+          "cwd": "apps/web-proxy",
+          "command": "node dist/main.js"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
