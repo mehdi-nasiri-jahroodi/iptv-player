@@ -265,6 +265,40 @@ describe('Xtream → domain mappers', () => {
     expect(channel.streamUrl).toContain('/live/user/pass/100.m3u8');
   });
 
+  // Regression: real Xtream panels return `null` for unset optional string
+  // fields (custom_sid, epg_channel_id, stream_icon, …). Earlier `.optional()`
+  // schemas crashed catalog loads with "Expected string, received null".
+  it('accepts null on optional string fields and drops invalid logo URLs', () => {
+    const raw = xtreamLiveStreamListSchema.parse([
+      {
+        stream_id: 101,
+        name: 'Channel With Nulls',
+        stream_icon: null,
+        epg_channel_id: null,
+        custom_sid: null,
+        direct_source: null,
+        stream_type: null,
+        category_id: null,
+        tv_archive: null,
+        tv_archive_duration: null,
+      },
+      {
+        stream_id: 102,
+        name: 'Channel With Relative Logo',
+        stream_icon: '/relative/logo.png',
+      },
+    ]);
+    expect(raw[0].custom_sid).toBeNull();
+    const a = toLiveChannel(credentials, raw[0], catMap);
+    expect(a.logoUrl).toBeUndefined();
+    expect(a.tvgId).toBeUndefined();
+    expect(a.catchupMode).toBeUndefined();
+    expect(a.groupTitle).toBe('Ungrouped');
+    const b = toLiveChannel(credentials, raw[1], catMap);
+    // Relative paths are not valid `z.string().url()`; coerce to undefined.
+    expect(b.logoUrl).toBeUndefined();
+  });
+
   it('maps a vod stream to a VodChannel with container extension', () => {
     const raw = xtreamVodStreamListSchema.parse([
       {

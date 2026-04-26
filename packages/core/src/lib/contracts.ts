@@ -263,15 +263,15 @@ export const xtreamLiveStreamSchema = z
   .object({
     stream_id: z.union([z.string(), z.number()]),
     name: z.string(),
-    stream_icon: z.string().optional(),
-    epg_channel_id: z.string().nullable().optional(),
-    category_id: z.union([z.string(), z.number()]).optional(),
+    stream_icon: z.string().nullish(),
+    epg_channel_id: z.string().nullish(),
+    category_id: z.union([z.string(), z.number()]).nullish(),
     // Catchup metadata (recent panels)
-    tv_archive: z.union([z.string(), z.number()]).optional(),
-    tv_archive_duration: z.union([z.string(), z.number()]).optional(),
-    direct_source: z.string().optional(),
-    stream_type: z.string().optional(),
-    custom_sid: z.string().optional(),
+    tv_archive: z.union([z.string(), z.number()]).nullish(),
+    tv_archive_duration: z.union([z.string(), z.number()]).nullish(),
+    direct_source: z.string().nullish(),
+    stream_type: z.string().nullish(),
+    custom_sid: z.string().nullish(),
   })
   .passthrough();
 export type XtreamLiveStream = z.infer<typeof xtreamLiveStreamSchema>;
@@ -282,14 +282,14 @@ export const xtreamVodStreamSchema = z
   .object({
     stream_id: z.union([z.string(), z.number()]),
     name: z.string(),
-    stream_icon: z.string().optional(),
-    rating: z.union([z.string(), z.number()]).optional(),
-    rating_5based: z.union([z.string(), z.number()]).optional(),
-    container_extension: z.string().optional(),
-    category_id: z.union([z.string(), z.number()]).optional(),
-    added: z.string().optional(),
-    custom_sid: z.string().optional(),
-    direct_source: z.string().optional(),
+    stream_icon: z.string().nullish(),
+    rating: z.union([z.string(), z.number()]).nullish(),
+    rating_5based: z.union([z.string(), z.number()]).nullish(),
+    container_extension: z.string().nullish(),
+    category_id: z.union([z.string(), z.number()]).nullish(),
+    added: z.string().nullish(),
+    custom_sid: z.string().nullish(),
+    direct_source: z.string().nullish(),
   })
   .passthrough();
 export type XtreamVodStream = z.infer<typeof xtreamVodStreamSchema>;
@@ -331,14 +331,14 @@ export const xtreamSeriesSchema = z
   .object({
     series_id: z.union([z.string(), z.number()]),
     name: z.string(),
-    cover: z.string().optional(),
-    plot: z.string().optional(),
-    cast: z.string().optional(),
-    director: z.string().optional(),
-    genre: z.string().optional(),
-    releaseDate: z.string().optional(),
-    rating: z.union([z.string(), z.number()]).optional(),
-    category_id: z.union([z.string(), z.number()]).optional(),
+    cover: z.string().nullish(),
+    plot: z.string().nullish(),
+    cast: z.string().nullish(),
+    director: z.string().nullish(),
+    genre: z.string().nullish(),
+    releaseDate: z.string().nullish(),
+    rating: z.union([z.string(), z.number()]).nullish(),
+    category_id: z.union([z.string(), z.number()]).nullish(),
   })
   .passthrough();
 export type XtreamSeries = z.infer<typeof xtreamSeriesSchema>;

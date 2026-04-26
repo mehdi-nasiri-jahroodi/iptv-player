@@ -293,15 +293,35 @@ function categoryNameById(categories: XtreamCategory[]): Map<string, string> {
   return new Map(categories.map((c) => [String(c.category_id), c.category_name]));
 }
 
-function asNumber(value: string | number | undefined): number | undefined {
+function asNumber(value: string | number | undefined | null): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : undefined;
 }
 
-function asInt(value: string | number | undefined): number | undefined {
+function asInt(value: string | number | undefined | null): number | undefined {
   const n = asNumber(value);
   return n === undefined ? undefined : Math.trunc(n);
+}
+
+/**
+ * Coerce a raw icon/logo string to a value the strict `Channel.logoUrl` schema
+ * (`z.string().url().optional()`) will accept. Xtream panels return null,
+ * empty strings, and even relative paths here in the wild — surfacing a
+ * Zod parse failure for any of those would crash a whole catalog load.
+ */
+function asUrl(value: string | undefined | null): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    // `URL` accepts absolute URLs only when no base is given — exactly the
+    // semantics `z.string().url()` enforces downstream.
+    new URL(trimmed);
+    return trimmed;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Convert one Xtream live stream + category map into a domain `LiveChannel`. */
@@ -321,8 +341,8 @@ export function toLiveChannel(
     name: raw.name,
     groupTitle: categories.get(String(raw.category_id ?? '')) ?? 'Ungrouped',
     streamUrl: buildLiveStreamUrl(credentials, streamId),
-    logoUrl: raw.stream_icon || undefined,
-    tvgId: raw.epg_channel_id ?? undefined,
+    logoUrl: asUrl(raw.stream_icon),
+    tvgId: raw.epg_channel_id || undefined,
     catchupDays: tvArchive && tvArchive > 0 ? tvArchive : undefined,
     catchupMode: tvArchive && tvArchive > 0 ? 'xtream' : undefined,
     xtreamStreamId: streamId,
@@ -346,8 +366,8 @@ export function toVodChannel(
     name: raw.name,
     groupTitle: categories.get(String(raw.category_id ?? '')) ?? 'Ungrouped',
     streamUrl: buildVodStreamUrl(credentials, streamId, ext),
-    logoUrl: raw.stream_icon || undefined,
-    posterUrl: raw.stream_icon || undefined,
+    logoUrl: asUrl(raw.stream_icon),
+    posterUrl: asUrl(raw.stream_icon),
     rating: asNumber(raw.rating),
     containerExtension: ext,
     xtreamStreamId: streamId,
@@ -407,8 +427,8 @@ export function toSeriesChannel(
     id: `xtream:series:${seriesId}`,
     name: listing.name,
     groupTitle: categories.get(String(listing.category_id ?? '')) ?? 'Ungrouped',
-    logoUrl: listing.cover || undefined,
-    posterUrl: listing.cover || undefined,
+    logoUrl: asUrl(listing.cover),
+    posterUrl: asUrl(listing.cover),
     plot: listing.plot ?? detail.info?.plot,
     cast: listing.cast ?? detail.info?.cast,
     director: listing.director ?? detail.info?.director,

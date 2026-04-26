@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { SourceForm, type SourceFormSubmission } from 'ui';
 import {
+  parseM3uToPlaylist,
   validateSource,
   type Source,
   type SourceValidationResult,
 } from 'core';
 import { SourcesStore, newSourceId } from '../features/sources/sources-storage';
+import { PlaylistsStore } from '../features/sources/playlists-storage';
 
 /**
  * Browser `fetch` is shape-compatible with `core`'s `FetchLike`
@@ -29,9 +31,30 @@ export default function AddSourceRoute() {
       rawM3uText: submission.rawText,
     });
     if (result.ok) {
-      // Persist eagerly so a navigation right after `onSuccess` finds the source.
-      const store = new SourcesStore();
-      await store.addSource(result.source);
+      // Persist the source first so a navigation right after `onSuccess` finds it.
+      const sourcesStore = new SourcesStore();
+      await sourcesStore.addSource(result.source);
+
+      // For M3U sources, also snapshot the parsed playlist so the browse view
+      // renders without re-fetching (and works offline for file imports). For
+      // Xtream the catalog store fetches live — see playlists-storage.ts.
+      if (result.source.type === 'm3u_file' && submission.rawText) {
+        const playlist = parseM3uToPlaylist(submission.rawText, result.source.id);
+        await new PlaylistsStore().setForSource(result.source.id, playlist);
+      } else if (result.source.type === 'm3u_url') {
+        // The validator already fetched + parsed the URL successfully; refetch
+        // here once to capture the parsed snapshot. Cheap relative to add-source.
+        try {
+          const res = await browserFetch(result.source.url ?? '');
+          if (res.ok) {
+            const playlist = parseM3uToPlaylist(await res.text(), result.source.id);
+            await new PlaylistsStore().setForSource(result.source.id, playlist);
+          }
+        } catch {
+          // Snapshot is best-effort; the catalog store will retry on demand.
+        }
+      }
+
       setSavedSource(result.source);
     }
     return result;

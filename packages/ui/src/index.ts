@@ -7,3 +7,5 @@ export * from './lib/Tabs';
 export * from './lib/TextField';
 export * from './lib/TextArea';
 export * from './lib/SourceForm';
+export * from './lib/ChannelCard';
+export * from './lib/ChannelList';

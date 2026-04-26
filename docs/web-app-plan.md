@@ -80,8 +80,8 @@ Reusable React + Tailwind components used by both `apps/web` and later `apps/web
 | `FormField`, `TextField`, `TextArea` | **Built** (`packages/ui/src/lib/`) — render-prop `FormField` handles label + hint/error + a11y ids; `TextField` / `TextArea` are focus-aware inputs. |
 | `Tabs` | **Built** (`packages/ui/src/lib/Tabs.tsx`) — generic over `TValue extends string`; headless tablist + panels, focus-aware tabs, controlled or uncontrolled. |
 | `SourceForm` | **Built** (`packages/ui/src/lib/SourceForm.tsx`) — tabbed input for the three source types: **M3U URL**, **M3U file**, and **Xtream Codes** (host + username + password). Internal `sourceFormDraftSchema` (Zod discriminated union) validates the draft; `draftToSubmission()` maps to the persisted `Source` shape. Caller-owned `onSubmit(submission) → Promise<SourceValidationResult>` runs the probe (`validateSource` from `core`); `onSuccess(source)` fires on `ok`; inline alert maps `SourceValidationError` codes → user messages and exposes the raw code via `data-error-code`. Paste-raw-text fallback on the URL tab; file picker on the file tab auto-fills the label. |
-| `ChannelCard` | Logo, name, now-playing label |
-| `ChannelGrid` / `ChannelList` | Virtualized list/grid; focus-aware |
+| `ChannelCard` | **Built** (`packages/ui/src/lib/ChannelCard.tsx`) — focus-aware tile (`role="button"`); logo with initial-badge fallback, name, group title, optional `nowPlaying` slot. Headless: never imports `Channel` from `core`. |
+| `ChannelGrid` / `ChannelList` | **Built** (`packages/ui/src/lib/ChannelList.tsx`) — `ChannelList` is the vertical, focus-bounded list (Norigin `FocusContext` + `saveLastFocusedChild`). Generic over a `ChannelListItem` shape so the same component will render live channels today and VOD/series tiles in Phase 4. Virtualization is a Phase 4 follow-up; the public API is stable. `ChannelGrid` not yet built — list is sufficient for Phase 2. |
 | `EpgGrid` | Time-axis grid; simplified for MVP |
 | `PlayerOverlay` | Controls, track picker, error state |
 | `SettingsPanel` | Theme toggle, player toggles |
@@ -109,13 +109,13 @@ apps/web/
         design-tokens.tsx     # dev-only Token lab
         play-test.tsx         # dev-only Shaka HLS smoke test
     features/                 # feature folders (hooks + state)
-      sources/                # SourcesStore, newSourceId
+      sources/                # SourcesStore, PlaylistsStore, newSourceId
       catalog/                # (planned) channel list, groups, search
       guide/                  # (planned) EPG state, now-pointer
       player/                 # (planned) Shaka integration, track selection
       profiles/               # (planned) favorites, recents
-    lib/                      # (planned) shaka, navigation, storage helpers
-    store/                    # (planned) Zustand slices
+    lib/                      # shaka loader; (planned) navigation helpers
+    store/                    # Zustand slices (catalog-store.ts; sources/profiles/settings planned)
 ```
 
 ---
@@ -150,10 +150,10 @@ apps/web/
 
 **Browse**
 
-- [ ] `Home` page: groups sidebar + channel list, keyboard/D-pad navigable with Norigin.
-- [ ] Channel data loaded from stored playlist; groups displayed.
-- [ ] **MVP browse scope is live channels only** even when an Xtream source also exposes VOD / series catalogs — those surfaces (VOD grid, series detail with seasons / episodes) land in Phase 4. The `Channel` discriminated union (`live | vod | series`) is already in place so the UI can be added without schema changes.
-- [ ] Search bar (filter by name, client-side).
+- [x] `Home` page: groups sidebar + channel list, keyboard/D-pad navigable with Norigin (search + selected-channel preview included).
+- [x] Channel data loaded from stored playlist; groups displayed (live-only filter, snapshot persisted at add-source time for m3u; live-fetched for Xtream via `loadXtreamPlaylist`).
+- [x] **MVP browse scope is live channels only** even when an Xtream source also exposes VOD / series catalogs — those surfaces (VOD grid, series detail with seasons / episodes) land in Phase 4. The `Channel` discriminated union (`live | vod | series`) is already in place so the UI can be added without schema changes.
+- [x] Search bar (filter by name, client-side).
 - [ ] Favorites toggle per channel; recents updated on play.
 
 **Playback**

@@ -30,6 +30,16 @@ export class SourcesStore {
     await this.storage.set(STORAGE_KEY, next);
     return next;
   }
+
+  async setActiveSource(sourceId: string): Promise<SourcesState> {
+    const current = await this.read();
+    if (!current.sources.some((s) => s.id === sourceId)) {
+      throw new Error(`Cannot activate unknown source: ${sourceId}`);
+    }
+    const next: SourcesState = { ...current, activeSourceId: sourceId };
+    await this.storage.set(STORAGE_KEY, next);
+    return next;
+  }
 }
 
 /**

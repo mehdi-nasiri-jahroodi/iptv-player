@@ -52,8 +52,10 @@ apps/web/
     features/                 # feature folders co-locating hooks + state
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
-    lib/                      # (planned) shaka, navigation
-    store/                    # (planned) Zustand slices
+        playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
+    lib/                      # shaka loader; (planned) navigation
+    store/                    # Zustand slices
+      catalog-store.ts        # active source's playlist + group/search state
 ```
 
 ### Dev-only: token lab + Shaka smoke
@@ -136,7 +138,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`, `ChannelCard`, `ChannelList`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
 
 ---
 
