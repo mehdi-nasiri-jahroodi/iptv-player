@@ -107,6 +107,7 @@ apps/web/
       about.tsx               # placeholder
       dev/
         design-tokens.tsx     # dev-only Token lab
+        play-test.tsx         # dev-only Shaka HLS smoke test
     features/                 # feature folders (hooks + state)
       sources/                # SourcesStore, newSourceId
       catalog/                # (planned) channel list, groups, search
@@ -127,7 +128,7 @@ apps/web/
 - [x] `packages/core`: Zod schemas + M3U parser + storage adapter interface (`LocalStorageAdapter` + `InMemoryStorageAdapter`).
 - [x] `packages/ui`: design tokens (Tailwind config via `packages/config`), `FocusableItem`, basic layout primitives (`AppScreen`, `Stack`).
 - [x] `apps/web`: router skeleton (React Router 7), Norigin `SpatialNavigation.init()`, Tailwind theme (auto/light/dark).
-- [ ] Shaka Player loaded and plays a single hardcoded HLS URL.
+- [x] Shaka Player loaded and plays a single hardcoded HLS URL (`/dev/play-test`, dev-only route).
 
 **Exit criterion**: blank app renders; Shaka plays a test stream; M3U parser unit-tested.
 

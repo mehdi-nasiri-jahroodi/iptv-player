@@ -48,6 +48,7 @@ apps/web/
       add-source.tsx
       dev/
         design-tokens.tsx     # only registered when import.meta.env.DEV
+        play-test.tsx         # Shaka HLS smoke test (dev-only)
     features/                 # feature folders co-locating hooks + state
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
@@ -55,11 +56,11 @@ apps/web/
     store/                    # (planned) Zustand slices
 ```
 
-### Dev-only: token lab (design / colors)
+### Dev-only: token lab + Shaka smoke
 
-- **Route:** `/dev/design-tokens` — linked in the top nav as **Token lab** when `import.meta.env.DEV` is true.
-- **Implementation:** `app/routes.tsx` only registers this route in development, so **production client and server bundles do not contain** that page or its strings (the module is dropped from the graph).
-- **Source:** `app/pages/dev/design-tokens.tsx` stays in the repo for local dev and typecheck; it is not part of the shipped product surface.
+- **Routes:** `/dev/design-tokens` (**Token lab**), `/dev/play-test` (**Shaka test**) — top nav links when `import.meta.env.DEV` is true.
+- **Implementation:** `app/routes.tsx` only registers these routes in development, so **production client and server bundles do not contain** those pages or their strings (the modules are dropped from the graph).
+- **Source:** `app/pages/dev/design-tokens.tsx`, `app/pages/dev/play-test.tsx` — local dev and typecheck only; not part of the shipped product surface.
 
 ### Theme (light / dark)
 
@@ -74,7 +75,7 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
-| 1 — Foundation | in progress | Nx + pnpm done; complete schemas/M3U/Shaka/Norigin per plan |
+| 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
 | 2 — MVP core flows | not started | AddSource (M3U URL + file + **Xtream Codes**), live channel browser, playback, onboarding |
 | 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
 | 4 — Polish | not started | VOD/Series browsers, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
