@@ -11,6 +11,7 @@
     "@noriginmedia/norigin-spatial-navigation": "^3.1.0",
     "@react-router/node": "^7.14.2",
     "@react-router/serve": "^7.14.2",
+    "core": "workspace:^",
     "isbot": "^4.4.0",
     "lucide-react": "^1.11.0",
     "player": "workspace:^",

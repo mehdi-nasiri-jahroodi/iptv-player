@@ -39,12 +39,11 @@ apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
     root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav
     routes.tsx                # URL → page-module manifest
-    app-nav.tsx               # top nav (NavLinks + ThemeToggle)
+    layout/app-nav.tsx        # top nav (NavLinks + ThemeToggle)
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
     pages/                    # one file per route module — exported as default
-      home.tsx                # tile launcher (Live / Movies / Series) + source switcher
-      about.tsx
+      home.tsx                # tile launcher (Live / Movies / Series) + source switcher + profile name
       add-source.tsx
       browse/
         $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
@@ -53,7 +52,9 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # group sidebar + search + ChannelList for one kind
+      browse-view.tsx         # group sidebar + search + ChannelList + favorites + inline live player
+      favorite-channel-button.tsx
+      responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
     features/                 # feature folders co-locating hooks + state
       sources/
@@ -61,9 +62,12 @@ apps/web/
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
       cache/
         indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
-    lib/                      # (planned) navigation keybindings
+    lib/
+      playback-stream-proxy.ts  # merges Settings stream proxy + Source.userAgent for `<Player>`
     store/                    # Zustand slices
       catalog-store.ts        # playlist + groupsByKind + per-kind activeGroup + search
+      profile-store.ts        # single UserProfile (name, favorites, recents), key iptv.profile.v1
+      settings-store.ts       # streamProxy + acknowledgedResponsibilityV1, key iptv.settings.v1
 ```
 
 ### Dev-only: token lab + Shaka smoke
@@ -86,12 +90,12 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
 | 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
-| 2 — MVP core flows | in progress | AddSource (M3U URL + file + **Xtream Codes**), tile launcher, per-kind browsers, **inline live player + fullscreen `/play` route** wired through `packages/player`, onboarding |
+| 2 — MVP core flows | complete | AddSource (M3U URL + file + **Xtream Codes**), per-source UA, tile launcher, per-kind browsers, inline live + fullscreen `/play`, proxy + **ResponsibilityNotice**, profile/favorites/recents, track picker, Shaka 1002 proxy hint |
 | 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
-| 4 — Polish | not started | VOD/Series browsers, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
+| 4 — Polish | not started | Rich VOD grid / series detail, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
 **Things that are explicitly deferred — do not build them early:**
-- VOD and Series UI surfaces (Phase 4). The Xtream catalog already returns them and `Channel` is a discriminated union with `vod` and `series` variants in the schema, but the browse UI lands later.
+- Rich **VOD grid** and **series detail** (seasons/episodes) UIs (Phase 4). Basic `/browse/vod` and `/browse/series` lists are in scope for Phase 2; poster grids and episode pickers wait.
 - Catchup / time-shift playback UI (Phase 4). `buildCatchupUrl` exists in `packages/core` and live channels carry `catchupDays` / `catchupMode` already.
 - Full EPG grid (Phase 3).
 - Multiple profiles (Phase 4).
@@ -104,7 +108,7 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 ### `packages/core` — domain models (Zod)
 
 ```
-Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?, epgUrl?
+Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?, epgUrl?, userAgent?
 Channel         — discriminated union on `type`:
                     'live'   { id, name, groupTitle, streamUrl, logoUrl?, tvgId?,
                                catchupDays?, catchupMode?, catchupSource?, xtreamStreamId? }
@@ -146,7 +150,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`, `ChannelCard`, `ChannelList`, `CatalogTile`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`. All headless — side effects belong to the consuming page.
 
 ---
 
@@ -157,8 +161,8 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 | `sourcesStore` | `sources[]`, `activeSourceId` |
 | `catalogStore` | `playlist`, `groups`, `filteredChannels`, `searchQuery` |
 | `guideStore` | `epgGuide`, `nowPrograms` |
-| `profileStore` | `profiles[]`, `activeProfileId`, `favorites`, `recents` |
-| `settingsStore` | `theme`, `playerPrefs` |
+| `profileStore` | **built** — one `profile` (`UserProfile`: name, favorites, recents); persist `iptv.profile.v1` |
+| `settingsStore` | **built** — `streamProxy`, `acknowledgedResponsibilityV1`; persist `iptv.settings.v1` |
 | `playerStore` | `currentChannel`, `playerState`, `error` |
 
 Persist `sourcesStore`, `profileStore`, and `settingsStore` to localStorage via Zustand middleware.
@@ -235,14 +239,14 @@ The headless `<Player src={...}>` component wraps the hook and accepts a render-
 
 `<PlayerControls api={api}>` is the Lumina-themed playback bar:
 
-- Play/pause, mute toggle, volume slider, time readout, scrubber (hidden when `!media.seekable` — replaced by a `LIVE` badge), fullscreen toggle.
+- Play/pause, mute toggle, volume slider, time readout, scrubber (hidden when `!media.seekable` — replaced by a `LIVE` badge), **tracks menu** (audio variants + subtitles via `selectTrack`), fullscreen toggle.
 - Each control is a focusable `<button>` so Norigin picks them up via the surrounding `useFocusable` boundary the consumer mounts.
 - Auto-hides 3s after the last pointer/focus event while playing; always visible when paused, buffering, or any control inside the bar holds focus. Pass `alwaysVisible` to disable the auto-hide (used in tests / TV).
 - Lives in `packages/player` so webOS and Android-React reuse it. Used by both `LivePlayerPane` (inline live) and `apps/web/app/pages/play.tsx` (fullscreen).
 
 `<PlayerErrorOverlay error={error} onRetry={api.retry} onDismiss={() => setError(null)}>` is the user-facing error chrome — use it instead of hand-rolling JSON `<pre>` blocks:
 
-- Translates Shaka error codes/categories into a friendly headline + actionable hint via `describeShakaError` (also exported from `player`).
+- Translates Shaka error codes/categories into a friendly headline + actionable hint via `describeShakaError` (also exported from `player`). Pass **`streamProxyConfigured={false}`** so HTTP_ERROR **1002** hints mention **Settings → stream proxy** when no proxy is set.
 - Hides the technical detail (code, code name, category, URL, HTTP status, raw Shaka message) behind a "Show details" toggle so the default view stays calm.
 - Provides **Retry** (calls `onDismiss` then `onRetry`) and **Copy diagnostics** (writes a redacted multi-line summary via `formatShakaErrorForClipboard` to `navigator.clipboard`).
 - Two layouts: `compact` (inline `LivePlayerPane`) and the default centered overlay (fullscreen `/play`).

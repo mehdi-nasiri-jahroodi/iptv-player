@@ -5,6 +5,47 @@
 
 ---
 
+## 0. Handoff status (read this first)
+
+**As of this revision, Phase 1 is complete and Phase 2 is complete** for the MVP checklist below (stretch: Now/Next strip remains optional / Phase 3). The source → browse → play loop works end-to-end with a real commercial Xtream provider, including a user-run CORS proxy. See [§6 Phase 2](#phase-2--mvp-core-flows) for the per-task checklist.
+
+**What works today:**
+
+- Add an Xtream / M3U URL / M3U file source; validated and persisted to localStorage. Optional **`Source.userAgent`** per source (overrides the global proxy UA for HMAC signing when a stream proxy is set).
+- Browse Live / VOD / Series via the Home tile launcher → `/browse/:kind` (groups sidebar + channel list + inline live player).
+- Promote-to-fullscreen at `/play/:sourceId/:kind/:channelId` with custom Lumina-themed controls.
+- Friendly error overlay with **Retry** and **Copy diagnostics**; Shaka **1002** hints mention **Settings → stream proxy** when no proxy is configured.
+- **User-run CORS proxy** (`apps/web-proxy`) with HMAC-SHA256 auth + HLS manifest rewriting; configured in `/settings` and routed through automatically when set. End-to-end verified against a real Xtream stream that previously failed with Shaka code 1002.
+- Xtream catalog cached in IndexedDB; reloads don't refetch.
+- **Audio / subtitle track picker** on `<PlayerControls>` (Shaka `tracks` + `selectTrack`).
+- **Favorites** (heart on channel rows + selected panel) and **recents** (persisted on channel select / play) via **`profileStore`** (`iptv.profile.v1`).
+- **Profile display name** on Home + **Settings → Profile**; first-launch **`ResponsibilityNotice`** (“Before you stream”). Modal visibility uses a **dedicated** `localStorage` key **`iptv.viewer_responsibility_ack_v1`** (`=== '1'`), not the Zustand JSON blob alone — so clearing that key surfaces the modal again for QA. **`acknowledgedResponsibilityV1`** stays on **`settingsStore`** (`iptv.settings.v1`) in sync. One-time legacy import copies an old blob-only ack into the dedicated key and sets **`iptv.responsibility_legacy_blob_imported_v1`** so the blob is not re-applied after that. On **I understand**, local React state increments so the overlay closes even when Zustand’s boolean was already `true` (Zustand selectors would otherwise skip a re-render).
+
+**Phase 2 stretch (still optional here):** Now/Next strip on channel cards → prefer Phase 3 with EPG.
+
+**Stretch (defer to Phase 3 if not done):** Now/Next strip on channel cards.
+
+**Critical context for whoever picks this up:**
+
+- **Never commit or push without explicit user permission.** The user runs commits manually.
+- `opencode.json` has an uncommitted `$schema` change — **always exclude it from staged commits**.
+- Lumina design tokens only — no raw hex, no Tailwind default palette (`bg-gray-500`, `text-red-500`, etc). **There is no `text-success` token** — use `text-foreground`. See `packages/config/tokens/`.
+- `packages/ui` is **headless** — no fetch / storage / routing imports. Schema imports from `@iptv-player/core` are also forbidden in `packages/ui`; components are generic over their item shapes.
+- `packages/player` wraps Shaka; both `apps/web` (live inline + fullscreen `/play`) and a future `apps/webos` consume it.
+- `core` barrel must NOT re-export Node-only modules.
+- pnpm workspace; `corepack pnpm` if pnpm not in PATH. Use `pnpm exec nx ...` for tasks.
+- Zustand v5: selectors must NOT return new refs each render.
+- `FormField` uses **render-prop children** `({ inputId, describedBy }) => ReactNode`, not a bare ReactNode.
+- Vite `resolve.conditions` includes `'iptv-player'` first — keep it.
+- Settings store uses Zustand `persist` middleware (key `iptv.settings.v1`, version 1). Sources use the class-based `LocalStorageAdapter` pattern (key `iptv.sources.v1`). Viewer responsibility ack also uses **`iptv.viewer_responsibility_ack_v1`** + **`iptv.responsibility_legacy_blob_imported_v1`** (see `apps/web/app/store/settings-store.ts` and `responsibility-notice.tsx`).
+- The proxy is **user-run only** — production hosting was explicitly rejected. HMAC payload is `${u}|${ua ?? ''}`.
+
+**Repo state at handoff:**
+
+- After Phase 2 closure: run `pnpm exec nx run-many --target=test,lint,build --all` before merge; regenerate `packages/core/schemas/` when `contracts.ts` changes (`node packages/core/scripts/generate-schemas.mjs` after `nx run core:build`).
+
+---
+
 ## 1. Goals for the web app
 
 - Deliver a **working MVP** that validates core flows: add source → browse channels → play.
@@ -42,7 +83,7 @@ Define data shapes first — they drive everything else and will later be consum
 ### 3.1 Domain models (Zod schemas)
 
 ```
-Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?
+Source          — id, label, type (m3u_url | m3u_file | xtream), url?, credentials?, userAgent?, epgUrl?
 Channel         — id, name, groupTitle, streamUrl, logoUrl?, tvgId?
 ChannelGroup    — id, name, channels[]
 Playlist        — sourceId, groups[], fetchedAt
@@ -80,7 +121,7 @@ Reusable React + Tailwind components used by both `apps/web` and later `apps/web
 | `FormField`, `TextField`, `TextArea` | **Built** (`packages/ui/src/lib/`) — render-prop `FormField` handles label + hint/error + a11y ids; `TextField` / `TextArea` are focus-aware inputs. |
 | `Tabs` | **Built** (`packages/ui/src/lib/Tabs.tsx`) — generic over `TValue extends string`; headless tablist + panels, focus-aware tabs, controlled or uncontrolled. |
 | `SourceForm` | **Built** (`packages/ui/src/lib/SourceForm.tsx`) — tabbed input for the three source types: **M3U URL**, **M3U file**, and **Xtream Codes** (host + username + password). Internal `sourceFormDraftSchema` (Zod discriminated union) validates the draft; `draftToSubmission()` maps to the persisted `Source` shape. Caller-owned `onSubmit(submission) → Promise<SourceValidationResult>` runs the probe (`validateSource` from `core`); `onSuccess(source)` fires on `ok`; inline alert maps `SourceValidationError` codes → user messages and exposes the raw code via `data-error-code`. Paste-raw-text fallback on the URL tab; file picker on the file tab auto-fills the label. |
-| `ChannelCard` | **Built** (`packages/ui/src/lib/ChannelCard.tsx`) — focus-aware tile (`role="button"`); logo with initial-badge fallback, name, group title, optional `nowPlaying` slot. Headless: never imports `Channel` from `core`. |
+| `ChannelCard` | **Built** (`packages/ui/src/lib/ChannelCard.tsx`) — focus-aware tile (`role="button"`); logo with initial-badge fallback, name, group title, optional `nowPlaying` and **`trailing`** slots. Headless: never imports `Channel` from `core`. |
 | `ChannelGrid` / `ChannelList` | **Built** (`packages/ui/src/lib/ChannelList.tsx`) — `ChannelList` is the vertical, focus-bounded list (Norigin `FocusContext` + `saveLastFocusedChild`). Generic over a `ChannelListItem` shape so the same component will render live channels today and VOD/series tiles in Phase 4. Virtualization is a Phase 4 follow-up; the public API is stable. `ChannelGrid` not yet built — list is sufficient for Phase 2. |
 | `CatalogTile` | **Built** (`packages/ui/src/lib/CatalogTile.tsx`) — large focus-aware launcher tile (icon + title + subtitle + count). Used by the Home tile launcher (Live / Movies / Series); reusable for future surfaces (group tiles, source tiles). |
 | `EpgGrid` | Time-axis grid; simplified for MVP |
@@ -101,9 +142,25 @@ Wraps **Shaka Player** in a single React-friendly hook plus a headless component
 | `loadShakaModule()` | **Built** — lazy, browser-only `await import('shaka-player')` with polyfills installed; throws on SSR. |
 | `useShakaPlayer(videoRef, streamUrl, options?)` | **Built** — owns the Shaka instance, surfaces `{ status, buffering, error, tracks, media, selectTrack, retry, destroy, play, pause, seek, setVolume, setMuted, toggleFullscreen }`. `media` mirrors the `<video>` element's state (paused, currentTime, duration, seekable, volume, muted) for control overlays. Tears down on `streamUrl` change so live channel-surf is safe. Errors fire through both the returned state and the `onError` callback. |
 | `Player` | **Built** — headless React component; consumer styles the frame, optional render-prop child paints overlays from the hook API. |
-| `PlayerControls` | **Built** — Lumina-themed playback bar (play/pause, mute, volume, time, scrubber, fullscreen). Hides scrubber for live (uses `media.seekable`); auto-hides 3s after last pointer/focus event while playing. Each control is a focusable `<button>` so Norigin picks them up via the consumer's `useFocusable` boundary. |
+| `PlayerControls` | **Built** — Lumina-themed playback bar (play/pause, mute, volume, time, scrubber, **tracks menu** for audio/subtitles, fullscreen). Hides scrubber for live (uses `media.seekable`); auto-hides 3s after last pointer/focus event while playing. Each control is a focusable `<button>` so Norigin picks them up via the consumer's `useFocusable` boundary. |
 
 Listed `react`, `react-dom`, `shaka-player`, and `lucide-react` as `peerDependencies` to avoid duplicate copies when both `apps/web` and `apps/webos` consume it.
+
+**Stream proxy integration**: `useShakaPlayer` accepts an optional `streamProxy: { baseUrl, secret, userAgent? }` and registers a Shaka `NetworkingEngine` request filter that rewrites MANIFEST + SEGMENT URIs through `${baseUrl}/stream?u=<base64url>&ua=<override>&sig=<hmac>`. Already-proxied URLs are skipped to avoid double-signing segments the proxy itself rewrote in the manifest body. The proxy config is read through a ref so settings tweaks don't re-mount the player. See `packages/player/src/lib/proxy-signing.ts` for the HMAC scheme (canonical payload `${u}|${ua ?? ''}`, lowercase hex SHA-256).
+
+---
+
+## 4c. CORS proxy (`apps/web-proxy`)
+
+Browsers block cross-origin fetches to most M3U / HLS hosts, which prevents Shaka from loading playlists or segments. The proxy is a **user-run** Hono service (Node 20+) that:
+
+- Authenticates each request with an HMAC-SHA256 signature in the query string.
+- Forges a configurable `User-Agent` (default `IPTVSmartersPlayer 3.1`) so providers that gate by UA accept the request.
+- Forwards `Range` headers for seekable VOD.
+- Detects HLS manifest content types and rewrites every URI inside the playlist (≤1 MiB) so segment fetches also flow through the proxy. DASH `.mpd` rewriting is **out of scope** — HLS only.
+- Includes `Access-Control-Allow-Origin: *` on `/healthz` so the Settings page can verify reachability cross-origin.
+
+Production hosting (Cloudflare Workers / Fly / etc.) was explicitly **rejected** — the proxy ships as a self-host artifact only. Logs **never** include URLs, UAs, or client IPs.
 
 ---
 
@@ -120,7 +177,7 @@ apps/web/
     pages/                    # one default-exported component per route
       home.tsx                # (Phase 2) tile launcher: Live / Movies / Series + source switcher
       add-source.tsx          # source wizard (built)
-      about.tsx               # placeholder
+      settings.tsx            # built — profile name, stream proxy, legal ack flag; persisted via Zustand
       browse/
         $kind.tsx             # /browse/:kind — wraps the shared BrowseView
       play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
@@ -128,16 +185,16 @@ apps/web/
         design-tokens.tsx     # dev-only Token lab
         play-test.tsx         # dev-only Shaka HLS smoke test
     components/               # cross-page presentational components
-      browse-view.tsx         # group sidebar + search + ChannelList for one kind
+      browse-view.tsx         # group sidebar + search + ChannelList + inline live player
+      favorite-channel-button.tsx
+      responsibility-notice.tsx
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
     features/                 # feature folders (hooks + state)
       sources/                # SourcesStore, PlaylistsStore, newSourceId
-      catalog/                # (planned) channel list, groups, search
-      guide/                  # (planned) EPG state, now-pointer
-      player/                 # (planned) page-level player chrome (ui consumes `packages/player`)
-      profiles/               # (planned) favorites, recents
-    lib/                      # (planned) navigation helpers
-    store/                    # Zustand slices (catalog-store.ts wraps fetcher with createCachingXtreamFetcher; sources/profiles/settings planned)
+      cache/                  # IndexedDB Xtream cache adapter
+    lib/
+      playback-stream-proxy.ts  # merges settings proxy + Source.userAgent for Shaka
+    store/                    # Zustand slices: catalog-store, settings-store, profile-store
 ```
 
 ---
@@ -176,20 +233,27 @@ apps/web/
 - [x] Channel data loaded from stored playlist; groups displayed (snapshot persisted at add-source time for m3u; live-fetched for Xtream via `loadXtreamPlaylist`). Catalog now buckets groups by kind so each `/browse/:kind` page reads its own slice.
 - [x] **VOD and Series tiles surface in the launcher** with channel counts and disable themselves when the active source has none. The `/browse/vod` and `/browse/series` pages render the same shared `BrowseView` as live; richer VOD grid and series detail (seasons/episodes) still land in Phase 4.
 - [x] Search bar (filter by name, client-side).
-- [ ] Favorites toggle per channel; recents updated on play.
+- [x] Favorites toggle per channel; recents updated on play.
 
 **Playback**
 
 - [x] **Inline live player** on `/browse/live` (3-column split: groups | channels | player). D-pad up/down on the channel list channel-surfs without leaving the page; Shaka tears down + reloads on `streamUrl` change.
 - [x] **Fullscreen `/play/:sourceId/:kind/:channelId` route** for promote-to-fullscreen (live) and Play (VOD). The `<Player>` from `packages/player` owns Shaka in both surfaces. Distinct banner states for unknown kind, missing source, missing channel, no-stream (series).
-- [ ] Audio/subtitle track picker (populated from `useShakaPlayer` `tracks` API \u2014 contract is ready, UI lands next).
-- [ ] Error state with human-readable message and **retry** action surfaced in the player chrome (`useShakaPlayer.retry()` is wired; error overlay exists, retry button TBD).
-- [ ] "Copy diagnostics" button (redacted log blob to clipboard).
+- [x] **Friendly error overlay** with human-readable message, **Retry** action, and **Copy diagnostics** clipboard button (`<PlayerErrorOverlay>` in `packages/player`; `useShakaPlayer.retry()` wired).
+- [x] **User-run CORS proxy** (`apps/web-proxy`) with HMAC-SHA256 auth + HLS manifest rewriting. Configured at `/settings` and routed through automatically by `useShakaPlayer` when set. End-to-end verified against a real Xtream HLS stream that previously failed with Shaka code 1002.
+- [x] Audio/subtitle track picker (populated from `useShakaPlayer` `tracks` API).
+- [x] CORS-shaped 1002 hint in `describeShakaError` when no proxy is configured.
 
 **Onboarding**
 
 - [x] First-run gate: if no sources, `Home` shows an empty-state CTA that routes to `/add-source`.
-- [ ] Profile name input (single profile for MVP).
+- [x] Profile name input (single profile for MVP).
+- [x] First-launch `<ResponsibilityNotice>` modal + `acknowledgedResponsibilityV1` on settings store; dedicated **`iptv.viewer_responsibility_ack_v1`** gate + legacy import flag; acknowledge closes reliably (local state bump when Zustand would not re-render).
+
+**Settings**
+
+- [x] `/settings` page with **stream proxy** configuration (URL + secret + optional UA override; Save / Test connection / Clear). Persisted via Zustand `persist` middleware (key `iptv.settings.v1`).
+- [x] Per-source `Source.userAgent` override field on the AddSource form (extends the schema in `packages/core`).
 
 **Stretch (Phase 2, if time allows)**
 
@@ -276,14 +340,14 @@ Use **Zustand** for global app state (small footprint, no boilerplate):
 
 | Store slice | Contents |
 | ----------- | -------- |
-| `sourcesStore` | sources[], activeSourceId |
-| `catalogStore` | playlist, groups, filteredChannels, searchQuery |
-| `guideStore` | epgGuide, nowPrograms |
-| `profileStore` | profiles[], activeProfileId, favorites, recents |
-| `settingsStore` | theme, playerPrefs |
-| `playerStore` | currentChannel, playerState, error |
+| `sourcesStore` | sources[], activeSourceId (class-based `LocalStorageAdapter`, key `iptv.sources.v1`) |
+| `catalogStore` | playlist, groups, filteredChannels, searchQuery (wraps `createCachingXtreamFetcher`) |
+| `guideStore` | epgGuide, nowPrograms (Phase 3) |
+| `profileStore` | **built** (single-profile MVP) — `profile: UserProfile` (name, favorites[], recents[]). Zustand `persist`, key `iptv.profile.v1`. |
+| `settingsStore` | **built** — `streamProxy`, `acknowledgedResponsibilityV1`. Zustand `persist`, key `iptv.settings.v1`, version 1, `partialize` to those fields. Responsibility UI reads **`iptv.viewer_responsibility_ack_v1`**; `setAcknowledgedResponsibilityV1(true)` writes that key and **`iptv.responsibility_legacy_blob_imported_v1`**. |
+| `playerStore` | currentChannel, playerState, error (deferred — current player owns its own state via `useShakaPlayer`) |
 
-Persist `sourcesStore`, `profileStore`, and `settingsStore` to localStorage via Zustand middleware.
+`sourcesStore` uses the class-based `LocalStorageAdapter` pattern; `settingsStore` uses Zustand `persist` middleware (settings are reactive UI state, not a server contract).
 
 ---
 
@@ -327,3 +391,4 @@ Use Nx remote cache (Nx Cloud free tier) to keep CI fast once the workspace grow
 | Xtream support in MVP | Yes / No | **Yes** — Xtream is first-class alongside M3U URL and file. Wire schemas, URL builders, EPG decode, and discriminated `Channel` (live / vod / series) live in `packages/core/src/lib/xtream.ts` and `contracts.ts`; web `SourceForm` adds the tabbed UI in Phase 2. |
 | EPG in MVP | Full grid / Now+Next only | Now+Next only; full grid in Phase 3 |
 | Auth / accounts | Local only / cloud | Local only for v1 |
+| CORS mitigation | Paste-text only / proxy / both | **Both** — paste-text fallback ships in `SourceForm`; user-run proxy ships as `apps/web-proxy`. Production hosting of the proxy is explicitly rejected. |

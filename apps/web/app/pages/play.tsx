@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { Channel, Source } from 'core';
 import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
 import { Button } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
+import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import {
   CHANNEL_KINDS,
   useCatalogStore,
   type ChannelKind,
 } from '../store/catalog-store';
-import { useSettingsStore } from '../store/settings-store';
+import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
+import { recentKey, useProfileStore } from '../store/profile-store';
 
 function isChannelKind(value: string | undefined): value is ChannelKind {
   return value !== undefined && (CHANNEL_KINDS as string[]).includes(value);
@@ -79,10 +81,25 @@ export function PlayPage() {
     setError(null);
   }, [channel?.id]);
 
-  const streamProxy = useSettingsStore((s) => s.streamProxy);
+  const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
+  const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
+  const playbackProxy = useMemo(
+    () => streamProxyForPlayback(streamProxyConfig, source ?? undefined),
+    [streamProxyConfig, source]
+  );
 
   const streamUrl =
     channel && 'streamUrl' in channel ? channel.streamUrl : null;
+
+  const pushRecent = useProfileStore((s) => s.pushRecent);
+  const recentPushedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!source || !channel || !kind || !streamUrl) return;
+    const key = recentKey(source.id, kind, channel.id);
+    if (recentPushedRef.current === key) return;
+    recentPushedRef.current = key;
+    pushRecent(key);
+  }, [source, channel, kind, streamUrl, pushRecent]);
 
   // Status banner state — kept minimal so the player remains the focal point.
   const banner = (() => {
@@ -160,7 +177,7 @@ export function PlayPage() {
             <Player
               src={streamUrl}
               onError={setError}
-              streamProxy={streamProxy}
+              streamProxy={playbackProxy}
               className="h-full w-full"
             >
               {(api) => (
@@ -169,6 +186,7 @@ export function PlayPage() {
                   {error ? (
                     <PlayerErrorOverlay
                       error={error}
+                      streamProxyConfigured={streamProxyConfigured}
                       onRetry={() => api.retry()}
                       onDismiss={() => setError(null)}
                     />

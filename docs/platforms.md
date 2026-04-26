@@ -19,6 +19,7 @@ Order of delivery recommended in product discussions: **Web → Android TV → L
 
 - Browsers may restrict **autoplay**; document explicit user gesture rules in UX.
 - **Fullscreen** and **keyboard** navigation for power users; still keep flows simple for casual users.
+- **CORS** on playlist and segment hosts is common; the product ships a **user-run stream proxy** (`apps/web-proxy`) plus in-app Settings. Playback can also use an optional **per-source User-Agent** when signing proxy requests. Users must only stream content they have rights to.
 
 ## Android TV
 

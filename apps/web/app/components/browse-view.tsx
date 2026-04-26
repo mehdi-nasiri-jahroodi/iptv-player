@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import type { Channel } from 'core';
+import type { Channel, Source } from 'core';
 import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
 import {
   Button,
@@ -16,7 +16,10 @@ import {
   type CatalogState,
   type ChannelKind,
 } from '../store/catalog-store';
-import { useSettingsStore } from '../store/settings-store';
+import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
+import { recentKey, useProfileStore } from '../store/profile-store';
+import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
+import { ChannelFavoriteButton } from './favorite-channel-button';
 
 /**
  * Per-kind browser shared by `/browse/live`, `/browse/vod`, `/browse/series`.
@@ -32,9 +35,11 @@ import { useSettingsStore } from '../store/settings-store';
  */
 export function BrowseView({
   kind,
+  activeSource,
   emptyHint,
 }: {
   kind: ChannelKind;
+  activeSource: Source;
   /** Optional copy shown when this kind has zero groups in the active source. */
   emptyHint?: string;
 }) {
@@ -61,12 +66,20 @@ export function BrowseView({
   }, [activeGroup, searchQuery]);
 
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const sourceId = useCatalogStore((s) => s.sourceId);
+  const pushRecent = useProfileStore((s) => s.pushRecent);
 
   // Reset the selected channel when the kind or active group changes so the
   // selection panel never shows a stale pick from another section.
   useEffect(() => {
     setSelectedChannel(null);
   }, [kind, activeGroupId]);
+
+  useEffect(() => {
+    if (!selectedChannel || !sourceId) return;
+    if (!('streamUrl' in selectedChannel)) return;
+    pushRecent(recentKey(sourceId, kind, selectedChannel.id));
+  }, [selectedChannel, sourceId, kind, pushRecent]);
 
   if (status === 'loading') {
     return (
@@ -92,6 +105,14 @@ export function BrowseView({
     name: channel.name,
     groupTitle: channel.groupTitle,
     logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
+    trailing:
+      sourceId !== null ? (
+        <ChannelFavoriteButton
+          sourceId={sourceId}
+          channelId={channel.id}
+          focusKey={`FAV_LIST_${channel.id}`}
+        />
+      ) : undefined,
   }));
 
   // Live gets the split layout: groups | channels | inline player.
@@ -132,10 +153,12 @@ export function BrowseView({
             }
           />
         </Stack>
-        {isLive ? <LivePlayerPane channel={selectedChannel} /> : null}
+        {isLive ? (
+          <LivePlayerPane channel={selectedChannel} activeSource={activeSource} />
+        ) : null}
       </div>
-      {!isLive && selectedChannel ? (
-        <SelectedChannelPanel channel={selectedChannel} />
+      {!isLive && selectedChannel && sourceId ? (
+        <SelectedChannelPanel channel={selectedChannel} sourceId={sourceId} />
       ) : null}
     </Stack>
   );
@@ -212,9 +235,14 @@ function CatalogError({ error }: { error: string | null }) {
   );
 }
 
-function SelectedChannelPanel({ channel }: { channel: Channel }) {
+function SelectedChannelPanel({
+  channel,
+  sourceId,
+}: {
+  channel: Channel;
+  sourceId: string;
+}) {
   const navigate = useNavigate();
-  const sourceId = useCatalogStore((s) => s.sourceId);
   // VOD has a stream URL; series doesn't (we'd need an episode pick first).
   // For Phase 2 we only wire VOD playback; series Play stays disabled until
   // the seasons/episodes UI lands (Phase 4 per docs/web-app-plan.md).
@@ -240,20 +268,27 @@ function SelectedChannelPanel({ channel }: { channel: Channel }) {
             </div>
           )}
         </div>
-        <Button
-          variant="primary"
-          size="sm"
-          focusKey={`PLAY_${channel.id}`}
-          disabled={!canPlay}
-          onClick={() => {
-            if (!canPlay || !sourceId) return;
-            void navigate(
-              `/play/${encodeURIComponent(sourceId)}/${channel.type}/${encodeURIComponent(channel.id)}`
-            );
-          }}
-        >
-          Play
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <ChannelFavoriteButton
+            sourceId={sourceId}
+            channelId={channel.id}
+            focusKey={`FAV_PANEL_${channel.id}`}
+          />
+          <Button
+            variant="primary"
+            size="sm"
+            focusKey={`PLAY_${channel.id}`}
+            disabled={!canPlay}
+            onClick={() => {
+              if (!canPlay) return;
+              void navigate(
+                `/play/${encodeURIComponent(sourceId)}/${channel.type}/${encodeURIComponent(channel.id)}`
+              );
+            }}
+          >
+            Play
+          </Button>
+        </div>
       </div>
     </aside>
   );
@@ -266,10 +301,21 @@ function SelectedChannelPanel({ channel }: { channel: Channel }) {
  * tears down the previous instance, so D-pad up/down on the channel list
  * channel-surfs without needing a route change.
  */
-function LivePlayerPane({ channel }: { channel: Channel | null }) {
+function LivePlayerPane({
+  channel,
+  activeSource,
+}: {
+  channel: Channel | null;
+  activeSource: Source;
+}) {
   const navigate = useNavigate();
   const sourceId = useCatalogStore((s) => s.sourceId);
-  const streamProxy = useSettingsStore((s) => s.streamProxy);
+  const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
+  const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
+  const playbackProxy = useMemo(
+    () => streamProxyForPlayback(streamProxyConfig, activeSource),
+    [streamProxyConfig, activeSource]
+  );
   const streamUrl =
     channel && 'streamUrl' in channel ? channel.streamUrl : null;
   const [error, setError] = useState<ShakaError | null>(null);
@@ -288,7 +334,7 @@ function LivePlayerPane({ channel }: { channel: Channel | null }) {
         <Player
           src={streamUrl}
           onError={setError}
-          streamProxy={streamProxy}
+          streamProxy={playbackProxy}
           className="h-full w-full"
         >
           {(api) => (
@@ -298,6 +344,7 @@ function LivePlayerPane({ channel }: { channel: Channel | null }) {
                 <PlayerErrorOverlay
                   error={error}
                   compact
+                  streamProxyConfigured={streamProxyConfigured}
                   onRetry={() => api.retry()}
                   onDismiss={() => setError(null)}
                 />

@@ -63,7 +63,7 @@ test('renders the tile launcher with channel counts for the active source', asyn
     expect(screen.getByTestId('catalog-tiles')).toBeTruthy();
   });
 
-  expect(screen.getByText('Browsing Test M3U')).toBeTruthy();
+  expect(screen.getByText(/browsing Test M3U/i)).toBeTruthy();
 
   // Three tiles, one per kind.
   const liveTile = screen.getByRole('button', { name: /live tv/i });

@@ -27,10 +27,13 @@ const optionalUrl = z
     message: 'Must start with http:// or https://',
   });
 
+const optionalUserAgent = z.string().optional();
+
 const m3uUrlDraftSchema = z.object({
   mode: z.literal('m3u_url'),
   label: labelField,
   url: z.string().url('Enter a valid URL (https://...).'),
+  userAgent: optionalUserAgent,
   epgUrl: optionalUrl,
   useRawText: z.boolean(),
   rawText: z.string(),
@@ -40,6 +43,7 @@ const m3uFileDraftSchema = z
   .object({
     mode: z.literal('m3u_file'),
     label: labelField,
+    userAgent: optionalUserAgent,
     epgUrl: optionalUrl,
     rawText: z.string().min(1, 'Pick a file or paste M3U content.'),
   });
@@ -50,6 +54,7 @@ const xtreamDraftSchema = z.object({
   host: z.string().url('Server URL must include scheme (https://...).'),
   username: z.string().min(1, 'Username is required.'),
   password: z.string().min(1, 'Password is required.'),
+  userAgent: optionalUserAgent,
   epgUrl: optionalUrl,
 });
 
@@ -119,11 +124,27 @@ const TAB_ITEMS: readonly TabItem<SourceFormMode>[] = [
 function defaultDraftFor(mode: SourceFormMode): SourceFormDraft {
   switch (mode) {
     case 'm3u_url':
-      return { mode, label: '', url: '', epgUrl: '', useRawText: false, rawText: '' };
+      return {
+        mode,
+        label: '',
+        url: '',
+        userAgent: '',
+        epgUrl: '',
+        useRawText: false,
+        rawText: '',
+      };
     case 'm3u_file':
-      return { mode, label: '', rawText: '', epgUrl: '' };
+      return { mode, label: '', userAgent: '', rawText: '', epgUrl: '' };
     case 'xtream':
-      return { mode, label: '', host: '', username: '', password: '', epgUrl: '' };
+      return {
+        mode,
+        label: '',
+        host: '',
+        username: '',
+        password: '',
+        userAgent: '',
+        epgUrl: '',
+      };
   }
 }
 
@@ -159,6 +180,7 @@ export function SourceForm({
         mode: 'm3u_url',
         label: form.getValues('label'),
         url: '',
+        userAgent: (form.getValues('userAgent' as never) as unknown as string) ?? '',
         epgUrl: form.getValues('epgUrl') ?? '',
         useRawText: false,
         rawText: '',
@@ -167,6 +189,7 @@ export function SourceForm({
       form.reset({
         mode: 'm3u_file',
         label: form.getValues('label'),
+        userAgent: (form.getValues('userAgent' as never) as unknown as string) ?? '',
         epgUrl: form.getValues('epgUrl') ?? '',
         rawText: '',
       });
@@ -177,6 +200,7 @@ export function SourceForm({
         host: '',
         username: '',
         password: '',
+        userAgent: (form.getValues('userAgent' as never) as unknown as string) ?? '',
         epgUrl: form.getValues('epgUrl') ?? '',
       });
     }
@@ -397,6 +421,26 @@ export function SourceForm({
       ) : null}
 
       <FormField
+        label="User-Agent for stream proxy (optional)"
+        error={(form.formState.errors as Record<string, { message?: string }>).userAgent?.message}
+        hint="When you use the stream proxy in Settings, this value is sent for this source only. Leave blank to use the global proxy User-Agent."
+      >
+        {({ inputId, describedBy }) => (
+          <TextField
+            id={inputId}
+            aria-describedby={describedBy}
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="IPTVSmartersPlayer 3.1"
+            invalid={Boolean((form.formState.errors as Record<string, unknown>).userAgent)}
+            focusKey="source-form-user-agent"
+            {...form.register('userAgent' as never)}
+          />
+        )}
+      </FormField>
+
+      <FormField
         label="EPG URL (optional)"
         error={form.formState.errors.epgUrl?.message}
         hint="XMLTV guide URL. Can be added later in settings."
@@ -456,6 +500,7 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
   const trim = (v: string | undefined) => (v ?? '').trim();
   const epgUrl = trim(draft.epgUrl) || undefined;
   const label = trim(draft.label);
+  const userAgent = trim(draft.userAgent) || undefined;
 
   if (draft.mode === 'm3u_url') {
     return {
@@ -464,6 +509,7 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
         type: 'm3u_url',
         url: trim(draft.url),
         epgUrl,
+        ...(userAgent ? { userAgent } : {}),
       },
       rawText: draft.useRawText && draft.rawText.trim() ? draft.rawText : undefined,
     };
@@ -474,6 +520,7 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
         label,
         type: 'm3u_file',
         epgUrl,
+        ...(userAgent ? { userAgent } : {}),
       },
       rawText: draft.rawText,
     };
@@ -488,6 +535,7 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
         password: trim(draft.password),
       },
       epgUrl,
+      ...(userAgent ? { userAgent } : {}),
     },
   };
 }

@@ -12,6 +12,7 @@ import './styles/index.css';
 import { AppNav } from './layout/app-nav';
 import { AutoTheme } from './layout/auto-theme';
 import { SpatialNavigationRoot } from './layout/spatial-navigation-root';
+import { ResponsibilityNotice } from './components/responsibility-notice';
 
 export const meta: MetaFunction = () => [
   {
@@ -45,6 +46,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <AutoTheme />
         <SpatialNavigationRoot>
           <AppNav />
+          <ResponsibilityNotice />
           {children}
         </SpatialNavigationRoot>
         <ScrollRestoration />

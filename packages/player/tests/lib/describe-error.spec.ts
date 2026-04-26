@@ -28,6 +28,34 @@ describe('describeShakaError', () => {
     expect(desc.url).toBe('http://example.com/stream.m3u8');
   });
 
+  test('1002 hint mentions stream proxy when none is configured', () => {
+    const desc = describeShakaError(
+      baseError({
+        code: 1002,
+        category: 1,
+        data: ['http://example.com/stream.m3u8', 0],
+        message: 'HTTP_ERROR',
+      }),
+      { streamProxyConfigured: false }
+    );
+    expect(desc.hint).toMatch(/Settings/i);
+    expect(desc.hint).toMatch(/proxy/i);
+  });
+
+  test('1002 keeps default hint when stream proxy is configured', () => {
+    const desc = describeShakaError(
+      baseError({
+        code: 1002,
+        category: 1,
+        data: ['http://example.com/stream.m3u8', 0],
+        message: 'HTTP_ERROR',
+      }),
+      { streamProxyConfigured: true }
+    );
+    expect(desc.hint).toMatch(/network|provider/i);
+    expect(desc.hint).not.toMatch(/Settings/i);
+  });
+
   test('extracts httpStatus from network error data', () => {
     const desc = describeShakaError(
       baseError({

@@ -18,6 +18,7 @@ export {
 export {
   describeShakaError,
   formatShakaErrorForClipboard,
+  type DescribeShakaErrorOptions,
   type ShakaErrorDescription,
 } from './lib/describe-error.js';
 export {

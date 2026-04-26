@@ -27,6 +27,19 @@ describe('<PlayerErrorOverlay>', () => {
     expect(screen.queryByTestId('player-error-details')).toBeNull();
   });
 
+  test('when stream proxy is not configured, 1002 hint mentions Settings', () => {
+    render(
+      <PlayerErrorOverlay
+        error={httpError}
+        onRetry={vi.fn()}
+        streamProxyConfigured={false}
+      />
+    );
+    expect(screen.getByTestId('player-error-hint').textContent).toMatch(
+      /Settings/i
+    );
+  });
+
   test('toggling "Show details" reveals code, category, and URL', () => {
     render(<PlayerErrorOverlay error={httpError} onRetry={vi.fn()} />);
 

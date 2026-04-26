@@ -9,7 +9,7 @@ import { ChannelCard, type ChannelCardProps } from './ChannelCard';
  */
 export type ChannelListItem = Pick<
   ChannelCardProps,
-  'focusKey' | 'name' | 'groupTitle' | 'logoUrl' | 'nowPlaying' | 'selected'
+  'focusKey' | 'name' | 'groupTitle' | 'logoUrl' | 'nowPlaying' | 'selected' | 'trailing'
 > & {
   /** Stable id used for the React `key` and the focus-key fallback. */
   id: string;
@@ -87,6 +87,7 @@ export function ChannelList({
               groupTitle={item.groupTitle}
               logoUrl={item.logoUrl}
               nowPlaying={item.nowPlaying}
+              trailing={item.trailing}
               selected={selectedId === item.id || Boolean(item.selected)}
               onSelect={() => onSelect?.(item.id)}
             />

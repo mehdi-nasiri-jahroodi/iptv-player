@@ -50,6 +50,10 @@
         "epgUrl": {
           "type": "string",
           "format": "uri"
+        },
+        "userAgent": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [

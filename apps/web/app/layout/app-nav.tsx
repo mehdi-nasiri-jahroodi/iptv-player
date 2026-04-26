@@ -39,15 +39,6 @@ export function AppNav() {
           Home
         </NavLink>
         <NavLink
-          to="/about"
-          end
-          className={({ isActive }) =>
-            `rounded-md px-2 py-1 ${isActive ? 'bg-accent text-accent-foreground' : 'text-foreground-muted hover:text-foreground'}`
-          }
-        >
-          About
-        </NavLink>
-        <NavLink
           to="/add-source"
           end
           className={({ isActive }) =>

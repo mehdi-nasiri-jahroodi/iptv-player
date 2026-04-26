@@ -14,6 +14,15 @@ import type { ShakaError } from './use-shaka-player.js';
  *   - `raw`: the original `ShakaError` object so consumers can re-render
  *     or copy it verbatim.
  */
+/** Options for {@link describeShakaError}. */
+export interface DescribeShakaErrorOptions {
+  /**
+   * When `false`, HTTP_ERROR (1002) hints mention configuring the stream proxy
+   * for CORS-blocked HLS. Omit or `true` when a proxy is already configured.
+   */
+  streamProxyConfigured?: boolean;
+}
+
 export interface ShakaErrorDescription {
   headline: string;
   hint: string | null;
@@ -40,7 +49,10 @@ export interface ShakaErrorDescription {
  * user still has SOMETHING actionable, and the diagnostics panel still
  * has the original code and data for support tickets.
  */
-export function describeShakaError(error: ShakaError): ShakaErrorDescription {
+export function describeShakaError(
+  error: ShakaError,
+  options?: DescribeShakaErrorOptions
+): ShakaErrorDescription {
   const code = typeof error.code === 'number' ? error.code : null;
   const codeName = code !== null ? SHAKA_ERROR_CODE_NAMES[code] ?? null : null;
   const category = typeof error.category === 'number' ? error.category : null;
@@ -48,9 +60,13 @@ export function describeShakaError(error: ShakaError): ShakaErrorDescription {
 
   const friendly = code !== null ? FRIENDLY_BY_CODE[code] : undefined;
   if (friendly) {
+    const hint =
+      code === 1002 && options?.streamProxyConfigured === false
+        ? 'The browser may be blocking this stream (CORS). Open Settings and configure the stream proxy to route playback through your local proxy, or check your network and provider.'
+        : friendly.hint;
     return {
       headline: friendly.headline,
-      hint: friendly.hint,
+      hint,
       code,
       codeName,
       category,

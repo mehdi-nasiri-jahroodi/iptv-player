@@ -93,6 +93,7 @@ export function BrowseKindPage() {
         ) : (
           <BrowseView
             kind={kind}
+            activeSource={activeSource}
             emptyHint={`${activeSource.label} has no ${meta?.title.toLowerCase() ?? kind} content.`}
           />
         )}

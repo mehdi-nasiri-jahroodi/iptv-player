@@ -16,6 +16,7 @@ import {
   useCatalogStore,
   type ChannelKind,
 } from '../store/catalog-store';
+import { useProfileStore } from '../store/profile-store';
 
 type SourcesView =
   | { status: 'loading' }
@@ -36,6 +37,7 @@ type SourcesView =
  */
 export function Home() {
   const navigate = useNavigate();
+  const profileName = useProfileStore((s) => s.profile.name);
   const [view, setView] = useState<SourcesView>({ status: 'loading' });
   const reloadSources = useReloadSources(setView);
 
@@ -63,8 +65,10 @@ export function Home() {
             </h1>
             <p className="mt-1 text-sm text-foreground-muted">
               {view.status === 'ready' && view.activeSource
-                ? `Browsing ${view.activeSource.label}`
-                : 'Your saved sources live here.'}
+                ? `${profileName} — browsing ${view.activeSource.label}`
+                : view.status === 'ready' && view.sources.length > 0
+                  ? `${profileName} — pick a source to browse`
+                  : 'Your saved sources live here.'}
             </p>
           </div>
           {view.status === 'ready' && view.sources.length > 0 ? (

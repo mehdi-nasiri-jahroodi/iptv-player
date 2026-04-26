@@ -65,10 +65,15 @@ apps/
 packages/
   core/         # types, Zod schemas, shared TS logic; JSON Schema artifacts for Android
   ui/           # shared React + Tailwind components (web + webOS)
+  player/       # Shaka hook + Player + controls + error overlay (web + webOS)
   config/       # shared Tailwind preset, IPTV tavern color tokens (JSON) for web/webOS/native parity
 ```
 
 Use Nx **affected** commands and **task pipelines** for CI once projects exist.
+
+## Web playback and CORS (implemented)
+
+Commercial IPTV-style **HLS** URLs are often blocked in the browser by **CORS**. The web app’s chosen mitigation is a **user-run** companion service (`apps/web-proxy`) configured under **Settings**: Shaka routes manifest and segment requests through signed proxy URLs. Optional **`Source.userAgent`** overrides the User-Agent used in proxy HMAC signing for that source; otherwise the global proxy User-Agent from Settings (or the proxy default) applies. Native clients (Android TV, webOS) do not require this path for typical streams.
 
 ## Channel domain model — discriminated union (decided)
 

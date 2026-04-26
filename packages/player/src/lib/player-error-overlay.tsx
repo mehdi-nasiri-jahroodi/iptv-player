@@ -3,6 +3,7 @@ import { AlertCircle, ChevronDown, ChevronUp, Copy, RotateCw } from 'lucide-reac
 import {
   describeShakaError,
   formatShakaErrorForClipboard,
+  type DescribeShakaErrorOptions,
 } from './describe-error.js';
 import type { ShakaError } from './use-shaka-player.js';
 
@@ -19,6 +20,11 @@ export interface PlayerErrorOverlayProps {
   compact?: boolean;
   /** Test hook so callers can override the clipboard write (jsdom). */
   writeToClipboard?: (text: string) => Promise<void>;
+  /**
+   * When `false`, Shaka HTTP_ERROR (1002) hints suggest enabling the stream
+   * proxy. Omit or `true` when the user already configured a proxy.
+   */
+  streamProxyConfigured?: DescribeShakaErrorOptions['streamProxyConfigured'];
 }
 
 /**
@@ -40,8 +46,9 @@ export function PlayerErrorOverlay({
   onDismiss,
   compact = false,
   writeToClipboard,
+  streamProxyConfigured,
 }: PlayerErrorOverlayProps): ReactNode {
-  const desc = describeShakaError(error);
+  const desc = describeShakaError(error, { streamProxyConfigured });
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
 

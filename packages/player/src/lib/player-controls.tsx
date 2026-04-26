@@ -6,8 +6,9 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
+  Languages,
 } from 'lucide-react';
-import type { UseShakaPlayerResult } from './use-shaka-player.js';
+import type { ShakaTrack, UseShakaPlayerResult } from './use-shaka-player.js';
 
 export interface PlayerControlsProps {
   /** Returned object from `useShakaPlayer` (or the `<Player>` render-prop). */
@@ -41,16 +42,16 @@ export interface PlayerControlsProps {
  * - Each button is a focusable `<button>` so Norigin can pick it up via
  *   the surrounding `useFocusable` boundary the consumer mounts (e.g. the
  *   `LivePlayerPane` cell). Tab order is left→right inside the bar.
- * - Tracks picker is intentionally NOT here yet — `useShakaPlayer` already
- *   exposes `tracks` / `selectTrack`, and a Phase 4 picker overlay will
- *   render alongside this component.
+ * - Audio / text tracks: **Tracks** opens a popover listing Shaka variants
+ *   and captions; each row calls `selectTrack`.
  */
 export function PlayerControls({
   api,
   alwaysVisible = false,
   idleHideMs = 3000,
 }: PlayerControlsProps): ReactNode {
-  const { media, status, buffering } = api;
+  const { media, status, buffering, tracks, selectTrack } = api;
+  const [tracksMenuOpen, setTracksMenuOpen] = useState(false);
   const [pointerActiveAt, setPointerActiveAt] = useState<number>(() => Date.now());
   // Track focus inside the bar by timestamp instead of a sticky boolean.
   // Reason: a clicked control (e.g. the Fullscreen button) keeps DOM focus
@@ -107,6 +108,10 @@ export function PlayerControls({
   };
 
   const toggleMute = () => api.setMuted(!media.muted);
+
+  const hasTrackChoices = tracks.length > 0;
+  const variants = tracks.filter((t) => t.type === 'variant');
+  const texts = tracks.filter((t) => t.type === 'text');
 
   return (
     // Full-frame overlay sits on top of the <video>. We listen to mouse
@@ -212,6 +217,29 @@ export function PlayerControls({
           </div>
         )}
 
+        {hasTrackChoices ? (
+          <div className="relative shrink-0">
+            <ControlButton
+              label="Audio and subtitles"
+              onClick={() => setTracksMenuOpen((o) => !o)}
+              testid="player-controls-tracks-toggle"
+            >
+              <Languages size={18} />
+            </ControlButton>
+            {tracksMenuOpen ? (
+              <TracksMenu
+                variants={variants}
+                texts={texts}
+                onPick={(t) => {
+                  selectTrack(t);
+                  setTracksMenuOpen(false);
+                }}
+                onClose={() => setTracksMenuOpen(false)}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
         <ControlButton
           label="Toggle fullscreen"
           onClick={api.toggleFullscreen}
@@ -221,6 +249,95 @@ export function PlayerControls({
         </ControlButton>
       </div>
       </div>
+    </div>
+  );
+}
+
+function TracksMenu({
+  variants,
+  texts,
+  onPick,
+  onClose,
+}: {
+  variants: ShakaTrack[];
+  texts: ShakaTrack[];
+  onPick: (t: ShakaTrack) => void;
+  onClose: () => void;
+}): ReactNode {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const onPointer = (e: MouseEvent) => {
+      const el = panelRef.current;
+      if (el && !el.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onPointer);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onPointer);
+    };
+  }, [onClose]);
+
+  const row = (t: ShakaTrack, i: number) => {
+    const bw =
+      t.type === 'variant' && typeof t.bandwidth === 'number'
+        ? ` · ${t.bandwidth} kbps`
+        : '';
+    const label =
+      (t.label && t.label.trim()) ||
+      (t.language && t.language.trim()) ||
+      (t.type === 'variant' ? 'Audio' : 'Captions');
+    return (
+      <button
+        key={`${t.type}-${t.id}-${i}`}
+        type="button"
+        onClick={() => onPick(t)}
+        data-testid={`player-controls-track-${t.type}-${t.id}`}
+        className={[
+          'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
+          t.active
+            ? 'bg-accent/20 font-medium text-foreground'
+            : 'text-foreground-muted hover:bg-surface/80 hover:text-foreground',
+        ].join(' ')}
+      >
+        <span className="min-w-0 truncate">
+          {label}
+          {bw}
+        </span>
+        {t.active ? (
+          <span className="shrink-0 text-foreground-muted" aria-hidden>
+            ●
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
+  return (
+    <div
+      ref={panelRef}
+      role="menu"
+      aria-label="Tracks"
+      data-testid="player-controls-tracks-menu"
+      className="absolute bottom-full left-0 z-20 mb-2 max-h-48 min-w-[220px] overflow-y-auto rounded-md border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {variants.length > 0 ? (
+        <div className="px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+          Quality / audio
+        </div>
+      ) : null}
+      {variants.map((t, i) => row(t, i))}
+      {texts.length > 0 ? (
+        <div className="mt-1 border-t border-border/60 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+          Subtitles
+        </div>
+      ) : null}
+      {texts.map((t, i) => row(t, i + 100))}
     </div>
   );
 }

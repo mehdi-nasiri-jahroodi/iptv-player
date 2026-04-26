@@ -22,6 +22,11 @@ export const sourceSchema = z
     url: z.string().url().optional(),
     credentials: xtreamCredentialsSchema.optional(),
     epgUrl: z.string().url().optional(),
+    /**
+     * Optional User-Agent forwarded to the stream proxy for this source only.
+     * When unset, proxy playback uses the global UA from Settings (if any).
+     */
+    userAgent: z.string().min(1).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.type === 'm3u_url' && !value.url) {

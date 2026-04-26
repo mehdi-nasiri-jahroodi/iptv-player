@@ -10,7 +10,6 @@ const devOnlyRoutes =
 
 export default [
   index('./pages/home.tsx'),
-  route('about', './pages/about.tsx'),
   route('add-source', './pages/add-source.tsx'),
   route('settings', './pages/settings.tsx'),
   route('browse/:kind', './pages/browse/$kind.tsx'),

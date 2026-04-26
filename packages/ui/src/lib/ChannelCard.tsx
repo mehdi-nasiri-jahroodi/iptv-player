@@ -14,6 +14,8 @@ export type ChannelCardProps = Omit<HTMLAttributes<HTMLDivElement>, 'onSelect'> 
   logoUrl?: string;
   /** Optional now-playing or program-now title. */
   nowPlaying?: ReactNode;
+  /** Optional trailing chrome (e.g. favorite control). */
+  trailing?: ReactNode;
   /** Visual marker; e.g. the active-source indicator in a list. */
   selected?: boolean;
   onSelect?: () => void;
@@ -33,6 +35,7 @@ export const ChannelCard = forwardRef<HTMLDivElement, ChannelCardProps>(function
     groupTitle,
     logoUrl,
     nowPlaying,
+    trailing,
     selected = false,
     onSelect,
     className = '',
@@ -64,6 +67,8 @@ export const ChannelCard = forwardRef<HTMLDivElement, ChannelCardProps>(function
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
+          const t = event.target as HTMLElement | null;
+          if (t?.closest('[data-channel-card-stop-bubble="true"]')) return;
           event.preventDefault();
           onSelect?.();
         }
@@ -89,6 +94,15 @@ export const ChannelCard = forwardRef<HTMLDivElement, ChannelCardProps>(function
           <div className="truncate text-xs text-foreground-muted">{nowPlaying}</div>
         ) : null}
       </div>
+      {trailing ? (
+        <div
+          className="shrink-0"
+          data-channel-card-stop-bubble="true"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {trailing}
+        </div>
+      ) : null}
     </div>
   );
 });

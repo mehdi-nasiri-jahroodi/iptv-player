@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, FormField, TextField } from 'ui';
 import { useSettingsStore, type StreamProxyConfig } from '../store/settings-store';
+import { useProfileStore } from '../store/profile-store';
 
 /**
  * `/settings` — user preferences.
@@ -39,11 +40,18 @@ export default function SettingsPage() {
   const streamProxy = useSettingsStore((s) => s.streamProxy);
   const setStreamProxy = useSettingsStore((s) => s.setStreamProxy);
   const clearStreamProxy = useSettingsStore((s) => s.clearStreamProxy);
+  const profileName = useProfileStore((s) => s.profile.name);
+  const setProfileName = useProfileStore((s) => s.setProfileName);
 
   const [form, setForm] = useState<FormState>(() => formStateFrom(streamProxy));
+  const [profileDraft, setProfileDraft] = useState(profileName);
   const [revealSecret, setRevealSecret] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [test, setTest] = useState<TestResult>({ kind: 'idle' });
+
+  useEffect(() => {
+    setProfileDraft(profileName);
+  }, [profileName]);
 
   // Re-sync the form when the persisted slice changes from another tab.
   // The Zustand `persist` middleware fires storage events, but it does
@@ -132,6 +140,40 @@ export default function SettingsPage() {
         </p>
       </header>
 
+      <section
+        className="mb-6 rounded-lg border border-border bg-surface p-5"
+        data-testid="settings-profile"
+      >
+        <h2 className="text-lg font-medium text-foreground">Profile</h2>
+        <p className="mt-1 text-sm text-foreground-muted">
+          Shown on the home screen. One profile for this MVP.
+        </p>
+        <form
+          className="mt-4 flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setProfileName(profileDraft);
+          }}
+        >
+          <FormField label="Display name" hint="How you want to be addressed in the app.">
+            {({ inputId, describedBy }) => (
+              <TextField
+                id={inputId}
+                aria-describedby={describedBy}
+                focusKey="SETTINGS_PROFILE_NAME"
+                value={profileDraft}
+                onChange={(ev) => setProfileDraft(ev.target.value)}
+                placeholder="Viewer"
+                data-testid="settings-profile-name"
+              />
+            )}
+          </FormField>
+          <Button type="submit" variant="primary" size="md" focusKey="SETTINGS_PROFILE_SAVE">
+            Save name
+          </Button>
+        </form>
+      </section>
+
       <section className="rounded-lg border border-border bg-surface p-5">
         <h2 className="text-lg font-medium text-foreground">Stream proxy</h2>
         <p className="mt-1 text-sm text-foreground-muted">
@@ -208,7 +250,7 @@ export default function SettingsPage() {
 
           <FormField
             label="User-Agent override"
-            hint="Optional. Leave blank to use the proxy default (IPTVSmartersPlayer 3.1)."
+            hint="Optional default for all sources. Per-source overrides are set when you add or edit a source."
           >
             {({ inputId, describedBy }) => (
               <TextField
