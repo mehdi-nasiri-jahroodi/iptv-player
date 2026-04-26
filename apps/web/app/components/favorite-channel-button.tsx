@@ -22,11 +22,12 @@ export function ChannelFavoriteButton({
       focusKey={focusKey}
       aria-pressed={isFavorite}
       aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-      className="h-9 w-9 shrink-0 p-0 text-foreground-muted hover:text-danger"
+      className="h-11 w-11 shrink-0 p-0 text-foreground-muted hover:text-danger"
       onClick={() => toggleFavorite(key)}
     >
       <Heart
-        size={18}
+        size={24}
+        strokeWidth={isFavorite ? 2 : 1.75}
         className={isFavorite ? 'fill-danger text-danger' : undefined}
         aria-hidden
       />

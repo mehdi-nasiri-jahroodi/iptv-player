@@ -7,6 +7,7 @@ import { SourcesStore } from '../../app/features/sources/sources-storage';
 import { PlaylistsStore } from '../../app/features/sources/playlists-storage';
 import { useCatalogStore } from '../../app/store/catalog-store';
 import { useGuideStore } from '../../app/store/guide-store';
+import { recentKey, useProfileStore } from '../../app/store/profile-store';
 
 const SAMPLE_M3U = `#EXTM3U
 #EXTINF:-1 group-title="News",News One
@@ -19,12 +20,14 @@ beforeEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
   useGuideStore.getState().clear();
+  useProfileStore.setState({ profile: { id: 'default', name: 'Viewer', favorites: [], recents: [] }, catalogOrders: {} });
 });
 
 afterEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
   useGuideStore.getState().clear();
+  useProfileStore.setState({ profile: { id: 'default', name: 'Viewer', favorites: [], recents: [] }, catalogOrders: {} });
 });
 
 async function seed() {
@@ -60,7 +63,7 @@ test('renders the live browse view for /browse/live', async () => {
   expect(within(screen.getByTestId('channel-list')).getByText('News One')).toBeTruthy();
 });
 
-test('live browse auto-selects the first channel in the active group for preview', async () => {
+test('live browse auto-selects the first channel in the active group when there is no recent', async () => {
   await seed();
   stubAt('/browse/:kind', '/browse/live');
 
@@ -76,6 +79,23 @@ test('live browse auto-selects the first channel in the active group for preview
 
   // First channel has a stream URL — idle overlay should not cover the player shell.
   expect(screen.queryByTestId('live-player-idle')).toBeNull();
+});
+
+test('live browse restores the most recent live channel from profile recents on load', async () => {
+  await seed();
+  // Second channel in SAMPLE_M3U is Sports One (`src_1:1` per m3u id scheme).
+  useProfileStore.getState().pushRecent(recentKey('src_1', 'live', 'src_1:1'));
+  stubAt('/browse/:kind', '/browse/live');
+
+  await waitFor(() => {
+    expect(screen.getByTestId('live-player')).toBeTruthy();
+  });
+
+  await waitFor(() => {
+    const list = screen.getByTestId('channel-list');
+    const selected = list.querySelector('[data-selected="true"]');
+    expect(selected?.textContent).toMatch(/Sports One/);
+  });
 });
 
 test('does NOT mount the inline player pane on /browse/vod', async () => {

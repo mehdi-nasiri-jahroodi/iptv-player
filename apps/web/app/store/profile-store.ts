@@ -2,7 +2,14 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { UserProfile } from 'core';
 
-const STORAGE_KEY = 'iptv.profile.v1';
+/**
+ * localStorage key for the persisted profile slice (favorites, recents / Continue
+ * watching, display name) plus `catalogOrders`. Written by Zustand `persist`; use
+ * {@link readProfileFromLocalStorage} if you need an explicit read outside the store.
+ */
+export const PROFILE_LOCAL_STORAGE_KEY = 'iptv.profile.v1';
+
+const STORAGE_KEY = PROFILE_LOCAL_STORAGE_KEY;
 
 const DEFAULT_PROFILE: UserProfile = {
   id: 'default',
@@ -34,6 +41,41 @@ export interface ProfileState {
   pushRecent(key: string): void;
   /** Replace saved order for this source + catalog kind (live / vod / series). */
   setCatalogGroupOrder(sourceId: string, kind: string, orderedGroupIds: string[]): void;
+}
+
+/**
+ * Parse the Zustand-persist payload from localStorage (same shape `persist` writes).
+ * Safe on SSR / corrupt data — returns `null` when missing or invalid.
+ */
+export function readProfileFromLocalStorage(): Pick<
+  ProfileState,
+  'profile' | 'catalogOrders'
+> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      state?: { profile?: Partial<UserProfile>; catalogOrders?: Record<string, string[]> };
+      version?: number;
+    };
+    const st = parsed.state;
+    if (!st?.profile) return null;
+    const fav = st.profile.favorites;
+    const rec = st.profile.recents;
+    return {
+      profile: {
+        ...DEFAULT_PROFILE,
+        ...st.profile,
+        favorites: Array.isArray(fav) ? fav : [],
+        recents: Array.isArray(rec) ? rec : [],
+      },
+      catalogOrders:
+        typeof st.catalogOrders === 'object' && st.catalogOrders !== null ? st.catalogOrders : {},
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const useProfileStore = create<ProfileState>()(

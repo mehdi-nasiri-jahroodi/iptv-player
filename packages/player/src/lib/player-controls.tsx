@@ -6,7 +6,7 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
-  Languages,
+  Settings,
 } from 'lucide-react';
 import type { ShakaTrack, UseShakaPlayerResult } from './use-shaka-player.js';
 
@@ -50,7 +50,7 @@ export function PlayerControls({
   alwaysVisible = false,
   idleHideMs = 3000,
 }: PlayerControlsProps): ReactNode {
-  const { media, status, buffering, tracks, selectTrack } = api;
+  const { media, status, buffering, tracks, selectTrack, abrEnabled, setAbrEnabled } = api;
   const [tracksMenuOpen, setTracksMenuOpen] = useState(false);
   const [pointerActiveAt, setPointerActiveAt] = useState<number>(() => Date.now());
   // Track focus inside the bar by timestamp instead of a sticky boolean.
@@ -220,18 +220,23 @@ export function PlayerControls({
         {hasTrackChoices ? (
           <div className="relative shrink-0">
             <ControlButton
-              label="Audio and subtitles"
+              label="Quality, audio and subtitles"
               onClick={() => setTracksMenuOpen((o) => !o)}
               testid="player-controls-tracks-toggle"
             >
-              <Languages size={18} />
+              <Settings size={18} />
             </ControlButton>
             {tracksMenuOpen ? (
               <TracksMenu
                 variants={variants}
                 texts={texts}
+                abrEnabled={abrEnabled}
                 onPick={(t) => {
                   selectTrack(t);
+                  setTracksMenuOpen(false);
+                }}
+                onPickAuto={() => {
+                  setAbrEnabled(true);
                   setTracksMenuOpen(false);
                 }}
                 onClose={() => setTracksMenuOpen(false)}
@@ -256,12 +261,16 @@ export function PlayerControls({
 function TracksMenu({
   variants,
   texts,
+  abrEnabled,
   onPick,
+  onPickAuto,
   onClose,
 }: {
   variants: ShakaTrack[];
   texts: ShakaTrack[];
+  abrEnabled: boolean;
   onPick: (t: ShakaTrack) => void;
+  onPickAuto: () => void;
   onClose: () => void;
 }): ReactNode {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -282,15 +291,25 @@ function TracksMenu({
     };
   }, [onClose]);
 
-  const row = (t: ShakaTrack, i: number) => {
-    const bw =
-      t.type === 'variant' && typeof t.bandwidth === 'number'
-        ? ` · ${t.bandwidth} kbps`
-        : '';
-    const label =
-      (t.label && t.label.trim()) ||
-      (t.language && t.language.trim()) ||
-      (t.type === 'variant' ? 'Audio' : 'Captions');
+  // Split variants into "has a video resolution" vs "audio-only". HLS
+  // typically packs each (video × audio) combination as a single variant,
+  // so the same row is doing double duty as a quality picker AND a
+  // language picker. We surface video first because that's the user
+  // intent 99% of the time ("why does this look soft?").
+  const videoVariants = variants.filter(
+    (t) => typeof t.height === 'number' && t.height > 0
+  );
+  const audioOnly = variants.filter(
+    (t) => !(typeof t.height === 'number' && t.height > 0)
+  );
+
+  const variantRow = (t: ShakaTrack, i: number) => {
+    const primary = formatVariantPrimary(t);
+    const secondary = formatVariantSecondary(t);
+    // ABR-enabled + this row is the one Shaka currently picked = "auto"
+    // is highlighted, so the active-row indicator should be muted to
+    // avoid two checkmarks.
+    const showActiveDot = t.active && !abrEnabled;
     return (
       <button
         key={`${t.type}-${t.id}-${i}`}
@@ -299,15 +318,45 @@ function TracksMenu({
         data-testid={`player-controls-track-${t.type}-${t.id}`}
         className={[
           'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
+          showActiveDot
+            ? 'bg-accent/20 font-medium text-foreground'
+            : 'text-foreground-muted hover:bg-surface/80 hover:text-foreground',
+        ].join(' ')}
+      >
+        <span className="min-w-0 flex-1 truncate">
+          <span className="text-foreground">{primary}</span>
+          {secondary ? (
+            <span className="ml-1 text-foreground-muted">· {secondary}</span>
+          ) : null}
+        </span>
+        {showActiveDot ? (
+          <span className="shrink-0 text-foreground-muted" aria-hidden>
+            ●
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
+  const textRow = (t: ShakaTrack, i: number) => {
+    const label =
+      (t.label && t.label.trim()) ||
+      (t.language && t.language.trim()) ||
+      'Captions';
+    return (
+      <button
+        key={`text-${t.id}-${i}`}
+        type="button"
+        onClick={() => onPick(t)}
+        data-testid={`player-controls-track-text-${t.id}`}
+        className={[
+          'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
           t.active
             ? 'bg-accent/20 font-medium text-foreground'
             : 'text-foreground-muted hover:bg-surface/80 hover:text-foreground',
         ].join(' ')}
       >
-        <span className="min-w-0 truncate">
-          {label}
-          {bw}
-        </span>
+        <span className="min-w-0 truncate">{label}</span>
         {t.active ? (
           <span className="shrink-0 text-foreground-muted" aria-hidden>
             ●
@@ -323,23 +372,92 @@ function TracksMenu({
       role="menu"
       aria-label="Tracks"
       data-testid="player-controls-tracks-menu"
-      className="absolute bottom-full left-0 z-20 mb-2 max-h-48 min-w-[220px] overflow-y-auto rounded-md border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
+      className="absolute bottom-full right-0 z-20 mb-2 max-h-72 min-w-[240px] overflow-y-auto rounded-md border border-border bg-background/95 p-1 shadow-lg backdrop-blur"
       onClick={(e) => e.stopPropagation()}
     >
-      {variants.length > 0 ? (
-        <div className="px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Quality / audio
-        </div>
+      {videoVariants.length > 0 ? (
+        <>
+          <div className="px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+            Video quality
+          </div>
+          <button
+            type="button"
+            onClick={onPickAuto}
+            data-testid="player-controls-track-auto"
+            className={[
+              'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
+              abrEnabled
+                ? 'bg-accent/20 font-medium text-foreground'
+                : 'text-foreground-muted hover:bg-surface/80 hover:text-foreground',
+            ].join(' ')}
+          >
+            <span className="min-w-0 truncate">
+              Auto
+              <span className="ml-1 text-foreground-muted">· adaptive</span>
+            </span>
+            {abrEnabled ? (
+              <span className="shrink-0 text-foreground-muted" aria-hidden>
+                ●
+              </span>
+            ) : null}
+          </button>
+          {videoVariants.map((t, i) => variantRow(t, i))}
+        </>
       ) : null}
-      {variants.map((t, i) => row(t, i))}
+
+      {audioOnly.length > 0 ? (
+        <>
+          <div
+            className={[
+              'px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted',
+              videoVariants.length > 0 ? 'mt-1 border-t border-border/60' : '',
+            ].join(' ')}
+          >
+            Audio
+          </div>
+          {audioOnly.map((t, i) => variantRow(t, i + 1000))}
+        </>
+      ) : null}
+
       {texts.length > 0 ? (
-        <div className="mt-1 border-t border-border/60 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Subtitles
-        </div>
+        <>
+          <div className="mt-1 border-t border-border/60 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+            Subtitles
+          </div>
+          {texts.map((t, i) => textRow(t, i))}
+        </>
       ) : null}
-      {texts.map((t, i) => row(t, i + 100))}
     </div>
   );
+}
+
+/**
+ * Build the prominent left-column label for a variant row. Resolution
+ * wins when present (`1080p`, `720p60`); otherwise we fall back to the
+ * provider's label, then language, then a generic "Audio" tag.
+ */
+function formatVariantPrimary(t: ShakaTrack): string {
+  if (typeof t.height === 'number' && t.height > 0) {
+    const fps =
+      typeof t.frameRate === 'number' && t.frameRate > 30
+        ? Math.round(t.frameRate).toString()
+        : '';
+    return `${t.height}p${fps}`;
+  }
+  if (t.label && t.label.trim()) return t.label.trim();
+  if (t.language && t.language.trim()) return t.language.trim();
+  return 'Audio';
+}
+
+/**
+ * Right-column muted detail: language + bandwidth, deduped against the
+ * primary so we never render `1080p · 1080p · 5000 kbps`.
+ */
+function formatVariantSecondary(t: ShakaTrack): string {
+  const parts: string[] = [];
+  if (t.language && t.language.trim()) parts.push(t.language.trim());
+  if (typeof t.bandwidth === 'number') parts.push(`${t.bandwidth} kbps`);
+  return parts.join(' · ');
 }
 
 interface ControlButtonProps {

@@ -86,6 +86,42 @@ function LiveHeroMetadataOverlay({
   const visible =
     media.paused || buffering || status !== 'playing' || sinceIdle < CHROME_IDLE_MS;
 
+  // Derive the *real* resolution from Shaka's active variant. The provider's
+  // channel name ("HD" / "FHD" / "FHD+") is marketing copy and frequently
+  // lies — e.g. a "FHD+" stream that's actually 720p. Showing the truth
+  // alongside the marketing badge lets the user pick the channel that's
+  // actually higher quality.
+  const realResolution = (() => {
+    const active = api.tracks.find(
+      (t) => t.type === 'variant' && t.active && typeof t.height === 'number'
+    );
+    if (!active || !active.height) return null;
+    const fps =
+      typeof active.frameRate === 'number' && active.frameRate > 30
+        ? Math.round(active.frameRate).toString()
+        : '';
+    return `${active.height}p${fps}`;
+  })();
+
+  // Flag obvious provider mismatches: name brags "FHD"/"FHD+"/"4K" but the
+  // active variant is materially lower. Cheap heuristic, only used to tint
+  // the badge — never to block playback.
+  const realHeight = (() => {
+    const active = api.tracks.find(
+      (t) => t.type === 'variant' && t.active && typeof t.height === 'number'
+    );
+    return active?.height ?? null;
+  })();
+  const claimedHeight = qualityHints.includes('4K')
+    ? 2160
+    : qualityHints.some((h) => h.toUpperCase().startsWith('FHD'))
+      ? 1080
+      : qualityHints.some((h) => h.toUpperCase() === 'HD')
+        ? 720
+        : null;
+  const resolutionMismatch =
+    realHeight !== null && claimedHeight !== null && realHeight < claimedHeight;
+
   return (
     <div
       className={[
@@ -96,7 +132,7 @@ function LiveHeroMetadataOverlay({
     >
       <div className="max-w-3xl space-y-2 drop-shadow-md">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-lum-green-2/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">
+          <span className="rounded-full border border-foreground/20 bg-lum-green-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-lum-neutral-5 shadow-sm">
             Live
           </span>
           {qualityHints.map((q) => (
@@ -111,6 +147,24 @@ function LiveHeroMetadataOverlay({
               {q}
             </span>
           ))}
+          {realResolution ? (
+            <span
+              data-testid="live-hero-real-resolution"
+              title={
+                resolutionMismatch
+                  ? 'Channel name suggests higher quality than the actual stream resolution'
+                  : 'Actual stream resolution reported by the player'
+              }
+              className={[
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                resolutionMismatch
+                  ? 'bg-lum-saffron-2/25 text-lum-saffron-2'
+                  : 'bg-surface/70 text-foreground-muted',
+              ].join(' ')}
+            >
+              {realResolution}
+            </span>
+          ) : null}
         </div>
         <h2 className="text-xl font-bold tracking-tight text-foreground md:text-2xl">{channel.name}</h2>
         {'groupTitle' in channel && channel.groupTitle ? (
@@ -294,10 +348,12 @@ export function LiveBrowseHero({
           className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-t from-black/50 to-transparent"
           aria-hidden
         />
+        {/* Muted so cold reloads satisfy autoplay policy; user can unmute from the bar. */}
         <Player
           src={streamUrl}
           onError={setError}
           streamProxy={playbackProxy}
+          muted
           className="relative z-[1] h-full w-full"
         >
           {(api) => (

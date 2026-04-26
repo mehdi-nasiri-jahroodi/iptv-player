@@ -169,6 +169,83 @@ describe('useShakaPlayer', () => {
     );
   });
 
+  test('recoverable Shaka errors do not surface as fatal', async () => {
+    // Severity 1 = RECOVERABLE in shaka.util.Error.Severity. Playback
+    // continues; we should NOT show the big overlay or call onError.
+    const onError = vi.fn();
+    const { result } = renderHook(() => {
+      const ref = useRef<HTMLVideoElement | null>(null);
+      if (!ref.current) ref.current = document.createElement('video');
+      return useShakaPlayer(ref, 'https://example.com/live.m3u8', { onError });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('playing'));
+
+    act(() => {
+      players[0]._emit('error', {
+        detail: {
+          code: 1002,
+          category: 1,
+          severity: 1,
+          data: ['https://cdn.example.com/seg42.ts', 403],
+        },
+      });
+    });
+
+    expect(result.current.status).toBe('playing');
+    expect(result.current.error).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.recoverableError).not.toBeNull();
+    expect(result.current.recoverableError?.code).toBe(1002);
+    expect(result.current.recoverableError?.severity).toBe(1);
+  });
+
+  test('recoverable error clears when the video resumes playback', async () => {
+    const { result } = renderHook(() => {
+      const ref = useRef<HTMLVideoElement | null>(null);
+      if (!ref.current) ref.current = document.createElement('video');
+      return { ref, api: useShakaPlayer(ref, 'https://example.com/live.m3u8') };
+    });
+
+    await waitFor(() => expect(result.current.api.status).toBe('playing'));
+
+    act(() => {
+      players[0]._emit('error', {
+        detail: { code: 1002, category: 1, severity: 1 },
+      });
+    });
+    expect(result.current.api.recoverableError).not.toBeNull();
+
+    act(() => {
+      result.current.ref.current?.dispatchEvent(new Event('playing'));
+    });
+
+    await waitFor(() => expect(result.current.api.recoverableError).toBeNull());
+  });
+
+  test('Shaka errors with no severity field default to fatal', async () => {
+    // Defensive: some Shaka builds / mocks omit severity. We must not
+    // silently swallow such errors.
+    const onError = vi.fn();
+    const { result } = renderHook(() => {
+      const ref = useRef<HTMLVideoElement | null>(null);
+      if (!ref.current) ref.current = document.createElement('video');
+      return useShakaPlayer(ref, 'https://example.com/live.m3u8', { onError });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('playing'));
+
+    act(() => {
+      players[0]._emit('error', {
+        detail: { code: 6001, category: 6 },
+      });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.error?.code).toBe(6001);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   test('destroys the player on unmount', async () => {
     const { result, unmount } = renderHook(() => {
       const ref = useRef<HTMLVideoElement | null>(null);

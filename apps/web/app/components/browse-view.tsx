@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   closestCenter,
@@ -21,7 +21,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Tv } from 'lucide-react';
+import { GripVertical, Heart, Tv } from 'lucide-react';
 import type { Channel, Source } from 'core';
 import {
   Button,
@@ -49,7 +49,27 @@ import { LiveChannelTable } from './live-channel-table';
 
 const EMPTY_GROUP_ORDER: string[] = [];
 
+/** Virtual sidebar id for the live “Favorites” bucket (not a catalog group). */
+const LIVE_FAVORITES_SIDEBAR_ID = '__live_favorites__';
+
 type CatalogGroup = CatalogState['groupsByKind'][ChannelKind][number];
+
+/** Most recent live channel for this source that still exists in the catalog (any group). */
+function findRecentLiveChannelInCatalog(
+  recents: readonly string[],
+  sourceId: string,
+  groups: CatalogGroup[]
+): { channel: Channel; groupId: string } | null {
+  for (const key of recents) {
+    const p = parseRecentKey(key);
+    if (!p || p.sourceId !== sourceId || p.kind !== 'live') continue;
+    for (const g of groups) {
+      const ch = g.channels.find((c) => c.id === p.channelId && c.type === 'live');
+      if (ch) return { channel: ch, groupId: g.id };
+    }
+  }
+  return null;
+}
 
 type GroupsSidebarProps = {
   groups: CatalogState['groupsByKind'][ChannelKind];
@@ -61,6 +81,12 @@ type GroupsSidebarProps = {
   onSearchChange: (value: string) => void;
   onSelect: (id: string) => void;
   className?: string;
+  /** Live browse only: pinned “Favorites” row above catalog groups. */
+  favoritesPin?: {
+    count: number;
+    isActive: boolean;
+    onSelect: () => void;
+  };
 };
 
 /**
@@ -119,13 +145,64 @@ export function BrowseView({
     if (groupReorderMode) setGroupSearch('');
   }, [groupReorderMode]);
 
+  const favorites = useProfileStore((s) => s.profile.favorites);
+  const [liveFavoritesRail, setLiveFavoritesRail] = useState(false);
+
+  useEffect(() => {
+    setLiveFavoritesRail(false);
+  }, [kind, activeSource.id]);
+
+  const sourceId = useCatalogStore((s) => s.sourceId);
+
+  const favoriteLiveChannels = useMemo(() => {
+    if (kind !== 'live' || !sourceId) return [];
+    const byId = new Map<string, Channel>();
+    for (const g of groups) {
+      for (const c of g.channels) {
+        if (c.type === 'live') byId.set(c.id, c);
+      }
+    }
+    const ordered: Channel[] = [];
+    const seen = new Set<string>();
+    for (const key of favorites) {
+      if (!key.startsWith(`${sourceId}::`)) continue;
+      const channelId = key.slice(sourceId.length + 2);
+      if (!channelId || seen.has(channelId)) continue;
+      const ch = byId.get(channelId);
+      if (ch) {
+        ordered.push(ch);
+        seen.add(channelId);
+      }
+    }
+    return ordered;
+  }, [kind, sourceId, groups, favorites]);
+
+  const onGroupSelect = useCallback(
+    (id: string) => {
+      if (kind === 'live' && id === LIVE_FAVORITES_SIDEBAR_ID) {
+        setLiveFavoritesRail(true);
+        return;
+      }
+      setLiveFavoritesRail(false);
+      setActiveGroup(kind, id);
+    },
+    [kind, setActiveGroup]
+  );
+
   // Derive visible channels here (rather than via a Zustand selector) so we
   // don't return a fresh array reference from the store on every render —
   // Zustand v5 uses Object.is by default and would re-render forever.
-  const activeGroup = useMemo(
-    () => groups.find((g) => g.id === activeGroupId) ?? null,
-    [groups, activeGroupId]
-  );
+  const activeGroup = useMemo((): CatalogGroup | null => {
+    if (kind === 'live' && liveFavoritesRail) {
+      return {
+        id: LIVE_FAVORITES_SIDEBAR_ID,
+        name: 'Favorites',
+        kind: 'live',
+        channels: favoriteLiveChannels,
+      };
+    }
+    return groups.find((g) => g.id === activeGroupId) ?? null;
+  }, [kind, liveFavoritesRail, groups, activeGroupId, favoriteLiveChannels]);
   const visibleChannels: Channel[] = useMemo(() => {
     if (!activeGroup) return [];
     const q = searchQuery.trim().toLowerCase();
@@ -134,7 +211,6 @@ export function BrowseView({
   }, [activeGroup, searchQuery]);
 
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
-  const sourceId = useCatalogStore((s) => s.sourceId);
   const pushRecent = useProfileStore((s) => s.pushRecent);
   const guide = useGuideStore((s) => s.guide);
   const guideReady = useGuideStore((s) => s.status === 'ready');
@@ -164,8 +240,11 @@ export function BrowseView({
     }
     return picked;
   }, [kind, sourceId, playlist, recents]);
-  // Live: picking a category auto-selects the first channel in that group so the
-  // inline preview starts immediately. Other kinds keep no implicit selection.
+  // Live: auto-select for inline preview — keep the current channel when it still
+  // matches the active category + search; otherwise pick the first visible row.
+  // On first load (no selection yet), prefer the latest live channel from profile
+  // recents so refresh restores Continue watching instead of always using the
+  // first row of the default group.
   useEffect(() => {
     if (kind !== 'live') {
       setSelectedChannel(null);
@@ -175,8 +254,33 @@ export function BrowseView({
       setSelectedChannel(null);
       return;
     }
-    setSelectedChannel(activeGroup.channels[0]);
-  }, [kind, activeGroupId, activeGroup]);
+    if (selectedChannel && visibleChannels.some((c) => c.id === selectedChannel.id)) {
+      return;
+    }
+    if (!selectedChannel && sourceId && !liveFavoritesRail) {
+      const fromRecent = findRecentLiveChannelInCatalog(recents, sourceId, groups);
+      if (fromRecent) {
+        if (fromRecent.groupId !== activeGroupId) {
+          setLiveFavoritesRail(false);
+          setActiveGroup(kind, fromRecent.groupId);
+        }
+        setSelectedChannel(fromRecent.channel);
+        return;
+      }
+    }
+    setSelectedChannel(visibleChannels[0] ?? activeGroup.channels[0] ?? null);
+  }, [
+    kind,
+    activeGroupId,
+    activeGroup,
+    liveFavoritesRail,
+    visibleChannels,
+    selectedChannel,
+    sourceId,
+    recents,
+    groups,
+    setActiveGroup,
+  ]);
 
   useEffect(() => {
     if (!selectedChannel || !sourceId) return;
@@ -236,7 +340,15 @@ export function BrowseView({
     activeGroupId,
     searchValue: groupSearch,
     onSearchChange: setGroupSearch,
-    onSelect: (id) => setActiveGroup(kind, id),
+    onSelect: onGroupSelect,
+    favoritesPin:
+      kind === 'live'
+        ? {
+            count: favoriteLiveChannels.length,
+            isActive: liveFavoritesRail,
+            onSelect: () => onGroupSelect(LIVE_FAVORITES_SIDEBAR_ID),
+          }
+        : undefined,
   };
 
   if (isLive) {
@@ -265,10 +377,20 @@ export function BrowseView({
               Category
               <select
                 className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
-                value={activeGroupId ?? ''}
-                onChange={(event) => setActiveGroup(kind, event.target.value)}
+                value={liveFavoritesRail ? LIVE_FAVORITES_SIDEBAR_ID : (activeGroupId ?? '')}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  if (v === LIVE_FAVORITES_SIDEBAR_ID) {
+                    onGroupSelect(LIVE_FAVORITES_SIDEBAR_ID);
+                  } else {
+                    onGroupSelect(v);
+                  }
+                }}
                 aria-label="Jump to category"
               >
+                <option value={LIVE_FAVORITES_SIDEBAR_ID}>
+                  Favorites ({favoriteLiveChannels.length})
+                </option>
                 {orderedGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name} ({g.channels.length})
@@ -301,7 +423,9 @@ export function BrowseView({
               empty={
                 searchQuery.trim()
                   ? 'No channels match your search.'
-                  : 'This group is empty.'
+                  : liveFavoritesRail
+                    ? 'No favorites yet. Use the heart on a channel to add it here.'
+                    : 'This group is empty.'
               }
             />
           </div>
@@ -427,6 +551,7 @@ function GroupsSidebar({
   onSearchChange,
   onSelect,
   className = '',
+  favoritesPin,
 }: GroupsSidebarProps) {
   const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
   const [sortableIds, setSortableIds] = useState<string[]>(groupIds);
@@ -536,6 +661,43 @@ function GroupsSidebar({
         onChange={(event) => onSearchChange(event.target.value)}
         placeholder="Filter groups"
       />
+      {favoritesPin && !reorderMode ? (
+        <FocusableItem
+          focusKey="GROUP_LIVE_FAVORITES_PIN"
+          onEnterPress={favoritesPin.onSelect}
+          className={[
+            favoritesPin.isActive ? 'bg-accent/20' : 'bg-transparent',
+            "[&[data-focused='true']]:ring-2 [&[data-focused='true']]:ring-accent [&[data-focused='true']]:bg-accent/25",
+          ].join(' ')}
+        >
+          <div
+            role="button"
+            tabIndex={0}
+            data-testid="live-favorites-sidebar"
+            onClick={favoritesPin.onSelect}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                favoritesPin.onSelect();
+              }
+            }}
+            aria-pressed={favoritesPin.isActive}
+            data-active={favoritesPin.isActive ? 'true' : 'false'}
+            className={[
+              'flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm outline-none',
+              favoritesPin.isActive
+                ? 'border border-accent/50 bg-accent/20 font-semibold text-foreground'
+                : 'border border-transparent text-foreground-muted hover:border-border hover:bg-surface-raised hover:text-foreground',
+            ].join(' ')}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Heart className="size-4 shrink-0 text-danger" aria-hidden strokeWidth={2} />
+              <span className="truncate">Favorites</span>
+            </span>
+            <span className="shrink-0 text-xs text-foreground-muted">{favoritesPin.count}</span>
+          </div>
+        </FocusableItem>
+      ) : null}
       {groups.length === 0 ? (
         <p className="px-2 py-1 text-xs text-foreground-muted">No groups match your search.</p>
       ) : null}

@@ -16,6 +16,14 @@ export interface ShakaTrack {
   active: boolean;
   /** Variant only — kbps; text tracks omit this. */
   bandwidth?: number;
+  /** Variant only — pixel width of the video stream, when known. */
+  width?: number;
+  /** Variant only — pixel height of the video stream, when known. */
+  height?: number;
+  /** Variant only — frame rate in fps, when known. */
+  frameRate?: number;
+  /** Variant only — codec string (`avc1.640028`, `mp4a.40.2`, …). */
+  codecs?: string;
 }
 
 /** Public shape of an error surfaced by the hook. */
@@ -24,6 +32,12 @@ export interface ShakaError {
   code?: number;
   /** Numeric `shaka.util.Error.Category` if available. */
   category?: number;
+  /**
+   * Numeric `shaka.util.Error.Severity` if Shaka provided it.
+   * `1` = RECOVERABLE (segment retried, playback continues).
+   * `2` = CRITICAL (player gives up).
+   */
+  severity?: number;
   message: string;
   /** Free-form details Shaka attaches (URL, HTTP status, etc.). */
   data?: unknown;
@@ -41,8 +55,11 @@ export interface UseShakaPlayerOptions {
   onError?: (error: ShakaError) => void;
   /**
    * If `true`, the hook calls `video.play()` after a successful load.
-   * Defaults to `true` because the consumer always loads after a deliberate
-   * user gesture (channel select), which satisfies the autoplay policy.
+   * Defaults to `true`. On a cold page load there is often **no** user gesture,
+   * so the hook retries on `canplay` and, on `NotAllowedError`, sets
+   * `video.muted = true` and tries again. Pair with `<video muted>` (or the
+   * `Player` `muted` prop) for inline previews if you want autoplay without a
+   * flash of blocked playback.
    */
   autoPlay?: boolean;
   /**
@@ -100,11 +117,41 @@ export interface ShakaMedia {
 export interface UseShakaPlayerResult {
   status: ShakaStatus;
   buffering: boolean;
+  /**
+   * Critical playback error — Shaka has stopped trying. Renders the big
+   * `<PlayerErrorOverlay>` chrome.
+   */
   error: ShakaError | null;
+  /**
+   * Most recent **recoverable** error reported by Shaka (segment 403/404,
+   * transient network blip). Playback is still going; this is a heads-up
+   * for telemetry / a tiny UI indicator. Auto-clears the next time the
+   * `<video>` element fires `playing`, on `streamUrl` change, on `retry()`,
+   * and on `destroy()`. Never call `onError` for recoverable errors.
+   */
+  recoverableError: ShakaError | null;
   tracks: ShakaTrack[];
+  /**
+   * `true` when Shaka's adaptive bitrate algorithm is currently picking the
+   * variant. Flips to `false` the moment the user manually selects a
+   * specific variant via {@link selectTrack}; flip back via
+   * {@link setAbrEnabled}.
+   */
+  abrEnabled: boolean;
   media: ShakaMedia;
-  /** Switch to a track previously returned in `tracks`. */
+  /**
+   * Switch to a track previously returned in `tracks`. For variant tracks
+   * this also disables ABR — the user explicitly asked for this quality, so
+   * Shaka should not switch under them. Use {@link setAbrEnabled} to
+   * re-enable adaptive switching.
+   */
   selectTrack(track: ShakaTrack): void;
+  /**
+   * Toggle Shaka's adaptive bitrate algorithm. Disabling sticks the player
+   * on the currently selected variant; enabling lets Shaka switch based on
+   * its bandwidth estimate.
+   */
+  setAbrEnabled(enabled: boolean): void;
   /** Re-load the current `streamUrl`. No-op if `streamUrl` is `null`. */
   retry(): void;
   /** Destroy the underlying Shaka instance. Safe to call multiple times. */
@@ -129,6 +176,47 @@ const DEFAULT_MEDIA: ShakaMedia = {
   volume: 1,
   muted: false,
 };
+
+function isNotAllowedError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name: string }).name === 'NotAllowedError'
+  );
+}
+
+/**
+ * Best-effort autoplay after Shaka `load()` resolves — the first `play()` can
+ * fail (autoplay policy, media not ready yet). Retries once on `canplay`, and
+ * unmutes path: on policy block, set muted and try again.
+ */
+function scheduleAutoplayAfterLoad(
+  video: HTMLVideoElement,
+  autoPlay: boolean,
+  isStale: () => boolean,
+  signal: AbortSignal
+): void {
+  if (!autoPlay) return;
+
+  const tryPlay = () => {
+    if (isStale()) return;
+    void video.play().catch((err: unknown) => {
+      if (isStale()) return;
+      if (isNotAllowedError(err) && !video.muted) {
+        video.muted = true;
+        void video.play().catch(() => undefined);
+      }
+    });
+  };
+
+  tryPlay();
+  const onCanPlay = () => {
+    if (isStale()) return;
+    if (autoPlay && video.paused) tryPlay();
+  };
+  video.addEventListener('canplay', onCanPlay, { once: true, signal });
+}
 
 /**
  * Manages a single `shaka.Player` instance attached to `videoRef.current`.
@@ -161,7 +249,11 @@ export function useShakaPlayer(
   const [status, setStatus] = useState<ShakaStatus>('idle');
   const [buffering, setBuffering] = useState(false);
   const [error, setError] = useState<ShakaError | null>(null);
+  const [recoverableError, setRecoverableError] = useState<ShakaError | null>(
+    null
+  );
   const [tracks, setTracks] = useState<ShakaTrack[]>([]);
+  const [abrEnabled, setAbrEnabledState] = useState<boolean>(true);
   const [media, setMedia] = useState<ShakaMedia>(DEFAULT_MEDIA);
 
   // Keep onError stable inside the load effect without re-running it on every
@@ -178,6 +270,16 @@ export function useShakaPlayer(
   }, []);
 
   /**
+   * Surface a recoverable Shaka error without touching `error` / `status` /
+   * `onError`. Used for segment-level failures (HTTP 403/404 on a single
+   * .ts/.m4s, transient network blips) that Shaka retries internally — the
+   * stream keeps playing, so the big error chrome would be misleading.
+   */
+  const reportRecoverable = useCallback((err: ShakaError) => {
+    setRecoverableError(err);
+  }, []);
+
+  /**
    * Translate any thrown / event-dispatched value into a `ShakaError`.
    *
    * `shaka.util.Error` is NOT a real `Error` subclass — it has `code`,
@@ -190,6 +292,7 @@ export function useShakaPlayer(
       const v = value as {
         code?: number;
         category?: number;
+        severity?: number;
         data?: unknown;
         message?: unknown;
       };
@@ -203,6 +306,7 @@ export function useShakaPlayer(
         return {
           code: v.code,
           category: v.category,
+          severity: typeof v.severity === 'number' ? v.severity : undefined,
           data: v.data,
           message: parts.join(' \u2014 '),
           cause: value,
@@ -234,6 +338,16 @@ export function useShakaPlayer(
         bandwidth:
           typeof t.bandwidth === 'number'
             ? Math.round(t.bandwidth / 1000)
+            : undefined,
+        width: typeof t.width === 'number' ? t.width : undefined,
+        height: typeof t.height === 'number' ? t.height : undefined,
+        frameRate:
+          typeof t.frameRate === 'number' ? t.frameRate : undefined,
+        // Shaka exposes split codecs as `videoCodec`/`audioCodec` and a
+        // joint `codecs`; prefer the joint string for display.
+        codecs:
+          typeof (t as { codecs?: unknown }).codecs === 'string'
+            ? (t as { codecs: string }).codecs
             : undefined,
       })
     );
@@ -267,14 +381,17 @@ export function useShakaPlayer(
       setStatus('idle');
       setTracks([]);
       setError(null);
+      setRecoverableError(null);
       return;
     }
 
+    const autoplayAbort = new AbortController();
     let cancelled = false;
     // Bump on every reload so retry() can supersede an in-flight load.
     const token = ++reloadTokenRef.current;
     setStatus('loading');
     setError(null);
+    setRecoverableError(null);
 
     void (async () => {
       try {
@@ -288,6 +405,37 @@ export function useShakaPlayer(
         await destroy();
         const player = new shakaNs.Player(video);
         playerRef.current = player;
+
+        // Configure for the typical IPTV / Xtream live HLS stream:
+        // - Most providers ship single-variant manifests with NO BANDWIDTH
+        //   declaration, so Shaka's default ABR estimate of 500 kbps causes
+        //   it to under-allocate buffer + render late. Seeding 8 Mbps gives
+        //   it room for 1080p without affecting real ABR streams (the first
+        //   real measurement overrides the seed).
+        // - bufferingGoal 30s (default 10s) absorbs the segment-level 403/404
+        //   blips this category of stream is famous for without restalling.
+        // - rebufferingGoal 4s (default 2s) waits for a healthier prefill
+        //   before resuming, which empirically reduces the "play / stall /
+        //   play" oscillation on flaky upstream.
+        try {
+          (player as { configure?: (c: unknown) => void }).configure?.({
+            abr: {
+              defaultBandwidthEstimate: 8_000_000,
+            },
+            streaming: {
+              bufferingGoal: 30,
+              rebufferingGoal: 4,
+              // Keep ~30s behind the live edge so brief network blips
+              // don't drop us out of the seek window. Default 30s; we
+              // pin explicitly so a Shaka upgrade can't quietly change
+              // playback feel.
+              bufferBehind: 30,
+            },
+          });
+        } catch {
+          // Older Shaka builds may reject unknown keys; ignore — defaults
+          // still produce a working player, just less tuned.
+        }
 
         // Install the stream-proxy request filter (if configured) BEFORE
         // calling player.load(). Shaka runs registered filters on every
@@ -339,7 +487,18 @@ export function useShakaPlayer(
           // field is the actual `shaka.util.Error`.
           const detail = (event as { detail?: shaka.util.Error }).detail;
           const err = detail ?? event;
-          reportError(toShakaError(err));
+          const shakaError = toShakaError(err);
+          // Severity 1 = RECOVERABLE (Shaka retried; playback continues),
+          // 2 = CRITICAL (Shaka gave up). The Severity enum lives at
+          // `shaka.util.Error.Severity` and may be missing on some builds /
+          // mocks — when absent, fall back to the safe assumption that the
+          // error is critical.
+          const severity = shakaError.severity;
+          if (severity === 1) {
+            reportRecoverable(shakaError);
+          } else {
+            reportError(shakaError);
+          }
         };
         const onBuffering = (event: Event) => {
           const buf = (event as { buffering?: boolean }).buffering;
@@ -357,13 +516,54 @@ export function useShakaPlayer(
         if (cancelled || token !== reloadTokenRef.current) return;
 
         refreshTracks();
-        setStatus('playing');
-        if (autoPlay) {
-          // .play() returns a Promise that may reject under autoplay policy.
-          // We swallow the rejection — the parent should expose a Play button
-          // when autoplay is blocked.
-          video.play().catch(() => undefined);
+        // Reset ABR snapshot to "on" on each fresh load. The user's last
+        // manual selection from the previous channel should not silently
+        // pin the new channel to a non-existent variant id.
+        setAbrEnabledState(true);
+        // DEV-only diagnostic: dump the variant table so a developer can
+        // see exactly what Shaka is being offered for any given channel.
+        // This is the cheapest way to answer "does this stream actually
+        // expose multiple bitrates?" without pulling Shaka's debug build.
+        // Skipped under vitest (`import.meta.env.MODE === 'test'`) to keep
+        // test output readable.
+        if (import.meta.env?.DEV && import.meta.env?.MODE !== 'test') {
+          try {
+            const raw = player.getVariantTracks();
+             
+            console.groupCollapsed(
+              `[useShakaPlayer] variants for ${streamUrl} (${raw.length})`
+            );
+             
+            console.table(
+              raw.map((t) => ({
+                id: t.id,
+                active: t.active,
+                width: (t as { width?: number }).width ?? null,
+                height: (t as { height?: number }).height ?? null,
+                fps: (t as { frameRate?: number }).frameRate ?? null,
+                kbps:
+                  typeof t.bandwidth === 'number'
+                    ? Math.round(t.bandwidth / 1000)
+                    : null,
+                lang: t.language ?? '',
+                codecs:
+                  (t as { codecs?: string }).codecs ??
+                  `${(t as { videoCodec?: string }).videoCodec ?? '?'}/${(t as { audioCodec?: string }).audioCodec ?? '?'}`,
+              }))
+            );
+             
+            console.groupEnd();
+          } catch {
+            // Diagnostic only — never let logging break playback.
+          }
         }
+        setStatus('playing');
+        scheduleAutoplayAfterLoad(
+          video,
+          autoPlay,
+          () => cancelled || token !== reloadTokenRef.current,
+          autoplayAbort.signal
+        );
       } catch (cause) {
         if (cancelled || token !== reloadTokenRef.current) return;
         reportError(toShakaError(cause));
@@ -372,6 +572,7 @@ export function useShakaPlayer(
 
     return () => {
       cancelled = true;
+      autoplayAbort.abort();
       void destroy();
     };
   }, [videoRef, streamUrl, autoPlay, destroy, refreshTracks, reportError, toShakaError]);
@@ -383,11 +584,42 @@ export function useShakaPlayer(
       const variant = player
         .getVariantTracks()
         .find((t) => t.id === track.id);
-      if (variant) player.selectVariantTrack(variant, /*clearBuffer*/ true);
+      if (variant) {
+        // Manual variant pick = "stick to this quality". If we left ABR on
+        // it would immediately switch back based on its bandwidth estimate
+        // and the menu would feel broken. Re-enable via setAbrEnabled.
+        try {
+          (player as { configure?: (c: unknown) => void }).configure?.({
+            abr: { enabled: false },
+          });
+          setAbrEnabledState(false);
+        } catch {
+          // Older Shaka builds may not accept this shape; the explicit
+          // selectVariantTrack call below is still the source of truth.
+        }
+        player.selectVariantTrack(variant, /*clearBuffer*/ true);
+        // Reflect the new active variant immediately — Shaka will fire
+        // `adaptation` later, but the menu should highlight the pick now.
+        refreshTracks();
+      }
     } else {
       const text = player.getTextTracks().find((t) => t.id === track.id);
       if (text) player.selectTextTrack(text);
     }
+  }, [refreshTracks]);
+
+  const setAbrEnabled = useCallback((enabled: boolean) => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      (player as { configure?: (c: unknown) => void }).configure?.({
+        abr: { enabled },
+      });
+    } catch {
+      // Best-effort; older builds without configure() are pre-v3 and we
+      // do not target them.
+    }
+    setAbrEnabledState(enabled);
   }, []);
 
   const retry = useCallback(() => {
@@ -397,6 +629,7 @@ export function useShakaPlayer(
     reloadTokenRef.current++;
     setStatus('loading');
     setError(null);
+    setRecoverableError(null);
     // Force the load effect to re-run by toggling a ref-tracked dependency.
     // Easiest: dispatch a microtask that calls the same load body. We do this
     // by re-issuing a load via a synthetic re-mount: since `streamUrl` is
@@ -410,11 +643,19 @@ export function useShakaPlayer(
       .then(() => {
         refreshTracks();
         setStatus('playing');
+        const v = videoRef.current;
+        if (!v || !autoPlay) return;
+        void v.play().catch((err: unknown) => {
+          if (isNotAllowedError(err) && !v.muted) {
+            v.muted = true;
+            void v.play().catch(() => undefined);
+          }
+        });
       })
       .catch((cause) => {
         reportError(toShakaError(cause));
       });
-  }, [streamUrl, videoRef, refreshTracks, reportError, toShakaError]);
+  }, [streamUrl, videoRef, refreshTracks, reportError, toShakaError, autoPlay]);
 
   // ---------------------------------------------------------------------------
   // Media-element state subscription (drives custom control overlays).
@@ -452,6 +693,18 @@ export function useShakaPlayer(
     return () => {
       for (const ev of events) video.removeEventListener(ev, sync);
     };
+  }, [videoRef]);
+
+  // Clear the recoverable error indicator the moment Shaka resumes playback.
+  // The browser fires `playing` after a stall has been resolved, which is
+  // the cleanest signal that the underlying transient (segment 403, network
+  // blip) has been worked around. Critical errors do not fire `playing`.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onPlaying = () => setRecoverableError(null);
+    video.addEventListener('playing', onPlaying);
+    return () => video.removeEventListener('playing', onPlaying);
   }, [videoRef]);
 
   // ---------------------------------------------------------------------------
@@ -517,9 +770,12 @@ export function useShakaPlayer(
     status,
     buffering,
     error,
+    recoverableError,
     tracks,
+    abrEnabled,
     media,
     selectTrack,
+    setAbrEnabled,
     retry,
     destroy,
     play,

@@ -54,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: full-height rail + main column; hero = player + **Continue watching** (right column, height-matched, up to **5** recents); **new group → first channel auto-selected** for inline preview; vod/series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: rail includes **Favorites** (virtual list from profile hearts) + catalog groups; hero + table; vod/series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
