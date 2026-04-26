@@ -6,6 +6,7 @@ import BrowseKindPage from '../../app/pages/browse/$kind';
 import { SourcesStore } from '../../app/features/sources/sources-storage';
 import { PlaylistsStore } from '../../app/features/sources/playlists-storage';
 import { useCatalogStore } from '../../app/store/catalog-store';
+import { useGuideStore } from '../../app/store/guide-store';
 
 const SAMPLE_M3U = `#EXTM3U
 #EXTINF:-1 group-title="News",News One
@@ -17,11 +18,13 @@ https://example.com/sports1.m3u8
 beforeEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
+  useGuideStore.getState().clear();
 });
 
 afterEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
+  useGuideStore.getState().clear();
 });
 
 async function seed() {

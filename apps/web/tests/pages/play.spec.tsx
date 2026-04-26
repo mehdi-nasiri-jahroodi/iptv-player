@@ -6,6 +6,7 @@ import PlayPage from '../../app/pages/play';
 import { SourcesStore } from '../../app/features/sources/sources-storage';
 import { PlaylistsStore } from '../../app/features/sources/playlists-storage';
 import { useCatalogStore } from '../../app/store/catalog-store';
+import { useGuideStore } from '../../app/store/guide-store';
 
 // The Player loads Shaka via dynamic import; in jsdom we don't actually
 // touch the network, but we mock the loader so the player surface renders
@@ -30,11 +31,13 @@ https://example.com/sports1.m3u8
 beforeEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
+  useGuideStore.getState().clear();
 });
 
 afterEach(() => {
   window.localStorage.clear();
   useCatalogStore.getState().clear();
+  useGuideStore.getState().clear();
 });
 
 async function seed() {

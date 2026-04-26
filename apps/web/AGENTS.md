@@ -43,11 +43,12 @@ apps/web/
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
     pages/                    # one file per route module — exported as default
-      home.tsx                # tile launcher (Live / Movies / Series) + source switcher + profile name
+      home.tsx                # tile launcher + Live spotlight (EPG) + source switcher + profile name
       add-source.tsx
       browse/
         $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
       play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
+      epg.tsx                 # /epg — XMLTV schedule (today + tomorrow)
       dev/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
@@ -62,10 +63,14 @@ apps/web/
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
       cache/
         indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
+    hooks/
+      use-minute-clock.ts     # re-tick now/next labels once per minute
     lib/
       playback-stream-proxy.ts  # merges Settings stream proxy + Source.userAgent for `<Player>`
+      epg-display.ts          # pick preview live channels + format now/next line
     store/                    # Zustand slices
       catalog-store.ts        # playlist + groupsByKind + per-kind activeGroup + search
+      guide-store.ts          # XMLTV guide for active source `epgUrl` (in-memory)
       profile-store.ts        # single UserProfile (name, favorites, recents), key iptv.profile.v1
       settings-store.ts       # streamProxy + acknowledgedResponsibilityV1, key iptv.settings.v1
 ```
@@ -91,13 +96,13 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | ----- | ------ | ----- |
 | 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
 | 2 — MVP core flows | complete | AddSource (M3U URL + file + **Xtream Codes**), per-source UA, tile launcher, per-kind browsers, inline live + fullscreen `/play`, proxy + **ResponsibilityNotice**, profile/favorites/recents, track picker, Shaka 1002 proxy hint |
-| 3 — EPG | not started | XMLTV parser, now/next strip, EPG grid |
+| 3 — EPG (minimal) | complete | XMLTV URL on source, `parseXmltvToGuide` + now/next helpers in `core`, `guideStore`, Home spotlight + browse live rows, `/epg` schedule |
 | 4 — Polish | not started | Rich VOD grid / series detail, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
 **Things that are explicitly deferred — do not build them early:**
 - Rich **VOD grid** and **series detail** (seasons/episodes) UIs (Phase 4). Basic `/browse/vod` and `/browse/series` lists are in scope for Phase 2; poster grids and episode pickers wait.
 - Catchup / time-shift playback UI (Phase 4). `buildCatchupUrl` exists in `packages/core` and live channels carry `catchupDays` / `catchupMode` already.
-- Full EPG grid (Phase 3).
+- Rich multi-day EPG grid with channel columns (beyond `/epg` today + tomorrow list).
 - Multiple profiles (Phase 4).
 - Cloud sync / accounts (post-v1).
 
@@ -160,7 +165,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 | ----- | -------- |
 | `sourcesStore` | `sources[]`, `activeSourceId` |
 | `catalogStore` | `playlist`, `groups`, `filteredChannels`, `searchQuery` |
-| `guideStore` | `epgGuide`, `nowPrograms` |
+| `guideStore` | **built** (`useGuideStore`) — in-memory XMLTV guide for active source's `epgUrl`; `loadForSource` fetches + `parseXmltvToGuide`; status `idle`\|`loading`\|`ready`\|`error`; ignores stale responses on source switch. Not persisted. |
 | `profileStore` | **built** — one `profile` (`UserProfile`: name, favorites, recents); persist `iptv.profile.v1` |
 | `settingsStore` | **built** — `streamProxy`, `acknowledgedResponsibilityV1`; persist `iptv.settings.v1` |
 | `playerStore` | `currentChannel`, `playerState`, `error` |
@@ -263,7 +268,7 @@ Always require an **explicit user gesture** to start playback (route navigation 
   - categories (`get_*_categories`) → **1 hour**
   - listings (`get_live_streams`, `get_vod_streams`, `get_series`) → **10 minutes**
   - per-item info (`get_vod_info`, `get_series_info`) → **24 hours**
-  - **EPG (`get_short_epg`, `get_simple_data_table`) → never cached** — caching now/next would break Phase 3.
+  - **EPG (`get_short_epg`, `get_simple_data_table`) → never cached** — short EPG must stay fresh if a future caller uses it for UI.
   - Auth probe (no `action` param) → **never cached** — fresh auth surfaces banned/expired accounts immediately.
 - **In-flight dedupe**: concurrent identical requests share one network round-trip.
 - **Credential safety**: cache keys strip `password`. Username is kept (different accounts on the same host must NOT share entries).

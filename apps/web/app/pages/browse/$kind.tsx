@@ -10,6 +10,7 @@ import {
   useCatalogStore,
   type ChannelKind,
 } from '../../store/catalog-store';
+import { useGuideStore } from '../../store/guide-store';
 
 const KIND_TITLES: Record<ChannelKind, { title: string; subtitle: string }> = {
   live: { title: 'Live TV', subtitle: 'Linear channels and EPG' },
@@ -54,6 +55,12 @@ export function BrowseKindPage() {
     if (catalogSourceId === activeSource.id) return;
     void loadForSource(activeSource);
   }, [activeSource, catalogSourceId, loadForSource]);
+
+  const loadGuide = useGuideStore((s) => s.loadForSource);
+  useEffect(() => {
+    if (!activeSource) return;
+    void loadGuide(activeSource);
+  }, [activeSource, loadGuide]);
 
   const meta = useMemo(() => (kind ? KIND_TITLES[kind] : null), [kind]);
 

@@ -13,6 +13,7 @@ export default [
   route('add-source', './pages/add-source.tsx'),
   route('settings', './pages/settings.tsx'),
   route('browse/:kind', './pages/browse/$kind.tsx'),
+  route('epg', './pages/epg.tsx'),
   route('play/:sourceId/:kind/:channelId', './pages/play.tsx'),
   ...devOnlyRoutes,
 ] satisfies RouteConfig;

@@ -18,6 +18,9 @@ import {
 } from '../store/catalog-store';
 import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
 import { recentKey, useProfileStore } from '../store/profile-store';
+import { useGuideStore } from '../store/guide-store';
+import { useMinuteClock } from '../hooks/use-minute-clock';
+import { formatNowNextLine } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { ChannelFavoriteButton } from './favorite-channel-button';
 
@@ -68,6 +71,9 @@ export function BrowseView({
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const sourceId = useCatalogStore((s) => s.sourceId);
   const pushRecent = useProfileStore((s) => s.pushRecent);
+  const guide = useGuideStore((s) => s.guide);
+  const guideReady = useGuideStore((s) => s.status === 'ready');
+  const clock = useMinuteClock();
 
   // Reset the selected channel when the kind or active group changes so the
   // selection panel never shows a stale pick from another section.
@@ -99,21 +105,28 @@ export function BrowseView({
     );
   }
 
-  const items: ChannelListItem[] = visibleChannels.map((channel) => ({
-    id: channel.id,
-    focusKey: `CHANNEL_${channel.id}`,
-    name: channel.name,
-    groupTitle: channel.groupTitle,
-    logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
-    trailing:
-      sourceId !== null ? (
-        <ChannelFavoriteButton
-          sourceId={sourceId}
-          channelId={channel.id}
-          focusKey={`FAV_LIST_${channel.id}`}
-        />
-      ) : undefined,
-  }));
+  const items: ChannelListItem[] = visibleChannels.map((channel) => {
+    const nowPlaying =
+      kind === 'live' && guideReady && channel.type === 'live'
+        ? formatNowNextLine(guide, channel.tvgId, clock.getTime())
+        : undefined;
+    return {
+      id: channel.id,
+      focusKey: `CHANNEL_${channel.id}`,
+      name: channel.name,
+      groupTitle: channel.groupTitle,
+      logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
+      nowPlaying: nowPlaying ?? undefined,
+      trailing:
+        sourceId !== null ? (
+          <ChannelFavoriteButton
+            sourceId={sourceId}
+            channelId={channel.id}
+            focusKey={`FAV_LIST_${channel.id}`}
+          />
+        ) : undefined,
+    };
+  });
 
   // Live gets the split layout: groups | channels | inline player.
   // Other kinds keep the 2-column layout + a detail panel below; their

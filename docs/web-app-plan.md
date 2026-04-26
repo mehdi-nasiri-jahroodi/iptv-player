@@ -7,7 +7,7 @@
 
 ## 0. Handoff status (read this first)
 
-**As of this revision, Phase 1 is complete and Phase 2 is complete** for the MVP checklist below (stretch: Now/Next strip remains optional / Phase 3). The source → browse → play loop works end-to-end with a real commercial Xtream provider, including a user-run CORS proxy. See [§6 Phase 2](#phase-2--mvp-core-flows) for the per-task checklist.
+**As of this revision, Phase 1–3 (minimal EPG) are complete** for the checklist below. The source → browse → play loop works end-to-end with a real commercial Xtream provider, including a user-run CORS proxy. Phase 2 details: [§6 Phase 2](#phase-2--mvp-core-flows); Phase 3 EPG: [§6 Phase 3](#phase-3--epg-minimal).
 
 **What works today:**
 
@@ -21,9 +21,7 @@
 - **Favorites** (heart on channel rows + selected panel) and **recents** (persisted on channel select / play) via **`profileStore`** (`iptv.profile.v1`).
 - **Profile display name** on Home + **Settings → Profile**; first-launch **`ResponsibilityNotice`** (“Before you stream”). Modal visibility uses a **dedicated** `localStorage` key **`iptv.viewer_responsibility_ack_v1`** (`=== '1'`), not the Zustand JSON blob alone — so clearing that key surfaces the modal again for QA. **`acknowledgedResponsibilityV1`** stays on **`settingsStore`** (`iptv.settings.v1`) in sync. One-time legacy import copies an old blob-only ack into the dedicated key and sets **`iptv.responsibility_legacy_blob_imported_v1`** so the blob is not re-applied after that. On **I understand**, local React state increments so the overlay closes even when Zustand’s boolean was already `true` (Zustand selectors would otherwise skip a re-render).
 
-**Phase 2 stretch (still optional here):** Now/Next strip on channel cards → prefer Phase 3 with EPG.
-
-**Stretch (defer to Phase 3 if not done):** Now/Next strip on channel cards.
+**Phase 3 (minimal EPG) ships:** optional **XMLTV EPG URL** on the source form; `packages/core` **XMLTV parser** + **now/next** helpers; **Live spotlight** on Home (`ChannelCard` rows + link to full guide); **now/next on live rows** in `BrowseView`; **`/epg`** merged schedule (today + tomorrow, local time, scroll to on-air row). EPG fetch is direct from the browser — hosts must allow **CORS** (or fail with a clear error).
 
 **Critical context for whoever picks this up:**
 
@@ -175,12 +173,13 @@ apps/web/
     auto-theme.tsx            # theme prefs (auto/light/dark)
     spatial-navigation-root.tsx  # Norigin init/destroy
     pages/                    # one default-exported component per route
-      home.tsx                # (Phase 2) tile launcher: Live / Movies / Series + source switcher
+      home.tsx                # tile launcher + Live spotlight (EPG) when XMLTV URL is set
       add-source.tsx          # source wizard (built)
       settings.tsx            # built — profile name, stream proxy, legal ack flag; persisted via Zustand
       browse/
         $kind.tsx             # /browse/:kind — wraps the shared BrowseView
       play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
+      epg.tsx                 # /epg — today + tomorrow programme list (XMLTV)
       dev/
         design-tokens.tsx     # dev-only Token lab
         play-test.tsx         # dev-only Shaka HLS smoke test
@@ -194,7 +193,10 @@ apps/web/
       cache/                  # IndexedDB Xtream cache adapter
     lib/
       playback-stream-proxy.ts  # merges settings proxy + Source.userAgent for Shaka
-    store/                    # Zustand slices: catalog-store, settings-store, profile-store
+      epg-display.ts            # live channel pick + now/next label text for UI
+    store/                    # Zustand slices: catalog-store, guide-store, settings-store, profile-store
+    hooks/
+      use-minute-clock.ts     # bumps once/minute for now/next labels
 ```
 
 ---
@@ -265,10 +267,11 @@ apps/web/
 
 ### Phase 3 — EPG (minimal)
 
-- [ ] XMLTV EPG URL input in source form (optional field).
-- [ ] `packages/core` EPG parser.
-- [ ] Now/Next strip on `Home` channel cards.
-- [ ] Simple EPG grid page (today + tomorrow, current time highlighted).
+- [x] XMLTV EPG URL input in source form (optional field; `Source.epgUrl` + `SourceForm`).
+- [x] `packages/core` XMLTV parser (`parseXmltvToGuide`, timezone offsets, `tv:` namespace) + `getNowAndNextProgram`, `flatProgramsInWindow`, sorted guide normalisation.
+- [x] Now/Next on Home — **Live spotlight** (`ChannelCard` + `formatNowNextLine`) when guide loads; **Full guide** → `/epg`.
+- [x] Now/Next on live channel rows in `BrowseView` / `ChannelList`.
+- [x] **`/epg`** schedule page — today + tomorrow (local), **On air** highlight, scroll to current row on load.
 
 **Exit criterion**: EPG data displays accurately; grid scrolls to "now" on open.
 
@@ -342,7 +345,7 @@ Use **Zustand** for global app state (small footprint, no boilerplate):
 | ----------- | -------- |
 | `sourcesStore` | sources[], activeSourceId (class-based `LocalStorageAdapter`, key `iptv.sources.v1`) |
 | `catalogStore` | playlist, groups, filteredChannels, searchQuery (wraps `createCachingXtreamFetcher`) |
-| `guideStore` | epgGuide, nowPrograms (Phase 3) |
+| `guideStore` | **built** (`useGuideStore`) — in-memory XMLTV guide for the active source's `epgUrl`; `loadForSource` fetches + `parseXmltvToGuide`; ignores stale responses when the user switches sources. Status: `idle` \| `loading` \| `ready` \| `error`. |
 | `profileStore` | **built** (single-profile MVP) — `profile: UserProfile` (name, favorites[], recents[]). Zustand `persist`, key `iptv.profile.v1`. |
 | `settingsStore` | **built** — `streamProxy`, `acknowledgedResponsibilityV1`. Zustand `persist`, key `iptv.settings.v1`, version 1, `partialize` to those fields. Responsibility UI reads **`iptv.viewer_responsibility_ack_v1`**; `setAcknowledgedResponsibilityV1(true)` writes that key and **`iptv.responsibility_legacy_blob_imported_v1`**. |
 | `playerStore` | currentChannel, playerState, error (deferred — current player owns its own state via `useShakaPlayer`) |

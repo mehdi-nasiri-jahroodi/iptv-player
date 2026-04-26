@@ -6,6 +6,7 @@ import {
   AppScreen,
   Button,
   CatalogTile,
+  ChannelCard,
   FocusableItem,
   Stack,
 } from 'ui';
@@ -17,6 +18,12 @@ import {
   type ChannelKind,
 } from '../store/catalog-store';
 import { useProfileStore } from '../store/profile-store';
+import { useGuideStore } from '../store/guide-store';
+import { useMinuteClock } from '../hooks/use-minute-clock';
+import {
+  formatNowNextLine,
+  pickPreviewLiveChannels,
+} from '../lib/epg-display';
 
 type SourcesView =
   | { status: 'loading' }
@@ -54,6 +61,12 @@ export function Home() {
     if (catalogSourceId === view.activeSource.id) return;
     void loadForSource(view.activeSource);
   }, [view, loadForSource, catalogSourceId]);
+
+  const loadGuide = useGuideStore((s) => s.loadForSource);
+  useEffect(() => {
+    if (view.status !== 'ready' || !view.activeSource) return;
+    void loadGuide(view.activeSource);
+  }, [view, loadGuide]);
 
   return (
     <AppScreen>
@@ -98,6 +111,7 @@ export function Home() {
               reloadSources();
             }}
             onOpen={(kind) => void navigate(`/browse/${kind}`)}
+            onOpenGuide={() => void navigate('/epg')}
           />
         ) : (
           <SourcePicker
@@ -191,11 +205,13 @@ function Launcher({
   activeSource,
   onActivate,
   onOpen,
+  onOpenGuide,
 }: {
   sources: Source[];
   activeSource: Source;
   onActivate: (id: string) => void;
   onOpen: (kind: ChannelKind) => void;
+  onOpenGuide: () => void;
 }) {
   const status = useCatalogStore((s) => s.status);
   const error = useCatalogStore((s) => s.error);
@@ -227,39 +243,97 @@ function Launcher({
           {error ?? 'Failed to load catalog.'}
         </div>
       ) : (
-        <div
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-          data-testid="catalog-tiles"
-        >
-          <CatalogTile
-            focusKey="HOME_TILE_LIVE"
-            title="Live TV"
-            subtitle="Linear channels and EPG"
-            count={countCopy(liveCount, 'channel')}
-            icon={<Tv aria-hidden className="size-6" />}
-            disabled={liveCount === 0}
-            onSelect={() => onOpen('live')}
-          />
-          <CatalogTile
-            focusKey="HOME_TILE_VOD"
-            title="Movies"
-            subtitle="On-demand video"
-            count={countCopy(vodCount, 'movie')}
-            icon={<Clapperboard aria-hidden className="size-6" />}
-            disabled={vodCount === 0}
-            onSelect={() => onOpen('vod')}
-          />
-          <CatalogTile
-            focusKey="HOME_TILE_SERIES"
-            title="Series"
-            subtitle="Episodic content"
-            count={countCopy(seriesCount, 'series', 'series')}
-            icon={<ListVideo aria-hidden className="size-6" />}
-            disabled={seriesCount === 0}
-            onSelect={() => onOpen('series')}
-          />
-        </div>
+        <>
+          <div
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            data-testid="catalog-tiles"
+          >
+            <CatalogTile
+              focusKey="HOME_TILE_LIVE"
+              title="Live TV"
+              subtitle="Linear channels and EPG"
+              count={countCopy(liveCount, 'channel')}
+              icon={<Tv aria-hidden className="size-6" />}
+              disabled={liveCount === 0}
+              onSelect={() => onOpen('live')}
+            />
+            <CatalogTile
+              focusKey="HOME_TILE_VOD"
+              title="Movies"
+              subtitle="On-demand video"
+              count={countCopy(vodCount, 'movie')}
+              icon={<Clapperboard aria-hidden className="size-6" />}
+              disabled={vodCount === 0}
+              onSelect={() => onOpen('vod')}
+            />
+            <CatalogTile
+              focusKey="HOME_TILE_SERIES"
+              title="Series"
+              subtitle="Episodic content"
+              count={countCopy(seriesCount, 'series', 'series')}
+              icon={<ListVideo aria-hidden className="size-6" />}
+              disabled={seriesCount === 0}
+              onSelect={() => onOpen('series')}
+            />
+          </div>
+          <HomeLiveSpotlight activeSource={activeSource} onOpenGuide={onOpenGuide} />
+        </>
       )}
+    </Stack>
+  );
+}
+
+function HomeLiveSpotlight({
+  activeSource,
+  onOpenGuide,
+}: {
+  activeSource: Source;
+  onOpenGuide: () => void;
+}) {
+  const navigate = useNavigate();
+  const guide = useGuideStore((s) => s.guide);
+  const guideStatus = useGuideStore((s) => s.status);
+  const playlist = useCatalogStore((s) => s.playlist);
+  const catalogSourceId = useCatalogStore((s) => s.sourceId);
+  const recents = useProfileStore((s) => s.profile.recents);
+  const favorites = useProfileStore((s) => s.profile.favorites);
+  const clock = useMinuteClock();
+
+  if (guideStatus !== 'ready' || !guide || catalogSourceId !== activeSource.id) {
+    return null;
+  }
+  if (!activeSource.epgUrl?.trim()) return null;
+
+  const channels = pickPreviewLiveChannels(
+    playlist,
+    activeSource.id,
+    recents,
+    favorites,
+    8
+  ).filter((c) => c.tvgId && (guide.programsByChannelId[c.tvgId]?.length ?? 0) > 0);
+  if (channels.length === 0) return null;
+
+  return (
+    <Stack gap={3} data-testid="home-live-spotlight">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-foreground">Live spotlight</h2>
+        <Button variant="ghost" size="sm" focusKey="HOME_EPG" onClick={onOpenGuide}>
+          Full guide
+        </Button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {channels.map((ch) => (
+          <ChannelCard
+            key={ch.id}
+            focusKey={`HOME_SPOT_${ch.id}`}
+            name={ch.name}
+            groupTitle={ch.groupTitle}
+            logoUrl={ch.logoUrl}
+            nowPlaying={formatNowNextLine(guide, ch.tvgId, clock.getTime()) ?? undefined}
+            onSelect={() => void navigate('/browse/live')}
+          />
+        ))}
+      </div>
     </Stack>
   );
 }

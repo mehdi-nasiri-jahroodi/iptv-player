@@ -443,7 +443,7 @@ export function SourceForm({
       <FormField
         label="EPG URL (optional)"
         error={form.formState.errors.epgUrl?.message}
-        hint="XMLTV guide URL. Can be added later in settings."
+        hint="XMLTV (.xml) programme guide. Must allow browser requests (CORS); same-origin or permissive hosts only unless you use a proxy."
       >
         {({ inputId, describedBy }) => (
           <TextField
