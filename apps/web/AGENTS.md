@@ -54,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); **series:** sidebar + detail panel (seasons/episodes) + episode Play
+      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); **series:** rail + Favorites + detail hero (season tabs + episode list; Play per episode) + poster grid (tile selects hero; 2:3 tiles with season/episode count badge + watched strip)
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -67,7 +67,7 @@ apps/web/
     hooks/
       use-minute-clock.ts     # re-tick now/next labels once per minute
       use-vod-xtream-detail.ts  # `get_vod_info` merge for the focused VOD hero (Xtream)
-      use-vod-xtream-grid-enrichment.ts  # batched `get_vod_info` for visible VOD posters + sort fields (Xtream, capped)
+      use-series-xtream-detail.ts  # `get_series_info` merge for the focused series hero — populates seasons/episodes on demand (Xtream)
     lib/
       layout-shell.ts         # `LAYOUT_CONTENT_CLASS` — shared max-width + horizontal padding (nav + home + browse + EPG)
       vod-sort.ts             # `sortVodChannels` — VOD browse sort (year, rating, duration, director, date added, title)
@@ -159,7 +159,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, **`VodBrowseHero`** / **`VodPosterGrid`** (VOD browse; hero takes optional **`trailingActions`** for host favorites), `formatVodDuration`, `CatalogTile`, `Carousel` (Embla-powered horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, **`VodBrowseHero`** / **`VodPosterGrid`** (VOD browse; hero takes optional **`trailingActions`** for host favorites), **`SeriesBrowseHero`** / **`SeriesPosterGrid`** (series browse; hero has inline season tabs + episode list with watched markers + per-episode Play; grid tile shows season/episode count badge + watched strip), `formatVodDuration`, `CatalogTile`, `Carousel` (Embla-powered horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
 
 ---
 

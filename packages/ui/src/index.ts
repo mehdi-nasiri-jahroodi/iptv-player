@@ -13,5 +13,7 @@ export * from './lib/vod-format';
 export * from './lib/vod-poster-meta';
 export * from './lib/VodBrowseHero';
 export * from './lib/VodPosterGrid';
+export * from './lib/SeriesBrowseHero';
+export * from './lib/SeriesPosterGrid';
 export * from './lib/CatalogTile';
 export * from './lib/Carousel';

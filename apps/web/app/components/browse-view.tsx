@@ -33,6 +33,8 @@ import {
   Button,
   ChannelList,
   FocusableItem,
+  SeriesBrowseHero,
+  SeriesPosterGrid,
   Stack,
   TextField,
   VodBrowseHero,
@@ -54,6 +56,7 @@ import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { sortVodChannels, type VodSortDir, type VodSortKey } from '../lib/vod-sort';
 import { ChannelFavoriteButton } from './favorite-channel-button';
 import { useVodXtreamDetail } from '../hooks/use-vod-xtream-detail';
+import { useSeriesXtreamDetail } from '../hooks/use-series-xtream-detail';
 import { LiveBrowseHero } from './live-browse-hero';
 import { LiveChannelTable } from './live-channel-table';
 
@@ -61,8 +64,8 @@ const EMPTY_GROUP_ORDER: string[] = [];
 
 /** Virtual sidebar id for the live “Favorites” bucket (not a catalog group). */
 const LIVE_FAVORITES_SIDEBAR_ID = '__live_favorites__';
-/** Virtual sidebar id for the VOD “Favorites” bucket (not a catalog group). */
 const VOD_FAVORITES_SIDEBAR_ID = '__vod_favorites__';
+const SERIES_FAVORITES_SIDEBAR_ID = '__series_favorites__';
 
 type CatalogGroup = CatalogState['groupsByKind'][ChannelKind][number];
 
@@ -163,10 +166,12 @@ export function BrowseView({
   const favorites = useProfileStore((s) => s.profile.favorites);
   const [liveFavoritesRail, setLiveFavoritesRail] = useState(false);
   const [vodFavoritesRail, setVodFavoritesRail] = useState(false);
+  const [seriesFavoritesRail, setSeriesFavoritesRail] = useState(false);
 
   useEffect(() => {
     setLiveFavoritesRail(false);
     setVodFavoritesRail(false);
+    setSeriesFavoritesRail(false);
   }, [kind, activeSource.id]);
 
   const sourceId = useCatalogStore((s) => s.sourceId);
@@ -217,6 +222,29 @@ export function BrowseView({
     return ordered;
   }, [kind, sourceId, groups, favorites]);
 
+  const favoriteSeriesChannels = useMemo(() => {
+    if (kind !== 'series' || !sourceId) return [] as SeriesChannel[];
+    const byId = new Map<string, SeriesChannel>();
+    for (const g of groups) {
+      for (const c of g.channels) {
+        if (c.type === 'series') byId.set(c.id, c);
+      }
+    }
+    const ordered: SeriesChannel[] = [];
+    const seen = new Set<string>();
+    for (const key of favorites) {
+      if (!key.startsWith(`${sourceId}::`)) continue;
+      const channelId = key.slice(sourceId.length + 2);
+      if (!channelId || seen.has(channelId)) continue;
+      const ch = byId.get(channelId);
+      if (ch) {
+        ordered.push(ch);
+        seen.add(channelId);
+      }
+    }
+    return ordered;
+  }, [kind, sourceId, groups, favorites]);
+
   const [vodSortKey, setVodSortKey] = useState<VodSortKey>('default');
   const [vodSortDir, setVodSortDir] = useState<VodSortDir>('asc');
 
@@ -225,15 +253,24 @@ export function BrowseView({
       if (kind === 'live' && id === LIVE_FAVORITES_SIDEBAR_ID) {
         setLiveFavoritesRail(true);
         setVodFavoritesRail(false);
+        setSeriesFavoritesRail(false);
         return;
       }
       if (kind === 'vod' && id === VOD_FAVORITES_SIDEBAR_ID) {
         setVodFavoritesRail(true);
         setLiveFavoritesRail(false);
+        setSeriesFavoritesRail(false);
+        return;
+      }
+      if (kind === 'series' && id === SERIES_FAVORITES_SIDEBAR_ID) {
+        setSeriesFavoritesRail(true);
+        setLiveFavoritesRail(false);
+        setVodFavoritesRail(false);
         return;
       }
       setLiveFavoritesRail(false);
       setVodFavoritesRail(false);
+      setSeriesFavoritesRail(false);
       if (kind === 'vod') {
         setVodSortKey('default');
         setVodSortDir('asc');
@@ -263,15 +300,25 @@ export function BrowseView({
         channels: favoriteVodChannels,
       };
     }
+    if (kind === 'series' && seriesFavoritesRail) {
+      return {
+        id: SERIES_FAVORITES_SIDEBAR_ID,
+        name: 'Favorites',
+        kind: 'series',
+        channels: favoriteSeriesChannels,
+      };
+    }
     return groups.find((g) => g.id === activeGroupId) ?? null;
   }, [
     kind,
     liveFavoritesRail,
     vodFavoritesRail,
+    seriesFavoritesRail,
     groups,
     activeGroupId,
     favoriteLiveChannels,
     favoriteVodChannels,
+    favoriteSeriesChannels,
   ]);
   const visibleChannels: Channel[] = useMemo(() => {
     if (!activeGroup) return [];
@@ -437,12 +484,33 @@ export function BrowseView({
     setSelectedChannel(sortedVodRows[0] ?? null);
   }, [kind, activeGroup, sortedVodRows, selectedChannel]);
 
+  useEffect(() => {
+    if (kind !== 'series') return;
+    if (!activeGroup || visibleChannels.length === 0) {
+      setSelectedChannel(null);
+      return;
+    }
+    if (
+      selectedChannel?.type === 'series' &&
+      visibleChannels.some((c) => c.id === selectedChannel.id)
+    ) {
+      return;
+    }
+    const firstSeries = visibleChannels.find((c): c is SeriesChannel => c.type === 'series') ?? null;
+    setSelectedChannel(firstSeries);
+  }, [kind, activeGroup, visibleChannels, selectedChannel]);
+
   const baseVodForDetail =
     kind === 'vod' && selectedChannel?.type === 'vod' ? selectedChannel : null;
   const { channel: vodDisplayChannel, detailLoading: vodDetailLoading } = useVodXtreamDetail(
     baseVodForDetail,
     activeSource
   );
+
+  const baseSeriesForDetail =
+    kind === 'series' && selectedChannel?.type === 'series' ? selectedChannel : null;
+  const { channel: seriesDisplayChannel, detailLoading: seriesDetailLoading } =
+    useSeriesXtreamDetail(baseSeriesForDetail, activeSource);
 
   const playVod = useCallback(
     (ch: VodChannel) => {
@@ -453,6 +521,46 @@ export function BrowseView({
     },
     [navigate, sourceId]
   );
+
+  const playSeriesEpisode = useCallback(
+    (ep: SeriesEpisode) => {
+      if (!sourceId) return;
+      void navigate(
+        `/play/${encodeURIComponent(sourceId)}/series/${encodeURIComponent(ep.id)}`
+      );
+    },
+    [navigate, sourceId]
+  );
+
+  // Watched tracking: episode ids seen in recents for the current source.
+  const watchedEpisodeIds = useMemo(() => {
+    if (kind !== 'series' || !sourceId) return new Set<string>();
+    const out = new Set<string>();
+    for (const key of recents) {
+      const p = parseRecentKey(key);
+      if (!p || p.sourceId !== sourceId || p.kind !== 'series') continue;
+      out.add(p.channelId);
+    }
+    return out;
+  }, [kind, sourceId, recents]);
+
+  // Derive which series have ≥1 watched episode for the poster grid indicator.
+  const watchedSeriesIds = useMemo(() => {
+    if (kind !== 'series') return new Set<string>();
+    const out = new Set<string>();
+    for (const g of groups) {
+      for (const ch of g.channels) {
+        if (ch.type !== 'series') continue;
+        for (const season of ch.seasons) {
+          if (season.episodes.some((ep) => watchedEpisodeIds.has(ep.id))) {
+            out.add(ch.id);
+            break;
+          }
+        }
+      }
+    }
+    return out;
+  }, [kind, groups, watchedEpisodeIds]);
 
   useEffect(() => {
     if (kind !== 'live') return;
@@ -523,6 +631,12 @@ export function BrowseView({
               count: favoriteVodChannels.length,
               isActive: vodFavoritesRail,
               onSelect: () => onGroupSelect(VOD_FAVORITES_SIDEBAR_ID),
+            }
+        : kind === 'series'
+          ? {
+              count: favoriteSeriesChannels.length,
+              isActive: seriesFavoritesRail,
+              onSelect: () => onGroupSelect(SERIES_FAVORITES_SIDEBAR_ID),
             }
         : undefined,
   };
@@ -736,14 +850,110 @@ export function BrowseView({
     );
   }
 
+  if (kind === 'series') {
+    const selectedSeries = selectedChannel?.type === 'series' ? selectedChannel : null;
+    const seriesRows = visibleChannels.filter((c): c is SeriesChannel => c.type === 'series');
+
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row md:items-stretch md:overflow-hidden"
+        data-testid="browse-view-series"
+      >
+        <SeriesCatalogRail {...sidebarProps} />
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden py-3 md:gap-4">
+          {/* Hero */}
+          <div className="shrink-0">
+            <SeriesBrowseHero
+              channel={seriesDisplayChannel}
+              detailLoading={seriesDetailLoading}
+              watchedEpisodeIds={watchedEpisodeIds}
+              onPlayEpisode={playSeriesEpisode}
+              trailingActions={
+                sourceId && seriesDisplayChannel ? (
+                  <ChannelFavoriteButton
+                    sourceId={sourceId}
+                    channelId={seriesDisplayChannel.id}
+                    focusKey={`SERIES_HERO_FAV_${seriesDisplayChannel.id}`}
+                  />
+                ) : null
+              }
+            />
+          </div>
+
+          {/* Toolbar */}
+          <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-72">
+              Category
+              <select
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
+                value={seriesFavoritesRail ? SERIES_FAVORITES_SIDEBAR_ID : (activeGroupId ?? '')}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  if (v === SERIES_FAVORITES_SIDEBAR_ID) {
+                    onGroupSelect(SERIES_FAVORITES_SIDEBAR_ID);
+                  } else {
+                    onGroupSelect(v);
+                  }
+                }}
+                aria-label="Jump to category"
+              >
+                <option value={SERIES_FAVORITES_SIDEBAR_ID}>
+                  Favorites ({favoriteSeriesChannels.length})
+                </option>
+                {orderedGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.channels.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <TextField
+              className="min-w-0 flex-1 lg:min-w-[200px]"
+              focusKey="BROWSE_SEARCH_SERIES"
+              aria-label="Search series"
+              value={searchQuery}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search series…"
+            />
+          </div>
+
+          {/* Poster grid */}
+          <div className="scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+            <SeriesPosterGrid
+              channels={seriesRows}
+              selectedId={selectedSeries?.id ?? null}
+              watchedSeriesIds={watchedSeriesIds}
+              onHighlight={(id) => {
+                const ch = seriesRows.find((c) => c.id === id) ?? null;
+                setSelectedChannel(ch);
+              }}
+              onSelect={(id) => {
+                const ch = seriesRows.find((c) => c.id === id) ?? null;
+                setSelectedChannel(ch);
+              }}
+              empty={
+                searchQuery.trim()
+                  ? 'No series match your search.'
+                  : seriesFavoritesRail
+                    ? 'No favorites yet. Use the heart on a series to add it here.'
+                    : 'This category is empty.'
+              }
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Stack gap={4} data-testid={`browse-view-${kind}`}>
+    <Stack gap={4} data-testid="browse-view-generic">
       <div className="grid gap-4 md:grid-cols-[220px_1fr]">
         <GroupsSidebar {...sidebarProps} />
         <Stack gap={3}>
           <TextField
-            focusKey={`BROWSE_SEARCH_${kind.toUpperCase()}`}
-            aria-label={`Search ${kind} channels`}
+            focusKey="BROWSE_SEARCH_GENERIC"
+            aria-label="Search channels"
             value={searchQuery}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter by name"
@@ -1091,6 +1301,25 @@ function LiveCatalogRail(props: GroupsSidebarProps) {
           <Tv className="size-5" aria-hidden />
         </div>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">Live TV</h1>
+      </div>
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
+        <GroupsSidebar
+          {...props}
+          className="rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
+        />
+      </div>
+    </aside>
+  );
+}
+
+function SeriesCatalogRail(props: GroupsSidebarProps) {
+  return (
+    <aside className="flex max-h-[38vh] w-full shrink-0 flex-col border-border bg-surface/95 md:max-h-none md:h-full md:min-h-0 md:w-72 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
+          <Tv className="size-5" aria-hidden />
+        </div>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Series</h1>
       </div>
       <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
         <GroupsSidebar

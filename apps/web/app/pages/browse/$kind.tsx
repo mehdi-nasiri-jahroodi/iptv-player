@@ -67,7 +67,7 @@ export function BrowseKindPage() {
   const meta = useMemo(() => (kind ? KIND_TITLES[kind] : null), [kind]);
 
   const hideBrowsePageHeader =
-    Boolean(activeSource) && (kind === 'live' || kind === 'vod');
+    Boolean(activeSource) && (kind === 'live' || kind === 'vod' || kind === 'series');
 
   return (
     <AppScreen scrollPage={!hideBrowsePageHeader}>

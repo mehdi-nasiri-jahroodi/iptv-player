@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import type { Channel, SeriesChannel, SeriesEpisode, Source } from 'core';
+import type { Channel, Source } from 'core';
 import {
   Player,
   PlayerControls,
@@ -18,6 +18,7 @@ import {
 } from '../store/catalog-store';
 import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
 import { recentKey, useProfileStore } from '../store/profile-store';
+import { useSeriesEpisodeStreamUrl } from '../hooks/use-series-episode-stream-url';
 
 function isChannelKind(value: string | undefined): value is ChannelKind {
   return value !== undefined && (CHANNEL_KINDS as string[]).includes(value);
@@ -30,10 +31,13 @@ function isChannelKind(value: string | undefined): value is ChannelKind {
  *  1. Resolve the source from `SourcesStore` (deep links survive a reload).
  *  2. Ensure the catalog is loaded for that source (reuses `loadForSource`,
  *     so the Xtream cache is hit on repeat visits).
- *  3. Look up the channel inside the matching `groupsByKind[kind]` bucket.
- *  4. Mount `<Player>` against `channel.streamUrl`. Series channels do not
- *     carry a `streamUrl` (an episode pick is required) — the page renders
- *     a "no stream available" message until the seasons UI lands in Phase 4.
+ *  3. For live/vod: look up the channel in `groupsByKind[kind]` and use
+ *     `channel.streamUrl` directly.
+ *  4. For series: the episode `channelId` is `xtream:series:{id}:s…:e…:{epId}`.
+ *     The catalog is loaded with `includeSeriesDetail: false` so episodes are
+ *     not in the store.  `useSeriesEpisodeStreamUrl` fetches `get_series_info`
+ *     once (TTL-cached 24 h) and derives the stream URL from the raw episode id
+ *     and container extension — no store mutation required.
  */
 export function PlayPage() {
   const params = useParams<{
@@ -73,33 +77,45 @@ export function PlayPage() {
     void loadForSource(source);
   }, [source, catalogSourceId, loadForSource]);
 
+  // Live / VOD: channel lookup by id.
   const channel: Channel | null = useMemo(() => {
+    if (kind === 'series') return null; // handled separately below
     if (!groups) return null;
     for (const group of groups) {
       const found = group.channels.find((c) => c.id === channelId);
       if (found) return found;
     }
     return null;
-  }, [groups, channelId]);
+  }, [kind, groups, channelId]);
 
-  const seriesEpisodeMatch = useMemo(() => {
+  // Series: find the listing-only series row (no episodes) to show name/group.
+  const seriesChannel = useMemo(() => {
     if (kind !== 'series' || !groups) return null;
     for (const group of groups) {
       for (const ch of group.channels) {
-        if (ch.type !== 'series') continue;
-        for (const season of ch.seasons) {
-          const ep = season.episodes.find((e) => e.id === channelId);
-          if (ep) return { series: ch as SeriesChannel, episode: ep as SeriesEpisode };
+        if (
+          ch.type === 'series' &&
+          ch.xtreamSeriesId !== undefined &&
+          channelId.startsWith(`xtream:series:${ch.xtreamSeriesId}:`)
+        ) {
+          return ch;
         }
       }
     }
     return null;
   }, [kind, groups, channelId]);
 
+  // Series: fetch the episode stream URL on demand (TTL-cached get_series_info).
+  const { streamUrl: seriesStreamUrl, loading: seriesLoading } =
+    useSeriesEpisodeStreamUrl(
+      kind === 'series' ? channelId : '',
+      kind === 'series' ? source : null
+    );
+
   const [error, setError] = useState<ShakaError | null>(null);
   useEffect(() => {
     setError(null);
-  }, [channel?.id]);
+  }, [channelId]);
 
   const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
   const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
@@ -108,37 +124,60 @@ export function PlayPage() {
     [streamProxyConfig, source]
   );
 
-  const streamUrl = (() => {
+  const streamUrl: string | null = (() => {
+    if (kind === 'series') return seriesStreamUrl ?? null;
     if (channel && 'streamUrl' in channel) return channel.streamUrl;
-    if (kind === 'series') return seriesEpisodeMatch?.episode.streamUrl ?? null;
     return null;
   })();
+
+  // Parse a human-readable episode label from the episode id.
+  // Format: xtream:series:{seriesId}:s{season}:e{ep}:{rawId}
+  const episodeLabel = useMemo(() => {
+    const m = channelId.match(/^xtream:series:\d+:s(\d+):e(\d+):/);
+    if (!m) return null;
+    return `S${m[1]} · E${m[2]}`;
+  }, [channelId]);
 
   const pushRecent = useProfileStore((s) => s.pushRecent);
   const recentPushedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!source || !kind || !streamUrl) return;
-    const itemId = kind === 'series' ? (seriesEpisodeMatch?.episode.id ?? channel?.id) : channel?.id;
+    const itemId = kind === 'series' ? channelId : channel?.id;
     if (!itemId) return;
     const key = recentKey(source.id, kind, itemId);
     if (recentPushedRef.current === key) return;
     recentPushedRef.current = key;
     pushRecent(key);
-  }, [source, channel, kind, streamUrl, seriesEpisodeMatch, pushRecent]);
+  }, [source, channel, kind, channelId, streamUrl, pushRecent]);
 
   // Status banner state — kept minimal so the player remains the focal point.
   const banner = (() => {
     if (!kind) return { kind: 'unknown' } as const;
     if (source === undefined) return { kind: 'loading-source' } as const;
     if (source === null) return { kind: 'missing-source' } as const;
-    if (status === 'loading' && !channel)
+    if (status === 'loading' && !channel && kind !== 'series')
       return { kind: 'loading-catalog' } as const;
     if (status === 'error') return { kind: 'catalog-error' } as const;
-    if (!channel && !(kind === 'series' && seriesEpisodeMatch))
+    if (kind === 'series' && seriesLoading) return { kind: 'loading-episode' } as const;
+    if (kind === 'series' && seriesStreamUrl === undefined)
       return { kind: 'missing-channel' } as const;
+    if (!channel && kind !== 'series') return { kind: 'missing-channel' } as const;
     if (!streamUrl) return { kind: 'no-stream' } as const;
     return { kind: 'ready' } as const;
   })();
+
+  const headerTitle = (() => {
+    if (kind === 'series') {
+      const name = seriesChannel?.name ?? 'Series';
+      return episodeLabel ? `${name} · ${episodeLabel}` : name;
+    }
+    return channel?.name ?? 'Loading…';
+  })();
+
+  const headerSub =
+    kind === 'series'
+      ? (seriesChannel?.groupTitle ?? '\u00a0')
+      : (channel?.groupTitle ?? '\u00a0');
 
   return (
     <div
@@ -147,14 +186,8 @@ export function PlayPage() {
     >
       <header className="flex items-center justify-between gap-3 px-6 py-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">
-            {seriesEpisodeMatch
-              ? `${seriesEpisodeMatch.series.name} · E${seriesEpisodeMatch.episode.episodeNumber} ${seriesEpisodeMatch.episode.title}`
-              : (channel?.name ?? 'Loading…')}
-          </div>
-          <div className="truncate text-xs text-foreground-muted">
-            {seriesEpisodeMatch?.series.groupTitle ?? channel?.groupTitle ?? '\u00a0'}
-          </div>
+          <div className="truncate text-sm font-medium">{headerTitle}</div>
+          <div className="truncate text-xs text-foreground-muted">{headerSub}</div>
         </div>
         <Button
           variant="ghost"
@@ -184,7 +217,8 @@ export function PlayPage() {
             "{params.kind}" is not a known catalog section.
           </Banner>
         ) : banner.kind === 'loading-source' ||
-          banner.kind === 'loading-catalog' ? (
+          banner.kind === 'loading-catalog' ||
+          banner.kind === 'loading-episode' ? (
           <Banner testid="play-loading">Loading…</Banner>
         ) : banner.kind === 'missing-source' ? (
           <Banner testid="play-missing-source">
@@ -215,7 +249,7 @@ export function PlayPage() {
             >
               {(api) => (
                 <>
-                  {kind === 'vod' ? (
+                  {kind === 'vod' || kind === 'series' ? (
                     <PlayerSubtitlePicker
                       api={api}
                       className="absolute right-3 top-3 md:right-4 md:top-4"

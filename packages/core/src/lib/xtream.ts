@@ -575,6 +575,85 @@ export function mergeVodChannelWithXtreamInfo(
   });
 }
 
+/**
+ * Overlay `get_series_info` detail onto a listing-only `SeriesChannel`
+ * (loaded with `includeSeriesDetail: false`).  The base channel keeps its id,
+ * groupTitle, and logoUrl/posterUrl; we overwrite metadata fields and, most
+ * importantly, populate `seasons` (which are empty without this call).
+ */
+export function mergeSeriesChannelWithXtreamInfo(
+  base: SeriesChannel,
+  credentials: XtreamCredentials,
+  detail: XtreamSeriesInfo
+): SeriesChannel {
+  const info = detail.info;
+
+  // Re-derive seasons from detail.episodes (same logic as toSeriesChannel).
+  const seasonsByNumber = new Map<number, SeriesSeason>();
+  for (const [seasonKey, episodeList] of Object.entries(detail.episodes ?? {})) {
+    const seasonNumber = Number(seasonKey);
+    if (!Number.isFinite(seasonNumber)) continue;
+
+    const seriesId = base.xtreamSeriesId;
+    const episodes: SeriesEpisode[] = episodeList.map((ep) => {
+      const episodeId = String(ep.id);
+      const ext = ep.container_extension ?? 'mp4';
+      const epNum = asInt(ep.episode_num) ?? 1;
+      return {
+        id: seriesId !== undefined
+          ? `xtream:series:${seriesId}:s${seasonNumber}:e${epNum}:${episodeId}`
+          : `series:s${seasonNumber}:e${epNum}:${episodeId}`,
+        episodeNumber: epNum,
+        title: ep.title,
+        streamUrl: buildSeriesEpisodeUrl(credentials, episodeId, ext),
+        containerExtension: ext,
+        durationSeconds: asInt(ep.info?.duration_secs),
+        plot: ep.info?.plot,
+        xtreamEpisodeId: episodeId,
+      };
+    });
+
+    const seasonMeta = (detail.seasons ?? []).find(
+      (s) => asInt(s.season_number) === seasonNumber
+    );
+    seasonsByNumber.set(seasonNumber, {
+      seasonNumber,
+      name: seasonMeta?.name,
+      episodes,
+    });
+  }
+
+  const seasons = [...seasonsByNumber.values()].sort(
+    (a, b) => a.seasonNumber - b.seasonNumber
+  );
+
+  const released = info?.releaseDate?.trim();
+  let releaseYear = base.releaseYear;
+  if (released) {
+    const m = released.match(/(\d{4})/);
+    const y = m ? Number(m[1]) : undefined;
+    if (y !== undefined && Number.isFinite(y)) releaseYear = y;
+  }
+
+  const backdropFromPaths = (info as Record<string, unknown> | undefined)?.['backdrop_path'];
+  const backdropUrl =
+    Array.isArray(backdropFromPaths)
+      ? backdropFromPaths.map((p: unknown) => (typeof p === 'string' ? asUrl(p) : undefined)).find(Boolean)
+      : base.backdropUrl;
+
+  return seriesChannelSchema.parse({
+    ...base,
+    plot: info?.plot ?? base.plot,
+    cast: info?.cast ?? base.cast,
+    director: info?.director ?? base.director,
+    genre: info?.genre ?? base.genre,
+    rating: asNumber(info?.rating) ?? base.rating,
+    releaseYear,
+    backdropUrl: backdropUrl ?? base.backdropUrl,
+    seasons: seasons.length > 0 ? seasons : base.seasons,
+  });
+}
+
 /** Convert a series listing entry + its detailed info into a domain `SeriesChannel`. */
 export function toSeriesChannel(
   credentials: XtreamCredentials,
