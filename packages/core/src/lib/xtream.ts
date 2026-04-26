@@ -53,9 +53,10 @@ export function buildPlayerApiUrl(
   action?: XtreamAction,
   params: Record<string, string | number | undefined> = {}
 ): string {
-  const url = new URL('/player_api.php', credentials.host);
-  url.searchParams.set('username', credentials.username);
-  url.searchParams.set('password', credentials.password);
+  const c = sanitizeCredentials(credentials);
+  const url = new URL('/player_api.php', c.host);
+  url.searchParams.set('username', c.username);
+  url.searchParams.set('password', c.password);
   if (action) {
     url.searchParams.set('action', action);
   }
@@ -212,8 +213,8 @@ export function buildLiveStreamUrl(
   streamId: string | number,
   extension: 'm3u8' | 'ts' = 'm3u8'
 ): string {
-  const { host, username, password } = credentials;
-  return `${stripTrailingSlash(host)}/live/${encodeURIComponent(username)}/${encodeURIComponent(
+  const { host, username, password } = sanitizeCredentials(credentials);
+  return `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(
     password
   )}/${streamId}.${extension}`;
 }
@@ -224,8 +225,8 @@ export function buildVodStreamUrl(
   streamId: string | number,
   containerExtension: string
 ): string {
-  const { host, username, password } = credentials;
-  return `${stripTrailingSlash(host)}/movie/${encodeURIComponent(username)}/${encodeURIComponent(
+  const { host, username, password } = sanitizeCredentials(credentials);
+  return `${host}/movie/${encodeURIComponent(username)}/${encodeURIComponent(
     password
   )}/${streamId}.${containerExtension}`;
 }
@@ -236,8 +237,8 @@ export function buildSeriesEpisodeUrl(
   episodeId: string | number,
   containerExtension: string
 ): string {
-  const { host, username, password } = credentials;
-  return `${stripTrailingSlash(host)}/series/${encodeURIComponent(username)}/${encodeURIComponent(
+  const { host, username, password } = sanitizeCredentials(credentials);
+  return `${host}/series/${encodeURIComponent(username)}/${encodeURIComponent(
     password
   )}/${episodeId}.${containerExtension}`;
 }
@@ -258,7 +259,7 @@ export function buildCatchupUrl(
   durationMinutes: number,
   style: 'timeshift_path' | 'timeshift_php' = 'timeshift_path'
 ): string {
-  const { host, username, password } = credentials;
+  const { host, username, password } = sanitizeCredentials(credentials);
   const startStr = formatXtreamCatchupStart(start);
   if (style === 'timeshift_php') {
     const url = new URL('/streaming/timeshift.php', host);
@@ -269,7 +270,7 @@ export function buildCatchupUrl(
     url.searchParams.set('duration', String(durationMinutes));
     return url.toString();
   }
-  return `${stripTrailingSlash(host)}/timeshift/${encodeURIComponent(username)}/${encodeURIComponent(
+  return `${host}/timeshift/${encodeURIComponent(username)}/${encodeURIComponent(
     password
   )}/${durationMinutes}/${startStr}/${streamId}.ts`;
 }
@@ -283,6 +284,35 @@ function formatXtreamCatchupStart(date: Date): string {
 
 function stripTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+/**
+ * Sanitize Xtream credential strings before they hit a URL builder.
+ *
+ * Real-world panels (and the humans who type their details into our
+ * AddSource form) ship URLs with stray whitespace, zero-width characters,
+ * and trailing slashes. JS's built-in `String.prototype.trim` strips
+ * standard ASCII + Unicode whitespace, but not zero-width / BOM / LRM
+ * marks — and those *do* survive into Shaka's URL parser, which then
+ * rejects the request with `UNSUPPORTED_SCHEME` (code 1000) because it
+ * sees a scheme like `" http"` or `"\u200Bhttp"`.
+ *
+ * The cleanest fix is to scrub at every layer (form input on the way in,
+ * URL builders on the way out) so that already-stored bad data is also
+ * healed without making the user re-enter their credentials.
+ */
+const INVISIBLE_CHARS = /[\u200B-\u200F\uFEFF\u00A0]/g;
+
+export function sanitizeCredentialString(value: string): string {
+  return value.replace(INVISIBLE_CHARS, '').trim();
+}
+
+function sanitizeCredentials(c: XtreamCredentials): XtreamCredentials {
+  return {
+    host: stripTrailingSlash(sanitizeCredentialString(c.host)),
+    username: sanitizeCredentialString(c.username),
+    password: sanitizeCredentialString(c.password),
+  };
 }
 
 // ---------------------------------------------------------------------------

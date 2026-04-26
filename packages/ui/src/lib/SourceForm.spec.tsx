@@ -73,6 +73,30 @@ describe('draftToSubmission', () => {
       },
     });
   });
+
+  it('trims whitespace pasted into xtream fields before persisting', () => {
+    // Regression: a leading space in the host survives `z.string().url()`
+    // and ends up as scheme " http" in the built stream URL, which Shaka
+    // rejects with UNSUPPORTED_SCHEME (1000). We trim at the form boundary
+    // so already-saved sources are healed on next submit too.
+    expect(
+      draftToSubmission({
+        mode: 'xtream',
+        label: '  X  ',
+        host: ' https://h:8080 ',
+        username: '\tu\n',
+        password: ' p ',
+        epgUrl: '  ',
+      })
+    ).toEqual<SourceFormSubmission>({
+      source: {
+        label: 'X',
+        type: 'xtream',
+        credentials: { host: 'https://h:8080', username: 'u', password: 'p' },
+        epgUrl: undefined,
+      },
+    });
+  });
 });
 
 describe('SourceForm', () => {

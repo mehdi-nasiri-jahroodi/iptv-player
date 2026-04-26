@@ -237,6 +237,31 @@ describe('Xtream URL builders', () => {
     const url = buildLiveStreamUrl({ ...credentials, host: 'https://provider.example.com:8080/' }, 1);
     expect(url).toBe('https://provider.example.com:8080/live/user/pass/1.m3u8');
   });
+
+  it('sanitizes leading/trailing whitespace and zero-width chars in credentials', () => {
+    // Real-world bug: a stored host like ' http://example.com:8080' (leading
+    // space) sails through `z.string().url()` validation and ends up in the
+    // built stream URL, which Shaka rejects with UNSUPPORTED_SCHEME (1000).
+    expect(
+      buildLiveStreamUrl(
+        { host: ' https://provider.example.com:8080 ', username: ' user ', password: '\tpass\n' },
+        42
+      )
+    ).toBe('https://provider.example.com:8080/live/user/pass/42.m3u8');
+
+    // Zero-width space + BOM survive String.prototype.trim and must also be
+    // scrubbed.
+    expect(
+      buildLiveStreamUrl(
+        {
+          host: '\u200Bhttps://provider.example.com:8080\uFEFF',
+          username: 'user',
+          password: 'pass',
+        },
+        42
+      )
+    ).toBe('https://provider.example.com:8080/live/user/pass/42.m3u8');
+  });
 });
 
 describe('Xtream → domain mappers', () => {

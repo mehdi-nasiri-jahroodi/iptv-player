@@ -447,14 +447,22 @@ export function SourceForm({
 // ---------------------------------------------------------------------------
 
 export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission {
-  const epgUrl = draft.epgUrl?.trim() ? draft.epgUrl.trim() : undefined;
+  // Trim every user-supplied string. The Xtream URL builder also sanitizes
+  // host/username/password defensively (see `sanitizeCredentials` in
+  // `packages/core/src/lib/xtream.ts`), but doing it here as well prevents
+  // bad data from being persisted in the first place — a stray leading
+  // space or zero-width char in `host` survives `z.string().url()` and
+  // makes Shaka reject the stream with `UNSUPPORTED_SCHEME`.
+  const trim = (v: string | undefined) => (v ?? '').trim();
+  const epgUrl = trim(draft.epgUrl) || undefined;
+  const label = trim(draft.label);
 
   if (draft.mode === 'm3u_url') {
     return {
       source: {
-        label: draft.label,
+        label,
         type: 'm3u_url',
-        url: draft.url,
+        url: trim(draft.url),
         epgUrl,
       },
       rawText: draft.useRawText && draft.rawText.trim() ? draft.rawText : undefined,
@@ -463,7 +471,7 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
   if (draft.mode === 'm3u_file') {
     return {
       source: {
-        label: draft.label,
+        label,
         type: 'm3u_file',
         epgUrl,
       },
@@ -472,12 +480,12 @@ export function draftToSubmission(draft: SourceFormDraft): SourceFormSubmission 
   }
   return {
     source: {
-      label: draft.label,
+      label,
       type: 'xtream',
       credentials: {
-        host: draft.host,
-        username: draft.username,
-        password: draft.password,
+        host: trim(draft.host),
+        username: trim(draft.username),
+        password: trim(draft.password),
       },
       epgUrl,
     },
