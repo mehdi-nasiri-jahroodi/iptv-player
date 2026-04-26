@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { InMemoryStorageAdapter, parseM3uToPlaylist, type Source } from 'core';
-import { useCatalogStore } from '../../app/store/catalog-store';
+import {
+  selectChannelCount,
+  useCatalogStore,
+} from '../../app/store/catalog-store';
 import { PlaylistsStore } from '../../app/features/sources/playlists-storage';
 
 const SAMPLE_M3U = `#EXTM3U
@@ -28,7 +31,7 @@ afterEach(() => {
 });
 
 describe('catalogStore — m3u sources', () => {
-  test('loads from the snapshot store and selects the first live group', async () => {
+  test('loads from the snapshot store, buckets groups by kind, and primes active groups', async () => {
     const storage = new InMemoryStorageAdapter();
     const playlistsStore = new PlaylistsStore(storage);
     await playlistsStore.setForSource(
@@ -41,8 +44,12 @@ describe('catalogStore — m3u sources', () => {
     const state = useCatalogStore.getState();
     expect(state.status).toBe('ready');
     expect(state.sourceId).toBe('src_m3u');
-    expect(state.liveGroups).toHaveLength(2);
-    expect(state.activeGroupId).not.toBeNull();
+    expect(state.groupsByKind.live).toHaveLength(2);
+    expect(state.groupsByKind.vod).toHaveLength(0);
+    expect(state.groupsByKind.series).toHaveLength(0);
+    expect(state.activeGroupByKind.live).not.toBeNull();
+    expect(state.activeGroupByKind.vod).toBeNull();
+    expect(selectChannelCount(state, 'live')).toBe(3);
     expect(state.error).toBeNull();
   });
 
@@ -57,7 +64,7 @@ describe('catalogStore — m3u sources', () => {
     expect(state.error).toMatch(/No cached playlist/i);
   });
 
-  test('setSearch and setActiveGroup update store state', async () => {
+  test('setSearch and setActiveGroup(kind, id) update the right slice', async () => {
     const storage = new InMemoryStorageAdapter();
     const playlistsStore = new PlaylistsStore(storage);
     await playlistsStore.setForSource(
@@ -67,12 +74,14 @@ describe('catalogStore — m3u sources', () => {
 
     await useCatalogStore.getState().loadForSource(M3U_SOURCE, { playlistsStore });
 
-    const { liveGroups } = useCatalogStore.getState();
+    const liveGroups = useCatalogStore.getState().groupsByKind.live;
     const sportsGroup = liveGroups.find((g) => g.name === 'Sports');
     if (!sportsGroup) throw new Error('expected a "Sports" group in the seeded playlist');
 
-    useCatalogStore.getState().setActiveGroup(sportsGroup.id);
-    expect(useCatalogStore.getState().activeGroupId).toBe(sportsGroup.id);
+    useCatalogStore.getState().setActiveGroup('live', sportsGroup.id);
+    expect(useCatalogStore.getState().activeGroupByKind.live).toBe(sportsGroup.id);
+    // Other kinds are untouched.
+    expect(useCatalogStore.getState().activeGroupByKind.vod).toBeNull();
 
     useCatalogStore.getState().setSearch('news');
     expect(useCatalogStore.getState().searchQuery).toBe('news');
@@ -113,6 +122,9 @@ describe('catalogStore — xtream sources', () => {
                 name: 'Channel 1',
                 category_id: '1',
                 stream_icon: 'https://example.com/c1.png',
+                // Real Xtream panels send null for unset optional strings —
+                // exercise that path here too so the schema fix stays alive.
+                custom_sid: null,
               },
             ]);
           case 'get_vod_categories':
@@ -145,8 +157,8 @@ describe('catalogStore — xtream sources', () => {
 
     const state = useCatalogStore.getState();
     expect(state.status).toBe('ready');
-    expect(state.liveGroups).toHaveLength(1);
-    expect(state.liveGroups[0].name).toBe('News');
-    expect(state.liveGroups[0].channels).toHaveLength(1);
+    expect(state.groupsByKind.live).toHaveLength(1);
+    expect(state.groupsByKind.live[0].name).toBe('News');
+    expect(state.groupsByKind.live[0].channels).toHaveLength(1);
   });
 });

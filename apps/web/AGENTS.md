@@ -43,19 +43,23 @@ apps/web/
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
     pages/                    # one file per route module — exported as default
-      home.tsx
+      home.tsx                # tile launcher (Live / Movies / Series) + source switcher
       about.tsx
       add-source.tsx
+      browse/
+        $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
       dev/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
+    components/               # cross-page presentational components
+      browse-view.tsx         # group sidebar + search + ChannelList for one kind
     features/                 # feature folders co-locating hooks + state
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
     lib/                      # shaka loader; (planned) navigation
     store/                    # Zustand slices
-      catalog-store.ts        # active source's playlist + group/search state
+      catalog-store.ts        # playlist + groupsByKind + per-kind activeGroup + search
 ```
 
 ### Dev-only: token lab + Shaka smoke
@@ -138,7 +142,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`, `ChannelCard`, `ChannelList`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm`, `ChannelCard`, `ChannelList`, `CatalogTile`. All headless (no `fetch`, no storage, no router) — side effects belong to the consuming page.
 
 ---
 

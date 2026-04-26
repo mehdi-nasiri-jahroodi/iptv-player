@@ -18,7 +18,7 @@ https://example.com/sports2.m3u8
 
 beforeEach(() => {
   window.localStorage.clear();
-  // Catalog store is module-singleton; reset between tests so each renders fresh.
+  // Catalog store is a module-singleton; reset between tests so each renders fresh.
   useCatalogStore.getState().clear();
 });
 
@@ -41,7 +41,7 @@ test('renders empty state when no sources are stored', async () => {
   expect(screen.getByRole('button', { name: /add a source/i })).toBeTruthy();
 });
 
-test('renders the browse view with groups + channels for the active source', async () => {
+test('renders the tile launcher with channel counts for the active source', async () => {
   // Seed an m3u source plus a parsed playlist snapshot so the catalog store
   // can render without going to the network.
   const sources = new SourcesStore();
@@ -57,19 +57,25 @@ test('renders the browse view with groups + channels for the active source', asy
   const ReactRouterStub = createRoutesStub([{ path: '/', Component: Home }]);
   render(<ReactRouterStub />);
 
-  // The browse layout becomes visible once the catalog store finishes loading.
+  // The launcher becomes visible once the catalog store finishes loading.
   await waitFor(() => {
-    expect(screen.getByTestId('home-browse')).toBeTruthy();
-    expect(screen.getByTestId('groups-sidebar')).toBeTruthy();
-    expect(screen.getByTestId('channel-list')).toBeTruthy();
+    expect(screen.getByTestId('home-launcher')).toBeTruthy();
+    expect(screen.getByTestId('catalog-tiles')).toBeTruthy();
   });
 
   expect(screen.getByText('Browsing Test M3U')).toBeTruthy();
-  // Group sidebar shows both M3U groups.
-  expect(screen.getByRole('button', { name: /News\s+1/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /Sports\s+2/ })).toBeTruthy();
-  // First group is active by default → its channel renders in the list.
-  expect(screen.getByText('News One')).toBeTruthy();
+
+  // Three tiles, one per kind.
+  const liveTile = screen.getByRole('button', { name: /live tv/i });
+  const moviesTile = screen.getByRole('button', { name: /movies/i });
+  const seriesTile = screen.getByRole('button', { name: /series/i });
+
+  // The seeded playlist has 3 live channels and no VOD/series.
+  expect(liveTile.textContent).toMatch(/3 channels/);
+  expect(liveTile.getAttribute('aria-disabled')).toBe('false');
+  expect(moviesTile.textContent).toMatch(/no movies/i);
+  expect(moviesTile.getAttribute('aria-disabled')).toBe('true');
+  expect(seriesTile.getAttribute('aria-disabled')).toBe('true');
 });
 
 test('shows a catalog error when no playlist snapshot exists', async () => {

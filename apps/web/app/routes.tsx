@@ -12,5 +12,6 @@ export default [
   index('./pages/home.tsx'),
   route('about', './pages/about.tsx'),
   route('add-source', './pages/add-source.tsx'),
+  route('browse/:kind', './pages/browse/$kind.tsx'),
   ...devOnlyRoutes,
 ] satisfies RouteConfig;

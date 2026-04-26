@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import type { Channel, Source } from 'core';
+import { Clapperboard, ListVideo, Tv } from 'lucide-react';
+import type { Source } from 'core';
 import {
   AppScreen,
   Button,
-  ChannelList,
+  CatalogTile,
   FocusableItem,
   Stack,
-  TextField,
-  type ChannelListItem,
 } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
 import {
+  selectChannelCount,
   useCatalogStore,
-  type CatalogState,
+  type ChannelKind,
 } from '../store/catalog-store';
 
 type SourcesView =
@@ -21,15 +21,17 @@ type SourcesView =
   | { status: 'ready'; sources: Source[]; activeSource: Source | null };
 
 /**
- * Home is the post-onboarding landing screen.
+ * Home — the post-onboarding landing screen.
  *
  *  - no sources         → empty-state CTA → /add-source
- *  - sources, no active → source picker
- *  - sources + active   → browse view (search + groups + channel list)
+ *  - sources, no active → source picker (defensive; SourcesStore auto-selects
+ *    the first source on add, so this is rarely visible in practice)
+ *  - sources + active   → catalog launcher: three large tiles for Live TV,
+ *    Movies, and Series. Selecting a tile pushes /browse/:kind, where the
+ *    actual group sidebar + channel list lives.
  *
- * All persistence goes through `SourcesStore` and `useCatalogStore`; this
- * page never touches localStorage directly so the same logic transplants to
- * webOS later.
+ * The catalog auto-loads whenever the active source changes so the tile
+ * channel counts are accurate without the user touching anything.
  */
 export function Home() {
   const navigate = useNavigate();
@@ -40,7 +42,8 @@ export function Home() {
     reloadSources();
   }, [reloadSources]);
 
-  // Catalog auto-loads whenever the active source changes.
+  // Catalog auto-loads whenever the active source changes; the launcher reads
+  // counts straight off the store.
   const loadForSource = useCatalogStore((s) => s.loadForSource);
   const catalogSourceId = useCatalogStore((s) => s.sourceId);
   useEffect(() => {
@@ -82,13 +85,14 @@ export function Home() {
         ) : view.sources.length === 0 ? (
           <EmptyState onAdd={() => void navigate('/add-source')} />
         ) : view.activeSource ? (
-          <BrowseView
+          <Launcher
             sources={view.sources}
             activeSource={view.activeSource}
             onActivate={async (id) => {
               await new SourcesStore().setActiveSource(id);
               reloadSources();
             }}
+            onOpen={(kind) => void navigate(`/browse/${kind}`)}
           />
         ) : (
           <SourcePicker
@@ -118,7 +122,7 @@ function useReloadSources(setView: (v: SourcesView) => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// Empty / picker / browse subviews
+// Subviews
 // ---------------------------------------------------------------------------
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
@@ -177,49 +181,25 @@ function SourcePicker({
   );
 }
 
-function BrowseView({
+function Launcher({
   sources,
   activeSource,
   onActivate,
+  onOpen,
 }: {
   sources: Source[];
   activeSource: Source;
   onActivate: (id: string) => void;
+  onOpen: (kind: ChannelKind) => void;
 }) {
   const status = useCatalogStore((s) => s.status);
   const error = useCatalogStore((s) => s.error);
-  const liveGroups = useCatalogStore((s) => s.liveGroups);
-  const activeGroupId = useCatalogStore((s) => s.activeGroupId);
-  const setActiveGroup = useCatalogStore((s) => s.setActiveGroup);
-  const searchQuery = useCatalogStore((s) => s.searchQuery);
-  const setSearch = useCatalogStore((s) => s.setSearch);
-
-  // Derive visible channels here (rather than via a Zustand selector) so we
-  // don't return a fresh array reference from the store on every render —
-  // Zustand v5 uses Object.is by default and would re-render forever.
-  const activeGroup = useMemo(
-    () => liveGroups.find((g) => g.id === activeGroupId) ?? null,
-    [liveGroups, activeGroupId]
-  );
-  const visibleChannels: Channel[] = useMemo(() => {
-    if (!activeGroup) return [];
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return activeGroup.channels;
-    return activeGroup.channels.filter((c) => c.name.toLowerCase().includes(q));
-  }, [activeGroup, searchQuery]);
-
-  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
-
-  const items: ChannelListItem[] = visibleChannels.map((channel) => ({
-    id: channel.id,
-    focusKey: `CHANNEL_${channel.id}`,
-    name: channel.name,
-    groupTitle: channel.groupTitle,
-    logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
-  }));
+  const liveCount = useCatalogStore((s) => selectChannelCount(s, 'live'));
+  const vodCount = useCatalogStore((s) => selectChannelCount(s, 'vod'));
+  const seriesCount = useCatalogStore((s) => selectChannelCount(s, 'series'));
 
   return (
-    <Stack gap={4} data-testid="home-browse">
+    <Stack gap={6} data-testid="home-launcher">
       <SourceSwitcher
         sources={sources}
         activeSourceId={activeSource.id}
@@ -231,40 +211,47 @@ function BrowseView({
           Loading catalog…
         </p>
       ) : status === 'error' ? (
-        <CatalogError error={error} />
+        <div
+          role="alert"
+          data-testid="catalog-error"
+          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
+          {error ?? 'Failed to load catalog.'}
+        </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-          <GroupsSidebar
-            groups={liveGroups}
-            activeGroupId={activeGroupId}
-            onSelect={setActiveGroup}
+        <div
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          data-testid="catalog-tiles"
+        >
+          <CatalogTile
+            focusKey="HOME_TILE_LIVE"
+            title="Live TV"
+            subtitle="Linear channels and EPG"
+            count={countCopy(liveCount, 'channel')}
+            icon={<Tv aria-hidden className="size-6" />}
+            disabled={liveCount === 0}
+            onSelect={() => onOpen('live')}
           />
-          <Stack gap={3}>
-            <TextField
-              focusKey="HOME_SEARCH"
-              aria-label="Search channels"
-              value={searchQuery}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Filter channels by name"
-            />
-            <ChannelList
-              items={items}
-              selectedId={selectedChannel?.id ?? null}
-              onSelect={(id) => {
-                const channel = visibleChannels.find((c) => c.id === id) ?? null;
-                setSelectedChannel(channel);
-              }}
-              empty={
-                searchQuery
-                  ? 'No channels match your search.'
-                  : 'This group is empty.'
-              }
-            />
-          </Stack>
+          <CatalogTile
+            focusKey="HOME_TILE_VOD"
+            title="Movies"
+            subtitle="On-demand video"
+            count={countCopy(vodCount, 'movie')}
+            icon={<Clapperboard aria-hidden className="size-6" />}
+            disabled={vodCount === 0}
+            onSelect={() => onOpen('vod')}
+          />
+          <CatalogTile
+            focusKey="HOME_TILE_SERIES"
+            title="Series"
+            subtitle="Episodic content"
+            count={countCopy(seriesCount, 'series', 'series')}
+            icon={<ListVideo aria-hidden className="size-6" />}
+            disabled={seriesCount === 0}
+            onSelect={() => onOpen('series')}
+          />
         </div>
       )}
-
-      {selectedChannel ? <SelectedChannelPanel channel={selectedChannel} /> : null}
     </Stack>
   );
 }
@@ -304,95 +291,18 @@ function SourceSwitcher({
   );
 }
 
-function GroupsSidebar({
-  groups,
-  activeGroupId,
-  onSelect,
-}: {
-  groups: CatalogState['liveGroups'];
-  activeGroupId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  if (groups.length === 0) {
-    return (
-      <p className="text-sm text-foreground-muted" data-testid="groups-empty">
-        No live groups in this catalog.
-      </p>
-    );
-  }
-  return (
-    <nav
-      role="navigation"
-      aria-label="Channel groups"
-      data-testid="groups-sidebar"
-      className="flex flex-col gap-1"
-    >
-      {groups.map((group) => {
-        const isActive = group.id === activeGroupId;
-        return (
-          <FocusableItem
-            key={group.id}
-            focusKey={`GROUP_${group.id}`}
-            onEnterPress={() => onSelect(group.id)}
-            className={isActive ? 'bg-surface-raised' : ''}
-          >
-            <button
-              type="button"
-              onClick={() => onSelect(group.id)}
-              aria-pressed={isActive}
-              data-active={isActive ? 'true' : 'false'}
-              className={[
-                'flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm',
-                isActive
-                  ? 'font-medium text-foreground'
-                  : 'text-foreground-muted hover:text-foreground',
-              ].join(' ')}
-            >
-              <span className="truncate">{group.name}</span>
-              <span className="shrink-0 text-xs text-foreground-muted">
-                {group.channels.length}
-              </span>
-            </button>
-          </FocusableItem>
-        );
-      })}
-    </nav>
-  );
-}
+// ---------------------------------------------------------------------------
+// Tiny helpers
+// ---------------------------------------------------------------------------
 
-function CatalogError({ error }: { error: string | null }) {
-  return (
-    <div
-      role="alert"
-      data-testid="catalog-error"
-      className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-    >
-      {error ?? 'Failed to load catalog.'}
-    </div>
-  );
-}
-
-function SelectedChannelPanel({ channel }: { channel: Channel }) {
-  // Phase 2 placeholder until the player route lands. Surfacing the stream URL
-  // here gives a clear "yes, my pick produced a playable URL" signal during
-  // development without us shipping a half-built player.
-  const streamUrl = 'streamUrl' in channel ? channel.streamUrl : null;
-  return (
-    <aside
-      data-testid="selected-channel"
-      className="rounded-md border border-border bg-surface-raised p-3 text-sm"
-    >
-      <div className="font-medium text-foreground">Selected: {channel.name}</div>
-      {streamUrl ? (
-        <div className="mt-1 break-all text-xs text-foreground-muted">
-          {streamUrl}
-        </div>
-      ) : null}
-      <div className="mt-1 text-xs text-foreground-muted">
-        Player route lands in the next step.
-      </div>
-    </aside>
-  );
+function countCopy(
+  n: number,
+  singular: string,
+  plural = `${singular}s`
+): string {
+  if (n === 0) return `No ${plural}`;
+  if (n === 1) return `1 ${singular}`;
+  return `${n.toLocaleString()} ${plural}`;
 }
 
 function describeType(type: Source['type']): string {

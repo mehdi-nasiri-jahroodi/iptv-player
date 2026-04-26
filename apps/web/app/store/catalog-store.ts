@@ -22,12 +22,23 @@ import { PlaylistsStore } from '../features/sources/playlists-storage';
  *   - `xtream` → live `loadXtreamPlaylist(...)` call against the panel; the
  *     credentials live on the `Source` so we never persist signed stream URLs.
  *
- * Browse scope (Phase 2): only `live` channels are exposed to the UI even
- * when the catalog also contains `vod` / `series`. The store keeps the full
- * playlist so VOD/Series surfaces (Phase 4) can read it without a refetch.
+ * Browse model: the catalog exposes one bucket of groups per `ChannelKind`
+ * (`live`, `vod`, `series`). The Phase 2 home screen launches into a per-kind
+ * page (`/browse/:kind`); each page reads its own bucket and tracks one
+ * `activeGroupId` per kind so navigating between kinds restores the user's
+ * previous group selection.
  */
 
 export type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export type ChannelKind = 'live' | 'vod' | 'series';
+export const CHANNEL_KINDS: ChannelKind[] = ['live', 'vod', 'series'];
+
+export type GroupsByKind = Record<ChannelKind, ChannelGroup[]>;
+export type ActiveGroupByKind = Record<ChannelKind, string | null>;
+
+const EMPTY_GROUPS_BY_KIND: GroupsByKind = { live: [], vod: [], series: [] };
+const EMPTY_ACTIVE_GROUP: ActiveGroupByKind = { live: null, vod: null, series: null };
 
 export interface CatalogState {
   /** Current source the catalog is loaded for; null until `loadForSource` runs. */
@@ -36,16 +47,16 @@ export interface CatalogState {
   error: string | null;
   /** Full parsed playlist (all kinds: live + vod + series). */
   playlist: Playlist | null;
-  /** Live-only groups for Phase 2 browse. */
-  liveGroups: ChannelGroup[];
-  /** Currently selected group id (defaults to the first live group). */
-  activeGroupId: string | null;
+  /** Groups bucketed by `ChannelKind` (mixed-kind groups land in `live`). */
+  groupsByKind: GroupsByKind;
+  /** Currently selected group id per kind (defaults to the first of each kind). */
+  activeGroupByKind: ActiveGroupByKind;
   /** Free-text filter; matched case-insensitively against `Channel.name`. */
   searchQuery: string;
 
   // ---- actions ---------------------------------------------------------------
   loadForSource(source: Source, deps?: CatalogStoreDeps): Promise<void>;
-  setActiveGroup(groupId: string): void;
+  setActiveGroup(kind: ChannelKind, groupId: string): void;
   setSearch(query: string): void;
   clear(): void;
 }
@@ -69,8 +80,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   status: 'idle',
   error: null,
   playlist: null,
-  liveGroups: [],
-  activeGroupId: null,
+  groupsByKind: EMPTY_GROUPS_BY_KIND,
+  activeGroupByKind: EMPTY_ACTIVE_GROUP,
   searchQuery: '',
 
   async loadForSource(source, deps = {}) {
@@ -106,14 +117,18 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
         }
       }
 
-      const liveGroups = playlist.groups.filter((g) => g.kind === 'live');
-      const activeGroupId = liveGroups[0]?.id ?? null;
+      const groupsByKind = bucketGroupsByKind(playlist.groups);
+      const activeGroupByKind: ActiveGroupByKind = {
+        live: groupsByKind.live[0]?.id ?? null,
+        vod: groupsByKind.vod[0]?.id ?? null,
+        series: groupsByKind.series[0]?.id ?? null,
+      };
 
       set({
         status: 'ready',
         playlist,
-        liveGroups,
-        activeGroupId,
+        groupsByKind,
+        activeGroupByKind,
         searchQuery: '',
         error: null,
       });
@@ -127,9 +142,12 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     }
   },
 
-  setActiveGroup(groupId) {
-    if (!get().liveGroups.some((g) => g.id === groupId)) return;
-    set({ activeGroupId: groupId });
+  setActiveGroup(kind, groupId) {
+    const { groupsByKind, activeGroupByKind } = get();
+    if (!groupsByKind[kind].some((g) => g.id === groupId)) return;
+    set({
+      activeGroupByKind: { ...activeGroupByKind, [kind]: groupId },
+    });
   },
 
   setSearch(query) {
@@ -142,27 +160,59 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       status: 'idle',
       error: null,
       playlist: null,
-      liveGroups: [],
-      activeGroupId: null,
+      groupsByKind: EMPTY_GROUPS_BY_KIND,
+      activeGroupByKind: EMPTY_ACTIVE_GROUP,
       searchQuery: '',
     });
   },
 }));
 
 // ---------------------------------------------------------------------------
-// Selectors — keep derived data off the store body so re-renders stay tight.
+// Helpers
 // ---------------------------------------------------------------------------
 
-/** Live channels in the active group (or empty when no group is active). */
-export function selectActiveGroupChannels(state: CatalogState): Channel[] {
-  if (!state.activeGroupId) return [];
-  const group = state.liveGroups.find((g) => g.id === state.activeGroupId);
+/**
+ * Bucket a playlist's groups by their `kind`. Mixed-kind groups (rare, but
+ * possible from M3U sources without explicit metadata) are surfaced under
+ * `live` so they remain reachable from the existing live browser.
+ */
+export function bucketGroupsByKind(groups: ChannelGroup[]): GroupsByKind {
+  const out: GroupsByKind = { live: [], vod: [], series: [] };
+  for (const g of groups) {
+    if (g.kind === 'vod' || g.kind === 'series' || g.kind === 'live') {
+      out[g.kind].push(g);
+    } else {
+      // 'mixed' or unexpected kinds → live bucket so they aren't dropped.
+      out.live.push(g);
+    }
+  }
+  return out;
+}
+
+/** Total channel count across all groups of the given kind. */
+export function selectChannelCount(state: CatalogState, kind: ChannelKind): number {
+  let total = 0;
+  for (const g of state.groupsByKind[kind]) total += g.channels.length;
+  return total;
+}
+
+/** Channels in the active group of `kind` (or empty when no group is active). */
+export function selectActiveGroupChannels(
+  state: CatalogState,
+  kind: ChannelKind
+): Channel[] {
+  const activeId = state.activeGroupByKind[kind];
+  if (!activeId) return [];
+  const group = state.groupsByKind[kind].find((g) => g.id === activeId);
   return group?.channels ?? [];
 }
 
 /** Active-group channels filtered by `searchQuery` (case-insensitive substring). */
-export function selectVisibleChannels(state: CatalogState): Channel[] {
-  const channels = selectActiveGroupChannels(state);
+export function selectVisibleChannels(
+  state: CatalogState,
+  kind: ChannelKind
+): Channel[] {
+  const channels = selectActiveGroupChannels(state, kind);
   const q = state.searchQuery.trim().toLowerCase();
   if (!q) return channels;
   return channels.filter((c) => c.name.toLowerCase().includes(q));

@@ -9,3 +9,4 @@ export * from './lib/TextArea';
 export * from './lib/SourceForm';
 export * from './lib/ChannelCard';
 export * from './lib/ChannelList';
+export * from './lib/CatalogTile';

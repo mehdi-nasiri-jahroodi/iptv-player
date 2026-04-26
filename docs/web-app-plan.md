@@ -82,6 +82,7 @@ Reusable React + Tailwind components used by both `apps/web` and later `apps/web
 | `SourceForm` | **Built** (`packages/ui/src/lib/SourceForm.tsx`) — tabbed input for the three source types: **M3U URL**, **M3U file**, and **Xtream Codes** (host + username + password). Internal `sourceFormDraftSchema` (Zod discriminated union) validates the draft; `draftToSubmission()` maps to the persisted `Source` shape. Caller-owned `onSubmit(submission) → Promise<SourceValidationResult>` runs the probe (`validateSource` from `core`); `onSuccess(source)` fires on `ok`; inline alert maps `SourceValidationError` codes → user messages and exposes the raw code via `data-error-code`. Paste-raw-text fallback on the URL tab; file picker on the file tab auto-fills the label. |
 | `ChannelCard` | **Built** (`packages/ui/src/lib/ChannelCard.tsx`) — focus-aware tile (`role="button"`); logo with initial-badge fallback, name, group title, optional `nowPlaying` slot. Headless: never imports `Channel` from `core`. |
 | `ChannelGrid` / `ChannelList` | **Built** (`packages/ui/src/lib/ChannelList.tsx`) — `ChannelList` is the vertical, focus-bounded list (Norigin `FocusContext` + `saveLastFocusedChild`). Generic over a `ChannelListItem` shape so the same component will render live channels today and VOD/series tiles in Phase 4. Virtualization is a Phase 4 follow-up; the public API is stable. `ChannelGrid` not yet built — list is sufficient for Phase 2. |
+| `CatalogTile` | **Built** (`packages/ui/src/lib/CatalogTile.tsx`) — large focus-aware launcher tile (icon + title + subtitle + count). Used by the Home tile launcher (Live / Movies / Series); reusable for future surfaces (group tiles, source tiles). |
 | `EpgGrid` | Time-axis grid; simplified for MVP |
 | `PlayerOverlay` | Controls, track picker, error state |
 | `SettingsPanel` | Theme toggle, player toggles |
@@ -102,12 +103,16 @@ apps/web/
     auto-theme.tsx            # theme prefs (auto/light/dark)
     spatial-navigation-root.tsx  # Norigin init/destroy
     pages/                    # one default-exported component per route
-      home.tsx                # (Phase 2) channel browser + EPG strip
+      home.tsx                # (Phase 2) tile launcher: Live / Movies / Series + source switcher
       add-source.tsx          # source wizard (built)
       about.tsx               # placeholder
+      browse/
+        $kind.tsx             # /browse/:kind — wraps the shared BrowseView
       dev/
         design-tokens.tsx     # dev-only Token lab
         play-test.tsx         # dev-only Shaka HLS smoke test
+    components/               # cross-page presentational components
+      browse-view.tsx         # group sidebar + search + ChannelList for one kind
     features/                 # feature folders (hooks + state)
       sources/                # SourcesStore, PlaylistsStore, newSourceId
       catalog/                # (planned) channel list, groups, search
@@ -150,9 +155,9 @@ apps/web/
 
 **Browse**
 
-- [x] `Home` page: groups sidebar + channel list, keyboard/D-pad navigable with Norigin (search + selected-channel preview included).
-- [x] Channel data loaded from stored playlist; groups displayed (live-only filter, snapshot persisted at add-source time for m3u; live-fetched for Xtream via `loadXtreamPlaylist`).
-- [x] **MVP browse scope is live channels only** even when an Xtream source also exposes VOD / series catalogs — those surfaces (VOD grid, series detail with seasons / episodes) land in Phase 4. The `Channel` discriminated union (`live | vod | series`) is already in place so the UI can be added without schema changes.
+- [x] `Home` page: tile launcher (Live TV / Movies / Series) with channel counts; selecting a tile pushes `/browse/:kind` where the groups sidebar + channel list lives. All keyboard/D-pad navigable with Norigin.
+- [x] Channel data loaded from stored playlist; groups displayed (snapshot persisted at add-source time for m3u; live-fetched for Xtream via `loadXtreamPlaylist`). Catalog now buckets groups by kind so each `/browse/:kind` page reads its own slice.
+- [x] **VOD and Series tiles surface in the launcher** with channel counts and disable themselves when the active source has none. The `/browse/vod` and `/browse/series` pages render the same shared `BrowseView` as live; richer VOD grid and series detail (seasons/episodes) still land in Phase 4.
 - [x] Search bar (filter by name, client-side).
 - [ ] Favorites toggle per channel; recents updated on play.
 
