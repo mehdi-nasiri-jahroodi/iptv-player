@@ -9,6 +9,7 @@ import {
   useCatalogStore,
   type ChannelKind,
 } from '../store/catalog-store';
+import { useSettingsStore } from '../store/settings-store';
 
 function isChannelKind(value: string | undefined): value is ChannelKind {
   return value !== undefined && (CHANNEL_KINDS as string[]).includes(value);
@@ -77,6 +78,8 @@ export function PlayPage() {
   useEffect(() => {
     setError(null);
   }, [channel?.id]);
+
+  const streamProxy = useSettingsStore((s) => s.streamProxy);
 
   const streamUrl =
     channel && 'streamUrl' in channel ? channel.streamUrl : null;
@@ -157,6 +160,7 @@ export function PlayPage() {
             <Player
               src={streamUrl}
               onError={setError}
+              streamProxy={streamProxy}
               className="h-full w-full"
             >
               {(api) => (

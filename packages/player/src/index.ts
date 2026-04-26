@@ -5,6 +5,7 @@ export {
   type ShakaMedia,
   type ShakaStatus,
   type ShakaTrack,
+  type StreamProxyOption,
   type UseShakaPlayerOptions,
   type UseShakaPlayerResult,
 } from './lib/use-shaka-player.js';
@@ -23,3 +24,8 @@ export {
   PlayerErrorOverlay,
   type PlayerErrorOverlayProps,
 } from './lib/player-error-overlay.js';
+export {
+  buildSignedProxyUrl,
+  encodeProxyUrl,
+  signProxyRequest,
+} from './lib/proxy-signing.js';

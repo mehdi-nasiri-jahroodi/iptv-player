@@ -16,6 +16,7 @@ import {
   type CatalogState,
   type ChannelKind,
 } from '../store/catalog-store';
+import { useSettingsStore } from '../store/settings-store';
 
 /**
  * Per-kind browser shared by `/browse/live`, `/browse/vod`, `/browse/series`.
@@ -268,6 +269,7 @@ function SelectedChannelPanel({ channel }: { channel: Channel }) {
 function LivePlayerPane({ channel }: { channel: Channel | null }) {
   const navigate = useNavigate();
   const sourceId = useCatalogStore((s) => s.sourceId);
+  const streamProxy = useSettingsStore((s) => s.streamProxy);
   const streamUrl =
     channel && 'streamUrl' in channel ? channel.streamUrl : null;
   const [error, setError] = useState<ShakaError | null>(null);
@@ -283,7 +285,12 @@ function LivePlayerPane({ channel }: { channel: Channel | null }) {
       className="flex flex-col gap-2"
     >
       <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-black">
-        <Player src={streamUrl} onError={setError} className="h-full w-full">
+        <Player
+          src={streamUrl}
+          onError={setError}
+          streamProxy={streamProxy}
+          className="h-full w-full"
+        >
           {(api) => (
             <>
               {streamUrl ? <PlayerControls api={api} /> : null}

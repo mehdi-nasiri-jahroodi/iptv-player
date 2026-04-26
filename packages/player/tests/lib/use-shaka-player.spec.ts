@@ -20,6 +20,7 @@ interface MockPlayer {
   getTextTracks: ReturnType<typeof vi.fn>;
   selectVariantTrack: ReturnType<typeof vi.fn>;
   selectTextTrack: ReturnType<typeof vi.fn>;
+  getNetworkingEngine: ReturnType<typeof vi.fn>;
   /** Test-only helper. */
   _emit: (event: string, payload?: unknown) => void;
 }
@@ -61,6 +62,13 @@ function makeMockPlayer(): MockPlayer {
     getTextTracks: vi.fn(() => []),
     selectVariantTrack: vi.fn(),
     selectTextTrack: vi.fn(),
+    // The proxy request filter installs through this. Returning a
+    // minimal stub keeps the existing tests black-box: when no
+    // `streamProxy` option is passed the filter is a no-op anyway.
+    getNetworkingEngine: vi.fn(() => ({
+      registerRequestFilter: vi.fn(),
+      unregisterRequestFilter: vi.fn(),
+    })),
     _emit(event, payload) {
       for (const fn of listeners.get(event) ?? []) fn(payload);
     },

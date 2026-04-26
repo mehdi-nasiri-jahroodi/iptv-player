@@ -4,6 +4,7 @@ import {
   type ShakaError,
   type ShakaTrack,
   type ShakaStatus,
+  type StreamProxyOption,
   type UseShakaPlayerResult,
 } from './use-shaka-player.js';
 
@@ -28,6 +29,12 @@ export interface PlayerProps {
   controls?: boolean;
   muted?: boolean;
   poster?: string;
+  /**
+   * Route MANIFEST + SEGMENT requests through a user-run web proxy.
+   * See {@link useShakaPlayer}'s `streamProxy` option for the full
+   * contract; the web app passes this from its settings store.
+   */
+  streamProxy?: StreamProxyOption | null;
   /** Render-prop hook for custom overlay (loading, error, track picker). */
   children?: (api: UseShakaPlayerResult) => React.ReactNode;
 }
@@ -49,10 +56,11 @@ export function Player(props: PlayerProps) {
     controls = false,
     muted = false,
     poster,
+    streamProxy = null,
     children,
   } = props;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const api = useShakaPlayer(videoRef, src, { onError, autoPlay });
+  const api = useShakaPlayer(videoRef, src, { onError, autoPlay, streamProxy });
 
   // Surface status changes via callback if requested.
   if (onStatusChange) {

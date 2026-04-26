@@ -56,6 +56,15 @@ export function AppNav() {
         >
           Add source
         </NavLink>
+        <NavLink
+          to="/settings"
+          end
+          className={({ isActive }) =>
+            `rounded-md px-2 py-1 ${isActive ? 'bg-accent text-accent-foreground' : 'text-foreground-muted hover:text-foreground'}`
+          }
+        >
+          Settings
+        </NavLink>
         {import.meta.env.DEV ? (
           <>
             <NavLink

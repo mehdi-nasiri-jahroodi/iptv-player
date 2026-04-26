@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type shaka from 'shaka-player';
 import { loadShakaModule } from './load-shaka.js';
+import { buildSignedProxyUrl } from './proxy-signing.js';
 
 /** Lifecycle state surfaced to the UI. */
 export type ShakaStatus = 'idle' | 'loading' | 'playing' | 'error';
@@ -44,6 +45,37 @@ export interface UseShakaPlayerOptions {
    * user gesture (channel select), which satisfies the autoplay policy.
    */
   autoPlay?: boolean;
+  /**
+   * Route every MANIFEST and SEGMENT request through a user-run web proxy
+   * (see `apps/web-proxy`). When set, every outbound playback URL is
+   * rewritten to `${baseUrl}/stream?u=...&sig=...` with an HMAC-SHA256
+   * signature computed over the canonical `${u}|${ua ?? ''}` string.
+   *
+   * Used to bypass browser CORS on commercial Xtream HLS streams. Native
+   * targets (Android TV, webOS) do not need this.
+   *
+   * The hook keeps the original `streamUrl` as-is when this option is
+   * absent or null. URLs whose origin already matches `baseUrl` are
+   * passed through untouched (the proxy already rewrote a manifest's
+   * segment URIs to point at itself, no need to double-wrap).
+   */
+  streamProxy?: StreamProxyOption | null;
+}
+
+/**
+ * Stream-proxy configuration accepted by {@link useShakaPlayer}.
+ *
+ * Lives in `packages/player` (not `core`) because it pairs with the
+ * Shaka request filter; the web app reads its `streamProxy` slice from
+ * its settings store and passes it through to the hook.
+ */
+export interface StreamProxyOption {
+  /** Base URL of the proxy, e.g. `http://localhost:8787`. No trailing slash required. */
+  baseUrl: string;
+  /** Shared HMAC secret matching the proxy `PROXY_SECRET`. */
+  secret: string;
+  /** Optional User-Agent override; falls back to the proxy default. */
+  userAgent?: string;
 }
 
 /**
@@ -113,9 +145,18 @@ export function useShakaPlayer(
   streamUrl: string | null,
   options: UseShakaPlayerOptions = {}
 ): UseShakaPlayerResult {
-  const { onError, autoPlay = true } = options;
+  const { onError, autoPlay = true, streamProxy = null } = options;
   const playerRef = useRef<shaka.Player | null>(null);
   const reloadTokenRef = useRef(0);
+
+  // Keep the latest streamProxy in a ref so the filter installed once at load
+  // time always reads the current secret/baseUrl. Re-installing the filter
+  // on every settings tweak would force a full Shaka teardown; reading
+  // through a ref lets the user fix a typo without re-loading the channel.
+  const streamProxyRef = useRef<StreamProxyOption | null>(streamProxy);
+  useEffect(() => {
+    streamProxyRef.current = streamProxy;
+  }, [streamProxy]);
 
   const [status, setStatus] = useState<ShakaStatus>('idle');
   const [buffering, setBuffering] = useState(false);
@@ -247,6 +288,51 @@ export function useShakaPlayer(
         await destroy();
         const player = new shakaNs.Player(video);
         playerRef.current = player;
+
+        // Install the stream-proxy request filter (if configured) BEFORE
+        // calling player.load(). Shaka runs registered filters on every
+        // outbound request including the initial manifest fetch, so the
+        // user-supplied `streamUrl` is rewritten transparently.
+        //
+        // The filter is installed unconditionally — it reads the current
+        // proxy config through `streamProxyRef`, which lets the user
+        // change settings without re-mounting the player. When no proxy
+        // is configured the filter is a no-op.
+        const networking = player.getNetworkingEngine();
+        const REQUEST_TYPE = shakaNs.net?.NetworkingEngine?.RequestType;
+        if (networking && REQUEST_TYPE) {
+          networking.registerRequestFilter(async (type, request) => {
+            // Only rewrite playback traffic. License/timing/app requests
+            // (DRM, time sync, custom payloads) are left alone.
+            if (
+              type !== REQUEST_TYPE.MANIFEST &&
+              type !== REQUEST_TYPE.SEGMENT
+            ) {
+              return;
+            }
+            const proxy = streamProxyRef.current;
+            if (!proxy || !proxy.baseUrl || !proxy.secret) return;
+            // Rewrite each candidate URI in place. Shaka's `request.uris`
+            // is mutable; we replace each entry with its signed proxy
+            // URL. URLs already pointing at the proxy (e.g. segments in
+            // a manifest the proxy itself just rewrote) are left alone
+            // to avoid double-signing.
+            const proxyOrigin = safeOrigin(proxy.baseUrl);
+            for (let i = 0; i < request.uris.length; i += 1) {
+              const original = request.uris[i];
+              const upstream = safeOrigin(original);
+              // Skip non-http(s) and already-proxied URLs.
+              if (!upstream) continue;
+              if (proxyOrigin && upstream === proxyOrigin) continue;
+              request.uris[i] = await buildSignedProxyUrl({
+                baseUrl: proxy.baseUrl,
+                secret: proxy.secret,
+                upstreamUrl: original,
+                userAgent: proxy.userAgent,
+              });
+            }
+          });
+        }
 
         const onShakaError = (event: shaka.util.Error | Event) => {
           // Shaka dispatches its own `Error` event objects; their `detail`
@@ -443,6 +529,22 @@ export function useShakaPlayer(
     setMuted,
     toggleFullscreen,
   };
+}
+
+/**
+ * Best-effort origin extraction for URL gating in the proxy request
+ * filter. Returns `null` for non-http(s) schemes or unparseable inputs
+ * — both of which should bypass proxy rewriting (data: URIs in
+ * manifests, blob: URLs Shaka may emit for MSE source buffers).
+ */
+function safeOrigin(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
