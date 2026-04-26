@@ -182,6 +182,7 @@ apps/web/
 
 ### Phase 4 — Polish and next-tier features
 
+- [x] **VOD browser** — poster grid, detail metadata (list row + Xtream `get_vod_info` when available); tile focus/select updates the hero; **Watch** in the hero opens fullscreen `/play` (`/browse/vod`).
 - [ ] Multiple profiles (separate favorites per profile).
 - [ ] Channel logos (fetch + cache; fallback to initials).
 - [ ] Hidden groups / custom category order.

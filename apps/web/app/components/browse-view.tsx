@@ -21,14 +21,16 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Heart, Tv } from 'lucide-react';
-import type { Channel, Source } from 'core';
+import { Film, GripVertical, Heart, Tv } from 'lucide-react';
+import type { Channel, Source, VodChannel } from 'core';
 import {
   Button,
   ChannelList,
   FocusableItem,
   Stack,
   TextField,
+  VodBrowseHero,
+  VodPosterGrid,
   type ChannelListItem,
 } from 'ui';
 import {
@@ -41,9 +43,16 @@ import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
 import { catalogOrderKey, recentKey, useProfileStore } from '../store/profile-store';
 import { useGuideStore } from '../store/guide-store';
 import { useMinuteClock } from '../hooks/use-minute-clock';
-import { formatNowNextLine, parseRecentKey } from '../lib/epg-display';
+import { parseRecentKey } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
+import {
+  collectVodGenreOptions,
+  vodChannelMatchesGenreFilter,
+} from '../lib/vod-genre-filter';
+import { sortVodChannels, type VodSortDir, type VodSortKey } from '../lib/vod-sort';
 import { ChannelFavoriteButton } from './favorite-channel-button';
+import { useVodXtreamDetail } from '../hooks/use-vod-xtream-detail';
+import { useVodXtreamGridEnrichment } from '../hooks/use-vod-xtream-grid-enrichment';
 import { LiveBrowseHero } from './live-browse-hero';
 import { LiveChannelTable } from './live-channel-table';
 
@@ -177,6 +186,10 @@ export function BrowseView({
     return ordered;
   }, [kind, sourceId, groups, favorites]);
 
+  const [vodSortKey, setVodSortKey] = useState<VodSortKey>('default');
+  const [vodSortDir, setVodSortDir] = useState<VodSortDir>('asc');
+  const [vodGenreFilter, setVodGenreFilter] = useState('');
+
   const onGroupSelect = useCallback(
     (id: string) => {
       if (kind === 'live' && id === LIVE_FAVORITES_SIDEBAR_ID) {
@@ -184,6 +197,11 @@ export function BrowseView({
         return;
       }
       setLiveFavoritesRail(false);
+      if (kind === 'vod') {
+        setVodSortKey('default');
+        setVodSortDir('asc');
+        setVodGenreFilter('');
+      }
       setActiveGroup(kind, id);
     },
     [kind, setActiveGroup]
@@ -211,6 +229,7 @@ export function BrowseView({
   }, [activeGroup, searchQuery]);
 
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const navigate = useNavigate();
   const pushRecent = useProfileStore((s) => s.pushRecent);
   const guide = useGuideStore((s) => s.guide);
   const guideReady = useGuideStore((s) => s.status === 'ready');
@@ -240,16 +259,21 @@ export function BrowseView({
     }
     return picked;
   }, [kind, sourceId, playlist, recents]);
+
+  useEffect(() => {
+    setSelectedChannel(null);
+    setVodGenreFilter('');
+    setVodSortKey('default');
+    setVodSortDir('asc');
+  }, [kind, activeSource.id]);
+
   // Live: auto-select for inline preview — keep the current channel when it still
   // matches the active category + search; otherwise pick the first visible row.
   // On first load (no selection yet), prefer the latest live channel from profile
   // recents so refresh restores Continue watching instead of always using the
   // first row of the default group.
   useEffect(() => {
-    if (kind !== 'live') {
-      setSelectedChannel(null);
-      return;
-    }
+    if (kind !== 'live') return;
     if (!activeGroup || activeGroup.channels.length === 0) {
       setSelectedChannel(null);
       return;
@@ -282,7 +306,98 @@ export function BrowseView({
     setActiveGroup,
   ]);
 
+  const vodRows = useMemo(
+    () => visibleChannels.filter((c): c is VodChannel => c.type === 'vod'),
+    [visibleChannels]
+  );
+
+  const vodEnrichedById = useVodXtreamGridEnrichment(
+    vodRows,
+    activeSource,
+    kind === 'vod'
+  );
+
+  const vodRowsEnriched = useMemo(
+    () => vodRows.map((ch) => vodEnrichedById[ch.id] ?? ch),
+    [vodRows, vodEnrichedById]
+  );
+
+  const vodGenreOptions = useMemo(
+    () => collectVodGenreOptions(vodRowsEnriched),
+    [vodRowsEnriched]
+  );
+
   useEffect(() => {
+    if (kind !== 'vod') return;
+    if (vodGenreOptions.length === 0) {
+      if (vodGenreFilter) setVodGenreFilter('');
+      return;
+    }
+    if (!vodGenreFilter) return;
+    if (!vodGenreOptions.includes(vodGenreFilter)) setVodGenreFilter('');
+  }, [kind, vodGenreFilter, vodGenreOptions]);
+
+  const genreFilteredVodRows = useMemo(
+    () => vodRowsEnriched.filter((ch) => vodChannelMatchesGenreFilter(ch, vodGenreFilter)),
+    [vodRowsEnriched, vodGenreFilter]
+  );
+
+  const sortedVodRows = useMemo(
+    () => sortVodChannels(genreFilteredVodRows, vodSortKey, vodSortDir),
+    [genreFilteredVodRows, vodSortKey, vodSortDir]
+  );
+
+  useEffect(() => {
+    if (kind !== 'vod') return;
+    if (!selectedChannel || selectedChannel.type !== 'vod') return;
+    const next = sortedVodRows.find((c) => c.id === selectedChannel.id);
+    if (!next) return;
+    const b = selectedChannel;
+    if (
+      b.rating === next.rating &&
+      b.year === next.year &&
+      b.durationSeconds === next.durationSeconds &&
+      (b.plot ?? '') === (next.plot ?? '') &&
+      (b.genre ?? '') === (next.genre ?? '') &&
+      (b.posterUrl ?? '') === (next.posterUrl ?? '') &&
+      (b.backdropUrl ?? '') === (next.backdropUrl ?? '')
+    ) {
+      return;
+    }
+    setSelectedChannel(next);
+  }, [kind, sortedVodRows, selectedChannel]);
+
+  useEffect(() => {
+    if (kind !== 'vod') return;
+    if (!activeGroup || sortedVodRows.length === 0) {
+      setSelectedChannel(null);
+      return;
+    }
+    if (selectedChannel?.type === 'vod' && sortedVodRows.some((c) => c.id === selectedChannel.id)) {
+      return;
+    }
+    setSelectedChannel(sortedVodRows[0] ?? null);
+  }, [kind, activeGroup, sortedVodRows, selectedChannel]);
+
+  const baseVodForDetail =
+    kind === 'vod' && selectedChannel?.type === 'vod' ? selectedChannel : null;
+  const { channel: vodDisplayChannel, detailLoading: vodDetailLoading } = useVodXtreamDetail(
+    baseVodForDetail,
+    activeSource
+  );
+
+  const playVod = useCallback(
+    (ch: VodChannel) => {
+      if (!sourceId) return;
+      void navigate(
+        `/play/${encodeURIComponent(sourceId)}/vod/${encodeURIComponent(ch.id)}`
+      );
+    },
+    [navigate, sourceId]
+  );
+
+  useEffect(() => {
+    if (kind !== 'live') return;
     if (!selectedChannel || !sourceId) return;
     if (!('streamUrl' in selectedChannel)) return;
     pushRecent(recentKey(sourceId, kind, selectedChannel.id));
@@ -306,30 +421,27 @@ export function BrowseView({
     );
   }
 
-  const items: ChannelListItem[] = visibleChannels.map((channel) => {
-    const nowPlaying =
-      kind === 'live' && guideReady && channel.type === 'live'
-        ? formatNowNextLine(guide, channel.tvgId, clock.getTime())
-        : undefined;
-    return {
-      id: channel.id,
-      focusKey: `CHANNEL_${channel.id}`,
-      name: channel.name,
-      groupTitle: channel.groupTitle,
-      logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
-      nowPlaying: nowPlaying ?? undefined,
-      trailing:
-        sourceId !== null ? (
-          <ChannelFavoriteButton
-            sourceId={sourceId}
-            channelId={channel.id}
-            focusKey={`FAV_LIST_${channel.id}`}
-          />
-        ) : undefined,
-    };
-  });
+  const seriesListItems: ChannelListItem[] =
+    kind !== 'series'
+      ? []
+      : visibleChannels.map((channel) => ({
+          id: channel.id,
+          focusKey: `CHANNEL_${channel.id}`,
+          name: channel.name,
+          groupTitle: channel.groupTitle,
+          logoUrl: 'logoUrl' in channel ? channel.logoUrl : undefined,
+          trailing:
+            sourceId !== null ? (
+              <ChannelFavoriteButton
+                sourceId={sourceId}
+                channelId={channel.id}
+                focusKey={`FAV_LIST_${channel.id}`}
+              />
+            ) : undefined,
+        }));
 
   const isLive = kind === 'live';
+  const isVod = kind === 'vod';
 
   const sidebarProps: GroupsSidebarProps = {
     groups: groupReorderMode ? orderedGroups : visibleGroups,
@@ -434,6 +546,138 @@ export function BrowseView({
     );
   }
 
+  if (isVod) {
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row md:items-stretch md:overflow-hidden"
+        data-testid="browse-view-vod"
+      >
+        <VodCatalogRail {...sidebarProps} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden py-3 md:gap-4">
+          <div className="shrink-0">
+            <VodBrowseHero
+              channel={vodDisplayChannel}
+              detailLoading={vodDetailLoading}
+              canPlay={Boolean(vodDisplayChannel?.streamUrl && sourceId)}
+              onPlay={() => {
+                if (vodDisplayChannel) playVod(vodDisplayChannel);
+              }}
+              trailingActions={
+                sourceId && vodDisplayChannel ? (
+                  <ChannelFavoriteButton
+                    sourceId={sourceId}
+                    channelId={vodDisplayChannel.id}
+                    focusKey={`VOD_HERO_FAV_${vodDisplayChannel.id}`}
+                  />
+                ) : null
+              }
+            />
+          </div>
+
+          <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-72">
+              Category
+              <select
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
+                value={activeGroupId ?? ''}
+                onChange={(event) => onGroupSelect(event.target.value)}
+                aria-label="Jump to category"
+              >
+                {orderedGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} ({g.channels.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <TextField
+              className="min-w-0 flex-1 lg:min-w-[200px]"
+              focusKey={`BROWSE_SEARCH_${kind.toUpperCase()}`}
+              aria-label="Search movies"
+              value={searchQuery}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search movies…"
+            />
+            {vodGenreOptions.length > 0 ? (
+              <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-56">
+                Genre
+                <select
+                  data-testid="vod-genre-filter"
+                  className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
+                  value={vodGenreFilter}
+                  onChange={(event) => setVodGenreFilter(event.target.value)}
+                  aria-label="Filter by genre"
+                >
+                  <option value="">All genres</option>
+                  {vodGenreOptions.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-52">
+              Sort by
+              <select
+                data-testid="vod-sort-key"
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
+                value={vodSortKey}
+                onChange={(event) => setVodSortKey(event.target.value as VodSortKey)}
+                aria-label="Sort movies by"
+              >
+                <option value="default">Catalog order</option>
+                <option value="name">Title</option>
+                <option value="year">Year</option>
+                <option value="rating">Rating</option>
+                <option value="duration">Duration</option>
+                <option value="director">Director</option>
+                <option value="added">Date added</option>
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-foreground-muted lg:w-44">
+              Order
+              <select
+                data-testid="vod-sort-dir"
+                disabled={vodSortKey === 'default'}
+                title={vodSortKey === 'default' ? 'Pick a sort field first' : undefined}
+                className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-50"
+                value={vodSortDir}
+                onChange={(event) => setVodSortDir(event.target.value as VodSortDir)}
+                aria-label="Sort direction"
+              >
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+            <VodPosterGrid
+              channels={sortedVodRows}
+              selectedId={selectedChannel?.id ?? null}
+              onHighlight={(id) => {
+                const ch = sortedVodRows.find((c) => c.id === id) ?? null;
+                setSelectedChannel(ch);
+              }}
+              onSelect={(id) => {
+                const ch = sortedVodRows.find((c) => c.id === id) ?? null;
+                setSelectedChannel(ch);
+              }}
+              empty={
+                searchQuery.trim()
+                  ? 'No movies match your search.'
+                  : vodGenreFilter.trim()
+                    ? 'No movies with this genre in this category.'
+                    : 'This category is empty.'
+              }
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Stack gap={4} data-testid={`browse-view-${kind}`}>
       <div className="grid gap-4 md:grid-cols-[220px_1fr]">
@@ -447,7 +691,7 @@ export function BrowseView({
             placeholder="Filter by name"
           />
           <ChannelList
-            items={items}
+            items={seriesListItems}
             selectedId={selectedChannel?.id ?? null}
             onSelect={(id) => {
               const channel = visibleChannels.find((c) => c.id === id) ?? null;
@@ -755,6 +999,25 @@ function GroupsSidebar({
         })
       )}
     </nav>
+  );
+}
+
+function VodCatalogRail(props: GroupsSidebarProps) {
+  return (
+    <aside className="flex max-h-[38vh] w-full shrink-0 flex-col border-border bg-surface/95 md:max-h-none md:h-full md:min-h-0 md:w-72 md:border-r md:bg-surface/80 md:backdrop-blur-sm">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent">
+          <Film className="size-5" aria-hidden />
+        </div>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">Movies</h1>
+      </div>
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
+        <GroupsSidebar
+          {...props}
+          className="rounded-none border-0 bg-transparent p-0 shadow-none ring-0"
+        />
+      </div>
+    </aside>
   );
 }
 

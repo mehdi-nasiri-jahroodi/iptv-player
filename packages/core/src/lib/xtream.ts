@@ -334,6 +334,102 @@ function asInt(value: string | number | undefined | null): number | undefined {
   return n === undefined ? undefined : Math.trunc(n);
 }
 
+/** Xtream `added` on VOD rows: usually epoch seconds, occasionally ms as a huge int. */
+function parseXtreamVodAddedTimestamp(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const raw = typeof value === 'number' ? String(value) : String(value).trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const sec = n > 1e12 ? Math.round(n / 1000) : Math.round(n);
+  if (!Number.isInteger(sec) || sec <= 0) return undefined;
+  return sec;
+}
+
+/** First 4-digit year in a date string (Xtream `releasedate` / `releaseDate`). */
+function parseYearFromReleasedateString(value: string | undefined | null): number | undefined {
+  if (!value?.trim()) return undefined;
+  const m = value.trim().match(/(19|20)\d{2}/);
+  const y = m ? Number(m[0]) : undefined;
+  if (y === undefined || !Number.isFinite(y)) return undefined;
+  return Math.trunc(y);
+}
+
+/** Title suffix like `Movie Name (2025)` or `… Title 2024` — common in provider listings. */
+function extractYearFromVodTitle(name: string): number | undefined {
+  const trimmed = name.trim();
+  const paren = trimmed.match(/\((\d{4})\)\s*$/);
+  if (paren) {
+    const y = Number(paren[1]);
+    if (Number.isFinite(y) && y >= 1870 && y <= 2100) return Math.trunc(y);
+  }
+  const tail = trimmed.match(/\s((?:19|20)\d{2})$/);
+  if (tail) {
+    const y = Number(tail[1]);
+    if (Number.isFinite(y) && y >= 1870 && y <= 2100) return Math.trunc(y);
+  }
+  return undefined;
+}
+
+/**
+ * Parse Xtream `duration` when `duration_secs` is missing (minutes as int, `1h 47m`, `2:21`, …).
+ */
+function parseVodRuntimeToSeconds(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    if (value >= 480) return Math.trunc(value);
+    return Math.trunc(value * 60);
+  }
+  const s0 = String(value).trim().toLowerCase();
+  if (!s0) return undefined;
+
+  const hms = s0.match(/^(\d{1,3}):(\d{2}):(\d{2})$/);
+  if (hms) {
+    const hh = Number(hms[1]);
+    const mm = Number(hms[2]);
+    const ss = Number(hms[3]);
+    if ([hh, mm, ss].every((n) => Number.isFinite(n)))
+      return Math.trunc(hh * 3600 + mm * 60 + ss);
+  }
+
+  const hm = s0.match(/^(\d{1,2}):(\d{2})$/);
+  if (hm) {
+    const h = Number(hm[1]);
+    const m = Number(hm[2]);
+    if (h <= 23 && m <= 59 && Number.isFinite(h) && Number.isFinite(m))
+      return Math.trunc(h * 3600 + m * 60);
+  }
+
+  const hx = s0.match(/^(\d+)\s*h(?:\s*(\d+)\s*m?)?$/i);
+  if (hx) {
+    const h = Number(hx[1]);
+    const m = hx[2] ? Number(hx[2]) : 0;
+    if (Number.isFinite(h)) return Math.trunc(h * 3600 + (Number.isFinite(m) ? m * 60 : 0));
+  }
+
+  const minWord = s0.match(/^(\d+)\s*m(?:\s*(\d+)\s*s)?$/i);
+  if (minWord) {
+    const mins = Number(minWord[1]);
+    const secS = minWord[2] ? Number(minWord[2]) : 0;
+    if (Number.isFinite(mins))
+      return Math.trunc(mins * 60 + (Number.isFinite(secS) ? secS : 0));
+  }
+
+  const minSuffix = s0.match(/^(\d+)\s*(?:min|minutes?)$/);
+  if (minSuffix) {
+    const n = Number(minSuffix[1]);
+    if (Number.isFinite(n) && n > 0) return Math.trunc(n * 60);
+  }
+
+  const bare = asInt(s0);
+  if (bare !== undefined && bare > 0) {
+    if (bare >= 480) return bare;
+    return bare * 60;
+  }
+
+  return undefined;
+}
+
 /**
  * Coerce a raw icon/logo string to a value the strict `Channel.logoUrl` schema
  * (`z.string().url().optional()`) will accept. Xtream panels return null,
@@ -390,6 +486,18 @@ export function toVodChannel(
     throw new Error(`Xtream VOD stream missing numeric stream_id: ${JSON.stringify(raw)}`);
   }
   const ext = raw.container_extension ?? 'mp4';
+  const releaseStr =
+    [raw.releaseDate, raw.releasedate].find((s) => typeof s === 'string' && s.trim().length > 0) ??
+    undefined;
+  const yearFromStream =
+    asInt(raw.year) ??
+    parseYearFromReleasedateString(releaseStr) ??
+    extractYearFromVodTitle(raw.name);
+  const durationFromStream =
+    asInt(raw.duration_secs) ?? parseVodRuntimeToSeconds(raw.duration);
+  const genreFromStream =
+    typeof raw.genre === 'string' && raw.genre.trim() ? raw.genre.trim() : undefined;
+
   return vodChannelSchema.parse({
     type: 'vod',
     id: `xtream:vod:${streamId}`,
@@ -398,9 +506,54 @@ export function toVodChannel(
     streamUrl: buildVodStreamUrl(credentials, streamId, ext),
     logoUrl: asUrl(raw.stream_icon),
     posterUrl: asUrl(raw.stream_icon),
-    rating: asNumber(raw.rating),
+    rating: asNumber(raw.rating_5based) ?? asNumber(raw.rating),
+    year: yearFromStream,
+    durationSeconds: durationFromStream,
+    genre: genreFromStream,
     containerExtension: ext,
     xtreamStreamId: streamId,
+    xtreamAddedAtSec: parseXtreamVodAddedTimestamp(raw.added),
+  });
+}
+
+/**
+ * Merge `get_vod_info` payload into an existing `VodChannel` from `get_vod_streams`.
+ * Keeps `streamUrl` / ids from `base`; fills plot, cast, images, etc. when the
+ * panel returns them. Safe to call for any `XtreamVodInfo` shape validated by
+ * {@link xtreamVodInfoSchema}.
+ */
+export function mergeVodChannelWithXtreamInfo(
+  base: VodChannel,
+  detail: XtreamVodInfo
+): VodChannel {
+  const info = detail.info;
+  const backdropFromPaths = info?.backdrop_path
+    ?.map((p) => (typeof p === 'string' ? asUrl(p) : undefined))
+    .find(Boolean);
+  const movieImage = asUrl(info?.movie_image);
+  const released = info?.releasedate?.trim();
+  let year = base.year;
+  if (released) {
+    const m = released.match(/(\d{4})/);
+    const y = m ? Number(m[1]) : undefined;
+    if (y !== undefined && Number.isFinite(y)) year = y;
+  }
+  const durationSecs =
+    asInt(info?.duration_secs) ?? parseVodRuntimeToSeconds(info?.duration);
+  const ratingFromInfo =
+    asNumber(info?.rating_5based) ?? asNumber(info?.rating) ?? base.rating;
+  return vodChannelSchema.parse({
+    ...base,
+    plot: info?.plot ?? base.plot,
+    cast: info?.cast ?? base.cast,
+    director: info?.director ?? base.director,
+    genre: info?.genre ?? base.genre,
+    rating: ratingFromInfo,
+    year,
+    durationSeconds: durationSecs ?? base.durationSeconds,
+    posterUrl: movieImage ?? base.posterUrl,
+    backdropUrl: backdropFromPaths ?? base.backdropUrl,
+    logoUrl: base.logoUrl ?? movieImage,
   });
 }
 

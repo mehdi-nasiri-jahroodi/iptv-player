@@ -94,6 +94,12 @@ export const vodChannelSchema = z.object({
   posterUrl: z.string().url().optional(),
   backdropUrl: z.string().url().optional(),
   xtreamStreamId: z.number().int().optional(),
+  /**
+   * Unix **seconds** from Xtream `get_vod_streams[].added` when the panel sends
+   * a numeric timestamp (string or number). Used for “new / recently added”
+   * rails; not all providers populate `added`.
+   */
+  xtreamAddedAtSec: z.number().int().nonnegative().optional(),
 });
 export type VodChannel = z.infer<typeof vodChannelSchema>;
 
@@ -293,6 +299,13 @@ export const xtreamVodStreamSchema = z
     container_extension: z.string().nullish(),
     category_id: z.union([z.string(), z.number()]).nullish(),
     added: z.string().nullish(),
+    /** Some panels send genre on the stream row; others only in `get_vod_info`. */
+    genre: z.string().nullish(),
+    year: z.union([z.string(), z.number()]).nullish(),
+    releaseDate: z.string().nullish(),
+    releasedate: z.string().nullish(),
+    duration: z.union([z.string(), z.number()]).nullish(),
+    duration_secs: z.union([z.string(), z.number()]).nullish(),
     custom_sid: z.string().nullish(),
     direct_source: z.string().nullish(),
   })
@@ -313,6 +326,8 @@ export const xtreamVodInfoSchema = z
         genre: z.string().optional(),
         releasedate: z.string().optional(),
         rating: z.union([z.string(), z.number()]).optional(),
+        /** Same semantics as stream list — prefer when both exist (often 0–5 vs TMDB 0–10). */
+        rating_5based: z.union([z.string(), z.number()]).optional(),
         duration_secs: z.union([z.string(), z.number()]).optional(),
         duration: z.string().optional(),
       })

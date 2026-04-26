@@ -4,6 +4,7 @@ import type { Source } from 'core';
 import { AppScreen, Button, Stack } from 'ui';
 import { BrowseView } from '../../components/browse-view';
 import { SourcesStore } from '../../features/sources/sources-storage';
+import { LAYOUT_CONTENT_CLASS } from '../../lib/layout-shell';
 import {
   CHANNEL_KINDS,
   useCatalogStore,
@@ -63,15 +64,16 @@ export function BrowseKindPage() {
 
   const meta = useMemo(() => (kind ? KIND_TITLES[kind] : null), [kind]);
 
-  const hideBrowsePageHeader = kind === 'live' && Boolean(activeSource);
+  const hideBrowsePageHeader =
+    Boolean(activeSource) && (kind === 'live' || kind === 'vod');
 
   return (
     <AppScreen scrollPage={!hideBrowsePageHeader}>
       <Stack
         className={
           hideBrowsePageHeader
-            ? 'mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col gap-0 px-4 pb-2 pt-1'
-            : 'mx-auto max-w-[1400px] p-6'
+            ? `${LAYOUT_CONTENT_CLASS} flex min-h-0 flex-1 flex-col gap-0 pb-2 pt-1`
+            : `${LAYOUT_CONTENT_CLASS} py-6`
         }
         gap={hideBrowsePageHeader ? 2 : 6}
       >

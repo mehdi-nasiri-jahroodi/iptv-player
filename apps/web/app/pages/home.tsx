@@ -24,6 +24,7 @@ import {
   formatNowNextLine,
   pickPreviewLiveChannels,
 } from '../lib/epg-display';
+import { LAYOUT_CONTENT_CLASS } from '../lib/layout-shell';
 
 type SourcesView =
   | { status: 'loading' }
@@ -70,7 +71,7 @@ export function Home() {
 
   return (
     <AppScreen>
-      <Stack className="mx-auto max-w-[1400px] p-6" gap={6}>
+      <Stack className={`${LAYOUT_CONTENT_CLASS} py-6`} gap={6}>
         <header className="flex items-baseline justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -245,7 +246,7 @@ function Launcher({
       ) : (
         <>
           <div
-            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6"
             data-testid="catalog-tiles"
           >
             <CatalogTile
@@ -255,6 +256,7 @@ function Launcher({
               count={countCopy(liveCount, 'channel')}
               icon={<Tv aria-hidden className="size-6" />}
               disabled={liveCount === 0}
+              className="min-h-[152px] w-full sm:min-h-[168px]"
               onSelect={() => onOpen('live')}
             />
             <CatalogTile
@@ -264,6 +266,7 @@ function Launcher({
               count={countCopy(vodCount, 'movie')}
               icon={<Clapperboard aria-hidden className="size-6" />}
               disabled={vodCount === 0}
+              className="min-h-[152px] w-full sm:min-h-[168px]"
               onSelect={() => onOpen('vod')}
             />
             <CatalogTile
@@ -273,6 +276,7 @@ function Launcher({
               count={countCopy(seriesCount, 'series', 'series')}
               icon={<ListVideo aria-hidden className="size-6" />}
               disabled={seriesCount === 0}
+              className="min-h-[152px] w-full sm:min-h-[168px]"
               onSelect={() => onOpen('series')}
             />
           </div>

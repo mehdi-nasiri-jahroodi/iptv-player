@@ -11,6 +11,7 @@ import {
   xtreamPlayerApiSchema,
   xtreamSeriesInfoSchema,
   xtreamShortEpgSchema,
+  xtreamVodInfoSchema,
   xtreamVodStreamListSchema,
 } from './contracts';
 import {
@@ -23,6 +24,7 @@ import {
   decodeXtreamEpgEntry,
   isXtreamAuthSuccessful,
   loadXtreamPlaylist,
+  mergeVodChannelWithXtreamInfo,
   toLiveChannel,
   toSeriesChannel,
   toVodChannel,
@@ -340,6 +342,156 @@ describe('Xtream → domain mappers', () => {
     expect(channel.containerExtension).toBe('mkv');
     expect(channel.streamUrl).toContain('/movie/user/pass/200.mkv');
     expect(channel.rating).toBe(7.5);
+  });
+
+  it('maps Xtream VOD added timestamp and prefers rating_5based over rating', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '202',
+        name: 'Dated Movie',
+        container_extension: 'mp4',
+        category_id: '2',
+        rating: '10',
+        rating_5based: '4.5',
+        added: '1714147200',
+      },
+    ])[0];
+    const channel = toVodChannel(credentials, raw, catMap);
+    expect(channel.xtreamAddedAtSec).toBe(1714147200);
+    expect(channel.rating).toBe(4.5);
+  });
+
+  it('maps genre, year, and duration from Xtream VOD stream row when present', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '203',
+        name: 'Tagged (2024)',
+        container_extension: 'mp4',
+        category_id: '2',
+        genre: 'Action, Sci-Fi',
+        year: '2024',
+        duration_secs: '6200',
+      },
+    ])[0];
+    const channel = toVodChannel(credentials, raw, catMap);
+    expect(channel.genre).toBe('Action, Sci-Fi');
+    expect(channel.year).toBe(2024);
+    expect(channel.durationSeconds).toBe(6200);
+  });
+
+  it('derives year from VOD title when stream row has no year field', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '204',
+        name: 'Legacy Title (2019)',
+        container_extension: 'mp4',
+        category_id: '2',
+      },
+    ])[0];
+    const channel = toVodChannel(credentials, raw, catMap);
+    expect(channel.year).toBe(2019);
+  });
+
+  it('derives year from trailing calendar year in VOD title', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '205',
+        name: 'Multi | Roommates 2026',
+        container_extension: 'mp4',
+        category_id: '2',
+      },
+    ])[0];
+    const channel = toVodChannel(credentials, raw, catMap);
+    expect(channel.year).toBe(2026);
+  });
+
+  it('maps VOD duration from human-readable stream duration when secs missing', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '206',
+        name: 'Runtime Movie',
+        container_extension: 'mp4',
+        category_id: '2',
+        duration: '1h 47m',
+      },
+    ])[0];
+    const channel = toVodChannel(credentials, raw, catMap);
+    expect(channel.durationSeconds).toBe(3600 + 47 * 60);
+  });
+
+  it('merges Xtream vod_info into an existing VodChannel', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '201',
+        name: 'Merged Movie',
+        container_extension: 'mp4',
+        category_id: '2',
+      },
+    ])[0];
+    const base = toVodChannel(credentials, raw, catMap);
+    const detail = xtreamVodInfoSchema.parse({
+      info: {
+        plot: 'A spy thriller.',
+        cast: 'Actor A, Actor B',
+        director: 'Director X',
+        genre: 'Action',
+        releasedate: '2019-03-15',
+        rating: '8.2',
+        duration_secs: 5400,
+        movie_image: 'https://img.example/poster.jpg',
+        backdrop_path: ['https://img.example/backdrop.jpg'],
+      },
+    });
+    const merged = mergeVodChannelWithXtreamInfo(base, detail);
+    expect(merged.streamUrl).toBe(base.streamUrl);
+    expect(merged.plot).toBe('A spy thriller.');
+    expect(merged.cast).toBe('Actor A, Actor B');
+    expect(merged.year).toBe(2019);
+    expect(merged.durationSeconds).toBe(5400);
+    expect(merged.posterUrl).toBe('https://img.example/poster.jpg');
+    expect(merged.backdropUrl).toBe('https://img.example/backdrop.jpg');
+  });
+
+  it('prefers rating_5based from vod_info when both ratings exist', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '207',
+        name: 'Rated Movie',
+        container_extension: 'mp4',
+        category_id: '2',
+        rating: '9.0',
+        rating_5based: '3.0',
+      },
+    ])[0];
+    const base = toVodChannel(credentials, raw, catMap);
+    const detail = xtreamVodInfoSchema.parse({
+      info: {
+        rating: '6.8',
+        rating_5based: '4.1',
+        duration_secs: 120,
+      },
+    });
+    const merged = mergeVodChannelWithXtreamInfo(base, detail);
+    expect(merged.rating).toBe(4.1);
+  });
+
+  it('merges duration from vod_info text when duration_secs missing', () => {
+    const raw = xtreamVodStreamListSchema.parse([
+      {
+        stream_id: '208',
+        name: 'Text Runtime',
+        container_extension: 'mp4',
+        category_id: '2',
+      },
+    ])[0];
+    const base = toVodChannel(credentials, raw, catMap);
+    const detail = xtreamVodInfoSchema.parse({
+      info: {
+        duration: '90 min',
+      },
+    });
+    const merged = mergeVodChannelWithXtreamInfo(base, detail);
+    expect(merged.durationSeconds).toBe(5400);
   });
 
   it('maps a series listing + info into a SeriesChannel', () => {

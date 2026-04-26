@@ -8,6 +8,7 @@ import { useCatalogStore } from '../store/catalog-store';
 import { useGuideStore } from '../store/guide-store';
 import { useMinuteClock } from '../hooks/use-minute-clock';
 import { liveTvgIdToDisplayName } from '../lib/epg-display';
+import { LAYOUT_CONTENT_CLASS } from '../lib/layout-shell';
 
 function startOfLocalDay(base: Date, dayOffset: number): number {
   const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset);
@@ -138,7 +139,7 @@ export default function EpgPage() {
 
   return (
     <AppScreen>
-      <Stack className="mx-auto max-w-[1400px] p-6" gap={6}>
+      <Stack className={`${LAYOUT_CONTENT_CLASS} py-6`} gap={6}>
         <header className="flex flex-wrap items-baseline justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">TV Guide</h1>

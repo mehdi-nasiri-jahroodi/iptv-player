@@ -39,7 +39,7 @@ apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
     root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav + `<main>` viewport flex segment for routes
     routes.tsx                # URL → page-module manifest
-    layout/app-nav.tsx        # top nav — **`max-w-[1400px]`** inner column + `px-4`, aligned with page stacks (home, `/browse/live`, epg)
+    layout/app-nav.tsx        # top nav — shared **`LAYOUT_CONTENT_CLASS`** (`max-w-[min(100%,1728px)]` + horizontal padding), **Live TV / Movies / Series** links + utilities; aligned with home / browse / EPG shells
     layout/browse-nav-toolbar.tsx  # optional `RefreshSourceButton` when browsing a loaded catalog
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
@@ -54,7 +54,7 @@ apps/web/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: rail includes **Favorites** (virtual list from profile hearts) + catalog groups; hero + table; vod/series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -66,7 +66,12 @@ apps/web/
         indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
     hooks/
       use-minute-clock.ts     # re-tick now/next labels once per minute
+      use-vod-xtream-detail.ts  # `get_vod_info` merge for the focused VOD hero (Xtream)
+      use-vod-xtream-grid-enrichment.ts  # batched `get_vod_info` for visible VOD posters + sort fields (Xtream, capped)
     lib/
+      layout-shell.ts         # `LAYOUT_CONTENT_CLASS` — shared max-width + horizontal padding (nav + home + browse + EPG)
+      vod-genre-filter.ts     # split genre strings, collect options, filter VOD rows by genre tag
+      vod-sort.ts             # `sortVodChannels` — VOD browse sort (year, rating, duration, director, date added, title)
       playback-stream-proxy.ts  # merges Settings stream proxy + Source.userAgent for `<Player>`
       epg-display.ts          # pick preview live channels + format now/next line
     store/                    # Zustand slices
@@ -98,10 +103,10 @@ Read [`docs/web-app-plan.md § 6`](../../docs/web-app-plan.md) for the full phas
 | 1 — Foundation | complete | Nx + pnpm; schemas/M3U; Shaka smoke (`/dev/play-test`); Norigin init per plan |
 | 2 — MVP core flows | complete | AddSource (M3U URL + file + **Xtream Codes**), per-source UA, tile launcher, per-kind browsers, inline live + fullscreen `/play`, proxy + **ResponsibilityNotice**, profile/favorites/recents, track picker, Shaka 1002 proxy hint |
 | 3 — EPG (minimal) | complete | XMLTV URL on source, `parseXmltvToGuide` + now/next helpers in `core`, `guideStore`, Home spotlight + browse live rows, `/epg` schedule |
-| 4 — Polish | not started | Rich VOD grid / series detail, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
+| 4 — Polish | in progress | **VOD:** poster grid + detail hero; tiles update hero, **Watch** opens `/play` (`/browse/vod`). Remaining: series detail / episode picker, catchup playback, multiple profiles, logos, backup/restore, a11y audit |
 
 **Things that are explicitly deferred — do not build them early:**
-- Rich **VOD grid** and **series detail** (seasons/episodes) UIs (Phase 4). Basic `/browse/vod` and `/browse/series` lists are in scope for Phase 2; poster grids and episode pickers wait.
+- **Series detail** (seasons/episodes) UI (Phase 4). Basic `/browse/series` list remains; episode pickers wait.
 - Catchup / time-shift playback UI (Phase 4). `buildCatchupUrl` exists in `packages/core` and live channels carry `catchupDays` / `catchupMode` already.
 - Rich multi-day EPG grid with channel columns (beyond `/epg` today + tomorrow list).
 - Multiple profiles (Phase 4).
@@ -156,7 +161,7 @@ Add an Nx build target that regenerates them; run in CI so Android TV always has
 - All interactive elements must wrap **`useFocusable`** from Norigin.
 - Keep components **headless-friendly**: logic in hooks, styles via Tailwind classes.
 - List Norigin, React, Shaka, **React Hook Form**, `@hookform/resolvers`, and **Zod** as `peerDependencies` (not `dependencies`) to avoid version mismatches when webOS consumes the same packages.
-- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, `CatalogTile`, `Carousel` (Embla-powered horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
+- **Built so far** (`packages/ui/src/lib/`): `FocusableItem`, `Button`, `FormField`, `TextField`, `TextArea`, `Tabs`, `SourceForm` (incl. optional per-source **User-Agent**), `ChannelCard` (optional **`trailing`** slot), `ChannelList`, **`VodBrowseHero`** / **`VodPosterGrid`** (VOD browse; hero takes optional **`trailingActions`** for host favorites), `formatVodDuration`, `CatalogTile`, `Carousel` (Embla-powered horizontal strip, drag to pan, prev/next hide until hover/focus on mouse, no visible scrollbar). All headless — side effects belong to the consuming page.
 
 ---
 
