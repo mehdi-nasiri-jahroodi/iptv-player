@@ -67,10 +67,9 @@ test('mounts the inline live player pane (idle until a channel is picked)', asyn
   await waitFor(() => {
     expect(screen.getByTestId('live-player')).toBeTruthy();
   });
-  // No channel picked yet \u2014 the idle hint is shown and Fullscreen is disabled.
+  // No channel picked yet — idle copy is shown; Shaka controls (incl. fullscreen) mount only when a stream URL exists.
   expect(screen.getByTestId('live-player-idle')).toBeTruthy();
-  const fullscreen = screen.getByRole('button', { name: /fullscreen/i });
-  expect((fullscreen as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByTestId('player-controls')).toBeNull();
 });
 
 test('does NOT mount the inline player pane on /browse/vod', async () => {

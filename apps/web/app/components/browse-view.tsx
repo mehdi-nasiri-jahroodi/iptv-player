@@ -225,13 +225,6 @@ export function BrowseView({
 
   const isLive = kind === 'live';
 
-  const goPlaySelectedLive = () => {
-    if (!selectedChannel || !sourceId || !('streamUrl' in selectedChannel)) return;
-    void navigate(
-      `/play/${encodeURIComponent(sourceId)}/live/${encodeURIComponent(selectedChannel.id)}`
-    );
-  };
-
   const sidebarProps: GroupsSidebarProps = {
     groups: groupReorderMode ? orderedGroups : visibleGroups,
     reorderMode: groupReorderMode,
@@ -270,6 +263,14 @@ export function BrowseView({
               <Button
                 variant="ghost"
                 size="sm"
+                focusKey="LIVE_TOOLBAR_GUIDE"
+                onClick={() => void navigate('/epg')}
+              >
+                Guide
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 focusKey="LIVE_TOOLBAR_SETTINGS"
                 onClick={() => void navigate('/settings')}
               >
@@ -288,14 +289,10 @@ export function BrowseView({
 
           <LiveBrowseHero
             channel={selectedChannel}
-            sourceId={sourceId}
             playbackProxy={playbackProxy}
             streamProxyConfigured={streamProxyConfigured}
             recentChannels={recentChannels}
             onSelectRecent={(next) => setSelectedChannel(next)}
-            onNavigatePlay={goPlaySelectedLive}
-            onNavigateFullscreen={goPlaySelectedLive}
-            onNavigateGuide={() => void navigate('/epg')}
             guide={guide}
             guideReady={guideReady}
             nowMs={clock.getTime()}

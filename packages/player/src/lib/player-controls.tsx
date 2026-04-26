@@ -128,7 +128,7 @@ export function PlayerControls({
       ref={containerRef}
       data-testid="player-controls"
       data-visible={visible}
-      className="absolute inset-0"
+      className="absolute inset-0 z-10"
       style={{ cursor: visible ? 'default' : 'none' }}
       onMouseMove={handleMouseMove}
       onMouseEnter={bump}
