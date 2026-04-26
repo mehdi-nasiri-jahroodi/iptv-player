@@ -76,7 +76,9 @@ export const ChannelCard = forwardRef<HTMLDivElement, ChannelCardProps>(function
       className={[
         'flex w-full items-center gap-3 rounded-md border bg-surface p-3 text-left outline-none transition-shadow',
         'hover:bg-surface-raised',
-        selected ? 'border-accent' : 'border-border',
+        selected
+          ? 'border-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+          : 'border-border',
         focused ? 'shadow-focus ring-2 ring-accent/40' : '',
         className,
       ]

@@ -1,5 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragCancelEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical } from 'lucide-react';
 import type { Channel, Source } from 'core';
 import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
 import {
@@ -17,12 +39,16 @@ import {
   type ChannelKind,
 } from '../store/catalog-store';
 import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
-import { recentKey, useProfileStore } from '../store/profile-store';
+import { catalogOrderKey, recentKey, useProfileStore } from '../store/profile-store';
 import { useGuideStore } from '../store/guide-store';
 import { useMinuteClock } from '../hooks/use-minute-clock';
-import { formatNowNextLine } from '../lib/epg-display';
+import { formatNowNextLine, parseRecentKey } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { ChannelFavoriteButton } from './favorite-channel-button';
+
+const EMPTY_GROUP_ORDER: string[] = [];
+
+type CatalogGroup = CatalogState['groupsByKind'][ChannelKind][number];
 
 /**
  * Per-kind browser shared by `/browse/live`, `/browse/vod`, `/browse/series`.
@@ -53,6 +79,32 @@ export function BrowseView({
   const setActiveGroup = useCatalogStore((s) => s.setActiveGroup);
   const searchQuery = useCatalogStore((s) => s.searchQuery);
   const setSearch = useCatalogStore((s) => s.setSearch);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [groupReorderMode, setGroupReorderMode] = useState(false);
+  const setCatalogGroupOrder = useProfileStore((s) => s.setCatalogGroupOrder);
+  const orderKey = useMemo(() => catalogOrderKey(activeSource.id, kind), [activeSource.id, kind]);
+  const groupOrder = useProfileStore((s) => s.catalogOrders[orderKey] ?? EMPTY_GROUP_ORDER);
+
+  const orderedGroups = useMemo(() => {
+    if (groupOrder.length === 0) return groups;
+    const rank = new Map(groupOrder.map((id, index) => [id, index]));
+    return [...groups].sort((a, b) => {
+      const ra = rank.has(a.id) ? (rank.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.id) ? (rank.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      if (ra === rb) return a.name.localeCompare(b.name);
+      return ra - rb;
+    });
+  }, [groups, groupOrder]);
+
+  const visibleGroups = useMemo(() => {
+    const q = groupSearch.trim().toLowerCase();
+    if (!q) return orderedGroups;
+    return orderedGroups.filter((g) => g.name.toLowerCase().includes(q));
+  }, [orderedGroups, groupSearch]);
+
+  useEffect(() => {
+    if (groupReorderMode) setGroupSearch('');
+  }, [groupReorderMode]);
 
   // Derive visible channels here (rather than via a Zustand selector) so we
   // don't return a fresh array reference from the store on every render —
@@ -140,8 +192,15 @@ export function BrowseView({
     <Stack gap={4} data-testid={`browse-view-${kind}`}>
       <div className={gridClassName}>
         <GroupsSidebar
-          groups={groups}
+          groups={groupReorderMode ? orderedGroups : visibleGroups}
+          reorderMode={groupReorderMode}
+          onToggleReorderMode={setGroupReorderMode}
+          onCommitGroupOrder={(orderedIds) =>
+            setCatalogGroupOrder(activeSource.id, kind, orderedIds)
+          }
           activeGroupId={activeGroupId}
+          searchValue={groupSearch}
+          onSearchChange={setGroupSearch}
           onSelect={(id) => setActiveGroup(kind, id)}
         />
         <Stack gap={3}>
@@ -167,7 +226,11 @@ export function BrowseView({
           />
         </Stack>
         {isLive ? (
-          <LivePlayerPane channel={selectedChannel} activeSource={activeSource} />
+          <LivePlayerPane
+            channel={selectedChannel}
+            activeSource={activeSource}
+            onSelectChannel={(next) => setSelectedChannel(next)}
+          />
         ) : null}
       </div>
       {!isLive && selectedChannel && sourceId ? (
@@ -187,51 +250,247 @@ export function useChannelCountForKind(kind: ChannelKind): number {
 // the surrounding `BrowseView` state machine.
 // ---------------------------------------------------------------------------
 
-function GroupsSidebar({
-  groups,
+function groupRowClassName(isDragging: boolean) {
+  return [
+    'flex items-center gap-2 rounded-md border px-2 py-2 text-sm',
+    isDragging ? 'border-accent bg-accent/15 shadow-md' : 'border-border bg-surface-raised',
+  ].join(' ');
+}
+
+function GroupReorderRowPreview({ group }: { group: CatalogGroup }) {
+  return (
+    <div className={groupRowClassName(true)}>
+      <span className="flex shrink-0 cursor-grabbing rounded border border-border p-1 text-foreground-muted">
+        <GripVertical aria-hidden className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground">
+        {group.name}
+      </span>
+      <span className="shrink-0 text-xs text-foreground-muted">{group.channels.length}</span>
+    </div>
+  );
+}
+
+function SortableGroupRow({
+  group,
   activeGroupId,
   onSelect,
 }: {
-  groups: CatalogState['groupsByKind'][ChannelKind];
+  group: CatalogGroup;
   activeGroupId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: group.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={groupRowClassName(isDragging)}>
+      <button
+        type="button"
+        aria-label={`Drag to reorder ${group.name}`}
+        className="flex shrink-0 cursor-grab touch-none rounded border border-border p-1 text-foreground-muted active:cursor-grabbing"
+        {...listeners}
+        {...attributes}
+      >
+        <GripVertical aria-hidden className="size-4" />
+      </button>
+      <button
+        type="button"
+        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-foreground hover:underline"
+        onClick={() => onSelect(group.id)}
+        data-active={group.id === activeGroupId ? 'true' : 'false'}
+      >
+        {group.name}
+      </button>
+      <span className="shrink-0 text-xs text-foreground-muted">{group.channels.length}</span>
+    </div>
+  );
+}
+
+function GroupsSidebar({
+  groups,
+  reorderMode,
+  onToggleReorderMode,
+  onCommitGroupOrder,
+  activeGroupId,
+  searchValue,
+  onSearchChange,
+  onSelect,
+}: {
+  groups: CatalogState['groupsByKind'][ChannelKind];
+  reorderMode: boolean;
+  onToggleReorderMode: (next: boolean) => void;
+  onCommitGroupOrder: (orderedIds: string[]) => void;
+  activeGroupId: string | null;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
+  const [sortableIds, setSortableIds] = useState<string[]>(groupIds);
+  const orderRef = useRef(sortableIds);
+  const dragSnapshotRef = useRef<string[] | null>(null);
+  const [activeDragGroup, setActiveDragGroup] = useState<CatalogGroup | null>(null);
+
+  useEffect(() => {
+    setSortableIds(groupIds);
+  }, [groupIds]);
+
+  useEffect(() => {
+    orderRef.current = sortableIds;
+  }, [sortableIds]);
+
+  const groupById = useMemo(() => new Map(groups.map((g) => [g.id, g] as const)), [groups]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    dragSnapshotRef.current = [...orderRef.current];
+    const id = String(event.active.id);
+    const g = groupById.get(id);
+    setActiveDragGroup(g ?? null);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setSortableIds((items) => {
+      const oldIndex = items.indexOf(String(active.id));
+      const newIndex = items.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return items;
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
+
+  const handleDragEnd = (_event: DragEndEvent) => {
+    setActiveDragGroup(null);
+    dragSnapshotRef.current = null;
+    onCommitGroupOrder(orderRef.current);
+  };
+
+  const handleDragCancel = (_event: DragCancelEvent) => {
+    setActiveDragGroup(null);
+    const snap = dragSnapshotRef.current;
+    dragSnapshotRef.current = null;
+    if (snap) setSortableIds(snap);
+  };
+
+  const reorderList = (
+    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+      {sortableIds.map((id) => {
+        const group = groupById.get(id);
+        if (!group) return null;
+        return (
+          <SortableGroupRow
+            key={id}
+            group={group}
+            activeGroupId={activeGroupId}
+            onSelect={onSelect}
+          />
+        );
+      })}
+    </SortableContext>
+  );
+
   return (
     <nav
       role="navigation"
       aria-label="Channel groups"
       data-testid="groups-sidebar"
-      className="flex flex-col gap-1"
+      data-reordering={reorderMode ? 'true' : 'false'}
+      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-2"
     >
-      {groups.map((group) => {
-        const isActive = group.id === activeGroupId;
-        return (
-          <FocusableItem
-            key={group.id}
-            focusKey={`GROUP_${group.id}`}
-            onEnterPress={() => onSelect(group.id)}
-            className={isActive ? 'bg-surface-raised' : ''}
-          >
-            <button
-              type="button"
-              onClick={() => onSelect(group.id)}
-              aria-pressed={isActive}
-              data-active={isActive ? 'true' : 'false'}
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <span className="text-xs font-medium text-foreground-muted">Groups</span>
+        <Button
+          type="button"
+          variant={reorderMode ? 'primary' : 'ghost'}
+          size="sm"
+          focusKey="GROUP_REORDER_TOGGLE"
+          data-testid="group-reorder-toggle"
+          onClick={() => onToggleReorderMode(!reorderMode)}
+        >
+          {reorderMode ? 'Done' : 'Reorder'}
+        </Button>
+      </div>
+      {reorderMode ? (
+        <p className="px-0.5 text-xs text-foreground-muted">
+          Drag the grip to reorder rows in one motion. Turn off Reorder when finished.
+        </p>
+      ) : null}
+      <TextField
+        focusKey="GROUP_SEARCH"
+        aria-label="Search groups"
+        value={searchValue}
+        disabled={reorderMode}
+        onChange={(event) => onSearchChange(event.target.value)}
+        placeholder="Filter groups"
+      />
+      {groups.length === 0 ? (
+        <p className="px-2 py-1 text-xs text-foreground-muted">No groups match your search.</p>
+      ) : null}
+      {reorderMode ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          {reorderList}
+          <DragOverlay dropAnimation={null}>
+            {activeDragGroup ? <GroupReorderRowPreview group={activeDragGroup} /> : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        groups.map((group) => {
+          const isActive = group.id === activeGroupId;
+          return (
+            <FocusableItem
+              key={group.id}
+              focusKey={`GROUP_${group.id}`}
+              onEnterPress={() => onSelect(group.id)}
               className={[
-                'flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm',
-                isActive
-                  ? 'font-medium text-foreground'
-                  : 'text-foreground-muted hover:text-foreground',
+                isActive ? 'bg-accent/20' : 'bg-transparent',
+                "[&[data-focused='true']]:ring-2 [&[data-focused='true']]:ring-accent [&[data-focused='true']]:bg-accent/25",
               ].join(' ')}
             >
-              <span className="truncate">{group.name}</span>
-              <span className="shrink-0 text-xs text-foreground-muted">
-                {group.channels.length}
-              </span>
-            </button>
-          </FocusableItem>
-        );
-      })}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(group.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(group.id);
+                  }
+                }}
+                aria-pressed={isActive}
+                data-active={isActive ? 'true' : 'false'}
+                className={[
+                  'flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm outline-none',
+                  isActive
+                    ? 'border border-accent/50 bg-accent/20 font-semibold text-foreground'
+                    : 'border border-transparent text-foreground-muted hover:border-border hover:bg-surface-raised hover:text-foreground',
+                ].join(' ')}
+              >
+                <span className="truncate">{group.name}</span>
+                <span className="shrink-0 text-xs text-foreground-muted">{group.channels.length}</span>
+              </div>
+            </FocusableItem>
+          );
+        })
+      )}
     </nav>
   );
 }
@@ -317,20 +576,41 @@ function SelectedChannelPanel({
 function LivePlayerPane({
   channel,
   activeSource,
+  onSelectChannel,
 }: {
   channel: Channel | null;
   activeSource: Source;
+  onSelectChannel: (channel: Channel) => void;
 }) {
   const navigate = useNavigate();
   const sourceId = useCatalogStore((s) => s.sourceId);
+  const playlist = useCatalogStore((s) => s.playlist);
   const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
   const streamProxyConfigured = useSettingsStore((s) => hasStreamProxy(s));
+  const recents = useProfileStore((s) => s.profile.recents);
   const playbackProxy = useMemo(
     () => streamProxyForPlayback(streamProxyConfig, activeSource),
     [streamProxyConfig, activeSource]
   );
   const streamUrl =
     channel && 'streamUrl' in channel ? channel.streamUrl : null;
+  const recentChannels = useMemo(() => {
+    if (!sourceId || !playlist) return [];
+    const byId = new Map(
+      playlist.groups.flatMap((group) => group.channels.map((c) => [c.id, c] as const))
+    );
+    const picked: Channel[] = [];
+    for (const item of recents) {
+      const parsed = parseRecentKey(item);
+      if (!parsed || parsed.sourceId !== sourceId || parsed.kind !== 'live') continue;
+      const found = byId.get(parsed.channelId);
+      if (found && !picked.some((p) => p.id === found.id)) {
+        picked.push(found);
+      }
+      if (picked.length >= 8) break;
+    }
+    return picked;
+  }, [sourceId, playlist, recents]);
   const [error, setError] = useState<ShakaError | null>(null);
 
   useEffect(() => {
@@ -397,6 +677,30 @@ function LivePlayerPane({
         >
           Fullscreen
         </Button>
+      </div>
+      <div className="rounded-md border border-border bg-surface p-2">
+        <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-foreground-muted">
+          Recently viewed
+        </div>
+        {recentChannels.length === 0 ? (
+          <p className="px-1 pb-1 text-xs text-foreground-muted">No recent channels yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {recentChannels.map((recentChannel) => (
+              <Button
+                key={recentChannel.id}
+                variant={channel?.id === recentChannel.id ? 'primary' : 'ghost'}
+                size="sm"
+                focusKey={`RECENT_${recentChannel.id}`}
+                onClick={() => {
+                  onSelectChannel(recentChannel);
+                }}
+              >
+                {recentChannel.name}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
     </aside>
   );

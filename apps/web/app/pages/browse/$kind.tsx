@@ -66,7 +66,7 @@ export function BrowseKindPage() {
 
   return (
     <AppScreen>
-      <Stack className="mx-auto max-w-5xl p-6" gap={6}>
+      <Stack className="mx-auto max-w-[1400px] p-6" gap={6}>
         <header className="flex items-baseline justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">

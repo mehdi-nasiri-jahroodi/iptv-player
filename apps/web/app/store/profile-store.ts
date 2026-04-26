@@ -21,17 +21,26 @@ export function recentKey(sourceId: string, kind: string, channelId: string): st
   return `${sourceId}::${kind}::${channelId}`;
 }
 
+/** Stable key for per-source group ordering by catalog kind. */
+export function catalogOrderKey(sourceId: string, kind: string): string {
+  return `${sourceId}::${kind}`;
+}
+
 export interface ProfileState {
   profile: UserProfile;
+  catalogOrders: Record<string, string[]>;
   setProfileName(name: string): void;
   toggleFavorite(key: string): void;
   pushRecent(key: string): void;
+  /** Replace saved order for this source + catalog kind (live / vod / series). */
+  setCatalogGroupOrder(sourceId: string, kind: string, orderedGroupIds: string[]): void;
 }
 
 export const useProfileStore = create<ProfileState>()(
   persist(
     (set, get) => ({
       profile: DEFAULT_PROFILE,
+      catalogOrders: {},
 
       setProfileName(name: string) {
         const trimmed = name.trim();
@@ -57,12 +66,22 @@ export const useProfileStore = create<ProfileState>()(
         const next = [key, ...filtered].slice(0, 50);
         set({ profile: { ...get().profile, recents: next } });
       },
+
+      setCatalogGroupOrder(sourceId, kind, orderedGroupIds) {
+        const key = catalogOrderKey(sourceId, kind);
+        set({
+          catalogOrders: { ...get().catalogOrders, [key]: [...orderedGroupIds] },
+        });
+      },
     }),
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
       version: 1,
-      partialize: (state) => ({ profile: state.profile }),
+      partialize: (state) => ({
+        profile: state.profile,
+        catalogOrders: state.catalogOrders,
+      }),
     }
   )
 );
