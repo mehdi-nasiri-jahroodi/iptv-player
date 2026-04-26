@@ -14,3 +14,12 @@ export {
   formatTime,
   type PlayerControlsProps,
 } from './lib/player-controls.js';
+export {
+  describeShakaError,
+  formatShakaErrorForClipboard,
+  type ShakaErrorDescription,
+} from './lib/describe-error.js';
+export {
+  PlayerErrorOverlay,
+  type PlayerErrorOverlayProps,
+} from './lib/player-error-overlay.js';

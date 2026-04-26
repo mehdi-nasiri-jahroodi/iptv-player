@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { Channel } from 'core';
-import { Player, PlayerControls, type ShakaError } from 'player';
+import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
 import {
   Button,
   ChannelList,
@@ -288,31 +288,12 @@ function LivePlayerPane({ channel }: { channel: Channel | null }) {
             <>
               {streamUrl ? <PlayerControls api={api} /> : null}
               {error ? (
-                <div
-                  role="alert"
-                  data-testid="live-player-error"
-                  className="absolute inset-x-2 bottom-2 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{error.message}</div>
-                    {typeof error.data === 'object' && error.data !== null ? (
-                      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] opacity-80">
-                        {JSON.stringify(error.data, null, 2)}
-                      </pre>
-                    ) : null}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    focusKey="LIVE_PLAYER_RETRY"
-                    onClick={() => {
-                      setError(null);
-                      api.retry();
-                    }}
-                  >
-                    Retry
-                  </Button>
-                </div>
+                <PlayerErrorOverlay
+                  error={error}
+                  compact
+                  onRetry={() => api.retry()}
+                  onDismiss={() => setError(null)}
+                />
               ) : null}
             </>
           )}

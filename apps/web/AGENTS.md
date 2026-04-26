@@ -240,6 +240,13 @@ The headless `<Player src={...}>` component wraps the hook and accepts a render-
 - Auto-hides 3s after the last pointer/focus event while playing; always visible when paused, buffering, or any control inside the bar holds focus. Pass `alwaysVisible` to disable the auto-hide (used in tests / TV).
 - Lives in `packages/player` so webOS and Android-React reuse it. Used by both `LivePlayerPane` (inline live) and `apps/web/app/pages/play.tsx` (fullscreen).
 
+`<PlayerErrorOverlay error={error} onRetry={api.retry} onDismiss={() => setError(null)}>` is the user-facing error chrome — use it instead of hand-rolling JSON `<pre>` blocks:
+
+- Translates Shaka error codes/categories into a friendly headline + actionable hint via `describeShakaError` (also exported from `player`).
+- Hides the technical detail (code, code name, category, URL, HTTP status, raw Shaka message) behind a "Show details" toggle so the default view stays calm.
+- Provides **Retry** (calls `onDismiss` then `onRetry`) and **Copy diagnostics** (writes a redacted multi-line summary via `formatShakaErrorForClipboard` to `navigator.clipboard`).
+- Two layouts: `compact` (inline `LivePlayerPane`) and the default centered overlay (fullscreen `/play`).
+
 Always require an **explicit user gesture** to start playback (route navigation from channel select counts).
 
 ---
