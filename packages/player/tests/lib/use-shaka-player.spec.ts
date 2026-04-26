@@ -260,6 +260,18 @@ describe('useShakaPlayer', () => {
     await waitFor(() => expect(players[0].destroy).toHaveBeenCalled());
   });
 
+  test('clearTextTrack calls Shaka selectTextTrack(null)', async () => {
+    const { result } = renderHook(() => {
+      const ref = useRef<HTMLVideoElement | null>(null);
+      if (!ref.current) ref.current = document.createElement('video');
+      return useShakaPlayer(ref, 'https://example.com/movie.m3u8');
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('playing'));
+    act(() => result.current.clearTextTrack());
+    expect(players[0].selectTextTrack).toHaveBeenCalledWith(null);
+  });
+
   test('selectTrack calls Shaka selectVariantTrack with the matching track', async () => {
     const { result } = renderHook(() => {
       const ref = useRef<HTMLVideoElement | null>(null);

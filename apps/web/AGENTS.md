@@ -48,13 +48,13 @@ apps/web/
       add-source.tsx
       browse/
         $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
-      play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player
+      play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player; VOD: `PlayerSubtitlePicker` + `PlayerControls`
       epg.tsx                 # /epg — XMLTV schedule (today + tomorrow)
       dev/
         design-tokens.tsx     # only registered when import.meta.env.DEV
         play-test.tsx         # Shaka HLS smoke test (dev-only)
     components/               # cross-page presentational components
-      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); series: sidebar + ChannelList + panel
+      browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); series: sidebar + ChannelList + panel
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -124,7 +124,7 @@ Channel         — discriminated union on `type`:
                     'live'   { id, name, groupTitle, streamUrl, logoUrl?, tvgId?,
                                catchupDays?, catchupMode?, catchupSource?, xtreamStreamId? }
                     'vod'    { id, name, groupTitle, streamUrl, logoUrl?, posterUrl?,
-                               year?, rating?, plot?, cast?, director?, genre?,
+                               year?, rating?, plot?, cast?, director?, genre?, trailerUrl?,
                                containerExtension?, xtreamStreamId? }
                     'series' { id, name, groupTitle, logoUrl?, posterUrl?, plot?, cast?,
                                director?, genre?, releaseYear?, rating?,
@@ -211,7 +211,7 @@ Document all key bindings in `apps/web/src/lib/navigation/keybindings.ts`.
 The Shaka loader, hook, and headless `<Player>` component live in **`packages/player`** (not in `apps/web`) so webOS — and any future React-based target — can reuse them.
 
 ```ts
-import { useShakaPlayer, Player, PlayerControls, loadShakaModule } from 'player';
+import { useShakaPlayer, Player, PlayerControls, PlayerSubtitlePicker, loadShakaModule } from 'player';
 ```
 
 `useShakaPlayer(videoRef, streamUrl, options?)` exposes:

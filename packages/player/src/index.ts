@@ -16,6 +16,10 @@ export {
   type PlayerControlsProps,
 } from './lib/player-controls.js';
 export {
+  PlayerSubtitlePicker,
+  type PlayerSubtitlePickerProps,
+} from './lib/player-subtitle-picker.js';
+export {
   describeShakaError,
   formatShakaErrorForClipboard,
   type DescribeShakaErrorOptions,

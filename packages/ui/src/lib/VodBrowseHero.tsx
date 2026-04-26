@@ -7,6 +7,7 @@ export type VodBrowseHeroProps = {
   channel: VodChannel | null;
   detailLoading: boolean;
   onPlay: () => void;
+  onWatchTrailer?: (url: string) => void;
   /** When false, Play is disabled (e.g. missing stream URL or source). */
   canPlay?: boolean;
   /** Extra controls next to Play (e.g. profile favorite from the host app). */
@@ -35,6 +36,7 @@ export function VodBrowseHero({
   channel,
   detailLoading,
   onPlay,
+  onWatchTrailer,
   canPlay: canPlayProp,
   trailingActions,
 }: VodBrowseHeroProps) {
@@ -50,6 +52,7 @@ export function VodBrowseHero({
   }
 
   const canPlay = canPlayProp ?? Boolean(channel.streamUrl);
+  const trailerUrl = channel.trailerUrl?.trim() || null;
 
   const heroImage = channel.backdropUrl ?? channel.posterUrl ?? channel.logoUrl;
 
@@ -63,12 +66,12 @@ export function VodBrowseHero({
           <img
             src={heroImage}
             alt=""
-            className="size-full object-cover opacity-40 dark:opacity-30"
+            className="size-full object-cover opacity-60 dark:opacity-50"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/92 to-background/70" />
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/72 to-background/28" />
         </div>
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-accent/15 via-surface to-surface-raised" />
@@ -144,6 +147,18 @@ export function VodBrowseHero({
             >
               Watch
             </Button>
+            {trailerUrl && onWatchTrailer ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                focusKey="VOD_HERO_TRAILER"
+                aria-label="Watch trailer"
+                className="border border-border bg-background/65 hover:bg-surface-raised"
+                onClick={() => onWatchTrailer(trailerUrl)}
+              >
+                Trailer
+              </Button>
+            ) : null}
             {trailingActions}
           </div>
         </div>

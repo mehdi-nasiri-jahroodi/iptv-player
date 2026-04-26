@@ -90,6 +90,8 @@ export const vodChannelSchema = z.object({
   cast: z.string().optional(),
   director: z.string().optional(),
   genre: z.string().optional(),
+  /** Normalized YouTube trailer URL from Xtream `vod_info.info.youtube_trailer` when available. */
+  trailerUrl: z.string().url().optional(),
   containerExtension: z.string().optional(),
   posterUrl: z.string().url().optional(),
   backdropUrl: z.string().url().optional(),
@@ -324,6 +326,7 @@ export const xtreamVodInfoSchema = z
         cast: z.string().optional(),
         director: z.string().optional(),
         genre: z.string().optional(),
+        youtube_trailer: z.union([z.string(), z.number()]).optional(),
         releasedate: z.string().optional(),
         rating: z.union([z.string(), z.number()]).optional(),
         /** Same semantics as stream list — prefer when both exist (often 0–5 vs TMDB 0–10). */

@@ -50,7 +50,8 @@ export function PlayerControls({
   alwaysVisible = false,
   idleHideMs = 3000,
 }: PlayerControlsProps): ReactNode {
-  const { media, status, buffering, tracks, selectTrack, abrEnabled, setAbrEnabled } = api;
+  const { media, status, buffering, tracks, selectTrack, clearTextTrack, abrEnabled, setAbrEnabled } =
+    api;
   const [tracksMenuOpen, setTracksMenuOpen] = useState(false);
   const [pointerActiveAt, setPointerActiveAt] = useState<number>(() => Date.now());
   // Track focus inside the bar by timestamp instead of a sticky boolean.
@@ -235,6 +236,10 @@ export function PlayerControls({
                   selectTrack(t);
                   setTracksMenuOpen(false);
                 }}
+                onClearText={() => {
+                  clearTextTrack();
+                  setTracksMenuOpen(false);
+                }}
                 onPickAuto={() => {
                   setAbrEnabled(true);
                   setTracksMenuOpen(false);
@@ -263,6 +268,7 @@ function TracksMenu({
   texts,
   abrEnabled,
   onPick,
+  onClearText,
   onPickAuto,
   onClose,
 }: {
@@ -270,6 +276,7 @@ function TracksMenu({
   texts: ShakaTrack[];
   abrEnabled: boolean;
   onPick: (t: ShakaTrack) => void;
+  onClearText: () => void;
   onPickAuto: () => void;
   onClose: () => void;
 }): ReactNode {
@@ -424,6 +431,24 @@ function TracksMenu({
           <div className="mt-1 border-t border-border/60 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
             Subtitles
           </div>
+          <button
+            type="button"
+            onClick={() => onClearText()}
+            data-testid="player-controls-track-text-off"
+            className={[
+              'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
+              !texts.some((t) => t.active)
+                ? 'bg-accent/20 font-medium text-foreground'
+                : 'text-foreground-muted hover:bg-surface/80 hover:text-foreground',
+            ].join(' ')}
+          >
+            <span className="min-w-0 truncate">Off</span>
+            {!texts.some((t) => t.active) ? (
+              <span className="shrink-0 text-foreground-muted" aria-hidden>
+                ●
+              </span>
+            ) : null}
+          </button>
           {texts.map((t, i) => textRow(t, i))}
         </>
       ) : null}

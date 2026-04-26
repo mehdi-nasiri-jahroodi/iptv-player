@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import type { Channel, Source } from 'core';
-import { Player, PlayerControls, PlayerErrorOverlay, type ShakaError } from 'player';
+import {
+  Player,
+  PlayerControls,
+  PlayerErrorOverlay,
+  PlayerSubtitlePicker,
+  type ShakaError,
+} from 'player';
 import { Button } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
@@ -134,7 +140,13 @@ export function PlayPage() {
           focusKey="PLAY_BACK"
           onClick={() => {
             if (kind) {
-              void navigate(`/browse/${kind}`);
+              if (kind === 'vod' && channel?.id) {
+                void navigate(
+                  `/browse/${kind}?selected=${encodeURIComponent(channel.id)}`
+                );
+              } else {
+                void navigate(`/browse/${kind}`);
+              }
             } else {
               void navigate('/');
             }
@@ -182,6 +194,12 @@ export function PlayPage() {
             >
               {(api) => (
                 <>
+                  {kind === 'vod' ? (
+                    <PlayerSubtitlePicker
+                      api={api}
+                      className="absolute right-3 top-3 md:right-4 md:top-4"
+                    />
+                  ) : null}
                   <PlayerControls api={api} />
                   {error ? (
                     <PlayerErrorOverlay

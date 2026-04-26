@@ -438,6 +438,7 @@ describe('Xtream → domain mappers', () => {
         releasedate: '2019-03-15',
         rating: '8.2',
         duration_secs: 5400,
+        youtube_trailer: 'dQw4w9WgXcQ',
         movie_image: 'https://img.example/poster.jpg',
         backdrop_path: ['https://img.example/backdrop.jpg'],
       },
@@ -448,6 +449,7 @@ describe('Xtream → domain mappers', () => {
     expect(merged.cast).toBe('Actor A, Actor B');
     expect(merged.year).toBe(2019);
     expect(merged.durationSeconds).toBe(5400);
+    expect(merged.trailerUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     expect(merged.posterUrl).toBe('https://img.example/poster.jpg');
     expect(merged.backdropUrl).toBe('https://img.example/backdrop.jpg');
   });

@@ -146,6 +146,8 @@ export interface UseShakaPlayerResult {
    * re-enable adaptive switching.
    */
   selectTrack(track: ShakaTrack): void;
+  /** Turn off subtitles / closed captions (Shaka `selectTextTrack(null)`). */
+  clearTextTrack(): void;
   /**
    * Toggle Shaka's adaptive bitrate algorithm. Disabling sticks the player
    * on the currently selected variant; enabling lets Shaka switch based on
@@ -430,6 +432,9 @@ export function useShakaPlayer(
               // pin explicitly so a Shaka upgrade can't quietly change
               // playback feel.
               bufferBehind: 30,
+              // IPTV manifests sometimes advertise broken text streams; do
+              // not fail the whole asset when one subtitle rendition errors.
+              ignoreTextStreamFailures: true,
             },
           });
         } catch {
@@ -608,6 +613,19 @@ export function useShakaPlayer(
     }
   }, [refreshTracks]);
 
+  const clearTextTrack = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      (
+        player as { selectTextTrack: (t: null) => void }
+      ).selectTextTrack(null);
+    } catch {
+      // Best-effort — older Shaka typings differ; playback continues.
+    }
+    refreshTracks();
+  }, [refreshTracks]);
+
   const setAbrEnabled = useCallback((enabled: boolean) => {
     const player = playerRef.current;
     if (!player) return;
@@ -775,6 +793,7 @@ export function useShakaPlayer(
     abrEnabled,
     media,
     selectTrack,
+    clearTextTrack,
     setAbrEnabled,
     retry,
     destroy,

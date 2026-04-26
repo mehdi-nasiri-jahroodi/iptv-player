@@ -52,7 +52,6 @@ import {
 import { sortVodChannels, type VodSortDir, type VodSortKey } from '../lib/vod-sort';
 import { ChannelFavoriteButton } from './favorite-channel-button';
 import { useVodXtreamDetail } from '../hooks/use-vod-xtream-detail';
-import { useVodXtreamGridEnrichment } from '../hooks/use-vod-xtream-grid-enrichment';
 import { LiveBrowseHero } from './live-browse-hero';
 import { LiveChannelTable } from './live-channel-table';
 
@@ -60,6 +59,8 @@ const EMPTY_GROUP_ORDER: string[] = [];
 
 /** Virtual sidebar id for the live “Favorites” bucket (not a catalog group). */
 const LIVE_FAVORITES_SIDEBAR_ID = '__live_favorites__';
+/** Virtual sidebar id for the VOD “Favorites” bucket (not a catalog group). */
+const VOD_FAVORITES_SIDEBAR_ID = '__vod_favorites__';
 
 type CatalogGroup = CatalogState['groupsByKind'][ChannelKind][number];
 
@@ -90,7 +91,7 @@ type GroupsSidebarProps = {
   onSearchChange: (value: string) => void;
   onSelect: (id: string) => void;
   className?: string;
-  /** Live browse only: pinned “Favorites” row above catalog groups. */
+  /** Optional pinned “Favorites” row above catalog groups. */
   favoritesPin?: {
     count: number;
     isActive: boolean;
@@ -113,10 +114,13 @@ type GroupsSidebarProps = {
 export function BrowseView({
   kind,
   activeSource,
+  preferredChannelId,
   emptyHint,
 }: {
   kind: ChannelKind;
   activeSource: Source;
+  /** Optional channel id to preselect (used by /play -> Back for VOD). */
+  preferredChannelId?: string | null;
   /** Optional copy shown when this kind has zero groups in the active source. */
   emptyHint?: string;
 }) {
@@ -156,9 +160,11 @@ export function BrowseView({
 
   const favorites = useProfileStore((s) => s.profile.favorites);
   const [liveFavoritesRail, setLiveFavoritesRail] = useState(false);
+  const [vodFavoritesRail, setVodFavoritesRail] = useState(false);
 
   useEffect(() => {
     setLiveFavoritesRail(false);
+    setVodFavoritesRail(false);
   }, [kind, activeSource.id]);
 
   const sourceId = useCatalogStore((s) => s.sourceId);
@@ -186,6 +192,29 @@ export function BrowseView({
     return ordered;
   }, [kind, sourceId, groups, favorites]);
 
+  const favoriteVodChannels = useMemo(() => {
+    if (kind !== 'vod' || !sourceId) return [];
+    const byId = new Map<string, VodChannel>();
+    for (const g of groups) {
+      for (const c of g.channels) {
+        if (c.type === 'vod') byId.set(c.id, c);
+      }
+    }
+    const ordered: VodChannel[] = [];
+    const seen = new Set<string>();
+    for (const key of favorites) {
+      if (!key.startsWith(`${sourceId}::`)) continue;
+      const channelId = key.slice(sourceId.length + 2);
+      if (!channelId || seen.has(channelId)) continue;
+      const ch = byId.get(channelId);
+      if (ch) {
+        ordered.push(ch);
+        seen.add(channelId);
+      }
+    }
+    return ordered;
+  }, [kind, sourceId, groups, favorites]);
+
   const [vodSortKey, setVodSortKey] = useState<VodSortKey>('default');
   const [vodSortDir, setVodSortDir] = useState<VodSortDir>('asc');
   const [vodGenreFilter, setVodGenreFilter] = useState('');
@@ -194,9 +223,16 @@ export function BrowseView({
     (id: string) => {
       if (kind === 'live' && id === LIVE_FAVORITES_SIDEBAR_ID) {
         setLiveFavoritesRail(true);
+        setVodFavoritesRail(false);
+        return;
+      }
+      if (kind === 'vod' && id === VOD_FAVORITES_SIDEBAR_ID) {
+        setVodFavoritesRail(true);
+        setLiveFavoritesRail(false);
         return;
       }
       setLiveFavoritesRail(false);
+      setVodFavoritesRail(false);
       if (kind === 'vod') {
         setVodSortKey('default');
         setVodSortDir('asc');
@@ -219,8 +255,24 @@ export function BrowseView({
         channels: favoriteLiveChannels,
       };
     }
+    if (kind === 'vod' && vodFavoritesRail) {
+      return {
+        id: VOD_FAVORITES_SIDEBAR_ID,
+        name: 'Favorites',
+        kind: 'vod',
+        channels: favoriteVodChannels,
+      };
+    }
     return groups.find((g) => g.id === activeGroupId) ?? null;
-  }, [kind, liveFavoritesRail, groups, activeGroupId, favoriteLiveChannels]);
+  }, [
+    kind,
+    liveFavoritesRail,
+    vodFavoritesRail,
+    groups,
+    activeGroupId,
+    favoriteLiveChannels,
+    favoriteVodChannels,
+  ]);
   const visibleChannels: Channel[] = useMemo(() => {
     if (!activeGroup) return [];
     const q = searchQuery.trim().toLowerCase();
@@ -229,6 +281,7 @@ export function BrowseView({
   }, [activeGroup, searchQuery]);
 
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const preferredAppliedRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const pushRecent = useProfileStore((s) => s.pushRecent);
   const guide = useGuideStore((s) => s.guide);
@@ -266,6 +319,35 @@ export function BrowseView({
     setVodSortKey('default');
     setVodSortDir('asc');
   }, [kind, activeSource.id]);
+
+  useEffect(() => {
+    if (kind !== 'vod') return;
+    if (!preferredChannelId) return;
+    const applyKey = `${activeSource.id}:${preferredChannelId}`;
+    if (preferredAppliedRef.current === applyKey) return;
+    const targetGroup = groups.find((g) =>
+      g.channels.some((c) => c.type === 'vod' && c.id === preferredChannelId)
+    );
+    if (!targetGroup) return;
+    const target = targetGroup.channels.find(
+      (c): c is VodChannel => c.type === 'vod' && c.id === preferredChannelId
+    );
+    if (!target) return;
+    if (vodFavoritesRail) setVodFavoritesRail(false);
+    if (activeGroupId !== targetGroup.id) {
+      setActiveGroup(kind, targetGroup.id);
+    }
+    setSelectedChannel(target);
+    preferredAppliedRef.current = applyKey;
+  }, [
+    kind,
+    preferredChannelId,
+    activeSource.id,
+    groups,
+    activeGroupId,
+    vodFavoritesRail,
+    setActiveGroup,
+  ]);
 
   // Live: auto-select for inline preview — keep the current channel when it still
   // matches the active category + search; otherwise pick the first visible row.
@@ -311,20 +393,17 @@ export function BrowseView({
     [visibleChannels]
   );
 
-  const vodEnrichedById = useVodXtreamGridEnrichment(
-    vodRows,
-    activeSource,
-    kind === 'vod'
-  );
-
-  const vodRowsEnriched = useMemo(
-    () => vodRows.map((ch) => vodEnrichedById[ch.id] ?? ch),
-    [vodRows, vodEnrichedById]
-  );
+  // Note: we deliberately do NOT call get_vod_info per row to enrich the
+  // grid. The Xtream `get_vod_streams` listing already returns the fields
+  // the poster card and sort/filter controls need (rating_5based, year,
+  // duration_secs, genre, stream_icon). Per-movie info is reserved for the
+  // detail hero (plot/cast/director/backdrop) — see useVodXtreamDetail.
+  // Fanning out 72 calls on every category change is what got us rate-
+  // limited (HTTP 461) by Xtream panels.
 
   const vodGenreOptions = useMemo(
-    () => collectVodGenreOptions(vodRowsEnriched),
-    [vodRowsEnriched]
+    () => collectVodGenreOptions(vodRows),
+    [vodRows]
   );
 
   useEffect(() => {
@@ -338,8 +417,8 @@ export function BrowseView({
   }, [kind, vodGenreFilter, vodGenreOptions]);
 
   const genreFilteredVodRows = useMemo(
-    () => vodRowsEnriched.filter((ch) => vodChannelMatchesGenreFilter(ch, vodGenreFilter)),
-    [vodRowsEnriched, vodGenreFilter]
+    () => vodRows.filter((ch) => vodChannelMatchesGenreFilter(ch, vodGenreFilter)),
+    [vodRows, vodGenreFilter]
   );
 
   const sortedVodRows = useMemo(
@@ -460,6 +539,12 @@ export function BrowseView({
             isActive: liveFavoritesRail,
             onSelect: () => onGroupSelect(LIVE_FAVORITES_SIDEBAR_ID),
           }
+        : kind === 'vod'
+          ? {
+              count: favoriteVodChannels.length,
+              isActive: vodFavoritesRail,
+              onSelect: () => onGroupSelect(VOD_FAVORITES_SIDEBAR_ID),
+            }
         : undefined,
   };
 
@@ -562,6 +647,9 @@ export function BrowseView({
               onPlay={() => {
                 if (vodDisplayChannel) playVod(vodDisplayChannel);
               }}
+              onWatchTrailer={(url) => {
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
               trailingActions={
                 sourceId && vodDisplayChannel ? (
                   <ChannelFavoriteButton
@@ -579,10 +667,20 @@ export function BrowseView({
               Category
               <select
                 className="h-10 rounded-lg border border-border bg-surface px-3 text-sm text-foreground shadow-sm outline-none focus:shadow-focus focus:ring-2 focus:ring-accent/30"
-                value={activeGroupId ?? ''}
-                onChange={(event) => onGroupSelect(event.target.value)}
+                value={vodFavoritesRail ? VOD_FAVORITES_SIDEBAR_ID : (activeGroupId ?? '')}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  if (v === VOD_FAVORITES_SIDEBAR_ID) {
+                    onGroupSelect(VOD_FAVORITES_SIDEBAR_ID);
+                  } else {
+                    onGroupSelect(v);
+                  }
+                }}
                 aria-label="Jump to category"
               >
+                <option value={VOD_FAVORITES_SIDEBAR_ID}>
+                  Favorites ({favoriteVodChannels.length})
+                </option>
                 {orderedGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name} ({g.channels.length})
@@ -667,6 +765,8 @@ export function BrowseView({
               empty={
                 searchQuery.trim()
                   ? 'No movies match your search.'
+                  : vodFavoritesRail
+                    ? 'No favorites yet. Use the heart on a movie to add it here.'
                   : vodGenreFilter.trim()
                     ? 'No movies with this genre in this category.'
                     : 'This category is empty.'

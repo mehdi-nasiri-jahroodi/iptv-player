@@ -450,6 +450,22 @@ function asUrl(value: string | undefined | null): string | undefined {
   }
 }
 
+/** Xtream `youtube_trailer` is either a full URL or a bare YouTube video id. */
+function normalizeYouTubeTrailerUrl(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+  const idLike = /^[A-Za-z0-9_-]{6,}$/.test(raw);
+  if (idLike) return `https://www.youtube.com/watch?v=${raw}`;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
+    return u.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Convert one Xtream live stream + category map into a domain `LiveChannel`. */
 export function toLiveChannel(
   credentials: XtreamCredentials,
@@ -542,12 +558,14 @@ export function mergeVodChannelWithXtreamInfo(
     asInt(info?.duration_secs) ?? parseVodRuntimeToSeconds(info?.duration);
   const ratingFromInfo =
     asNumber(info?.rating_5based) ?? asNumber(info?.rating) ?? base.rating;
+  const trailerUrl = normalizeYouTubeTrailerUrl(info?.youtube_trailer) ?? base.trailerUrl;
   return vodChannelSchema.parse({
     ...base,
     plot: info?.plot ?? base.plot,
     cast: info?.cast ?? base.cast,
     director: info?.director ?? base.director,
     genre: info?.genre ?? base.genre,
+    trailerUrl,
     rating: ratingFromInfo,
     year,
     durationSeconds: durationSecs ?? base.durationSeconds,

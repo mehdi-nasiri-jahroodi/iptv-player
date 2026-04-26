@@ -33,6 +33,7 @@ function buildApi(
     abrEnabled: true,
     media,
     selectTrack: vi.fn(),
+    clearTextTrack: vi.fn(),
     setAbrEnabled: vi.fn(),
     retry: vi.fn(),
     destroy: vi.fn(async () => undefined),

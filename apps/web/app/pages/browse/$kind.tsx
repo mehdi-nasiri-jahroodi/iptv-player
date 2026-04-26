@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import type { Source } from 'core';
 import { AppScreen, Button, Stack } from 'ui';
 import { BrowseView } from '../../components/browse-view';
@@ -32,7 +32,9 @@ function isChannelKind(value: string | undefined): value is ChannelKind {
 export function BrowseKindPage() {
   const params = useParams<{ kind: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const kind = isChannelKind(params.kind) ? params.kind : null;
+  const preferredChannelId = searchParams.get('selected');
 
   const [activeSource, setActiveSource] = useState<Source | null | undefined>(
     undefined
@@ -110,6 +112,7 @@ export function BrowseKindPage() {
           <BrowseView
             kind={kind}
             activeSource={activeSource}
+            preferredChannelId={kind === 'vod' ? preferredChannelId : null}
             emptyHint={`${activeSource.label} has no ${meta?.title.toLowerCase() ?? kind} content.`}
           />
         )}
