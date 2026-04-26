@@ -1,0 +1,199 @@
+import {
+  Children,
+  isValidElement,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
+import { useFocusable } from '@noriginmedia/norigin-spatial-navigation';
+
+export type CarouselProps = Omit<HTMLAttributes<HTMLDivElement>, 'children'> & {
+  /** Accessible name for the scrollable strip (e.g. “Recently viewed channels”). */
+  ariaLabel: string;
+  /** Norigin focus key for the “previous” control. */
+  prevFocusKey?: string;
+  /** Norigin focus key for the “next” control. */
+  nextFocusKey?: string;
+  /** Tailwind gap between items (default `gap-3`). */
+  gapClassName?: string;
+  children: ReactNode;
+};
+
+/**
+ * Horizontal carousel: prev/next controls, smooth scroll, **no visible scrollbar**
+ * (overflow hidden from scrollbars via CSS). Intended for lean-back / TV use
+ * without relying on drag-to-scroll.
+ */
+export function Carousel({
+  ariaLabel,
+  prevFocusKey = 'CAROUSEL_PREV',
+  nextFocusKey = 'CAROUSEL_NEXT',
+  gapClassName = 'gap-3',
+  className = '',
+  children,
+  ...rest
+}: CarouselProps) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ canPrev: false, canNext: false });
+
+  const updateEdges = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    const maxScroll = scrollWidth - clientWidth;
+    setEdges({
+      canPrev: scrollLeft > 2,
+      canNext: scrollLeft < maxScroll - 2,
+    });
+  }, []);
+
+  const itemCount = Children.count(children);
+
+  useLayoutEffect(() => {
+    updateEdges();
+    const el = scrollerRef.current;
+    if (!el) return;
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => updateEdges());
+      ro.observe(el);
+    }
+    const onWin = () => updateEdges();
+    window.addEventListener('resize', onWin);
+    el.addEventListener('scroll', updateEdges, { passive: true });
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', onWin);
+      el.removeEventListener('scroll', updateEdges);
+    };
+  }, [updateEdges, itemCount]);
+
+  const scrollStep = useCallback((dir: -1 | 1) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const amount = Math.max(160, Math.floor(el.clientWidth * 0.85)) * dir;
+    el.scrollBy({ left: amount, behavior: 'smooth' });
+    window.setTimeout(updateEdges, 350);
+  }, [updateEdges]);
+
+  const items = Children.toArray(children);
+
+  return (
+    <div className={`relative ${className}`.trim()} {...rest}>
+      <CarouselNavButton
+        direction="prev"
+        focusKey={prevFocusKey}
+        disabled={!edges.canPrev}
+        onPress={() => scrollStep(-1)}
+      />
+      <CarouselNavButton
+        direction="next"
+        focusKey={nextFocusKey}
+        disabled={!edges.canNext}
+        onPress={() => scrollStep(1)}
+      />
+      <div
+        ref={scrollerRef}
+        role="region"
+        aria-roledescription="carousel"
+        aria-label={ariaLabel}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            scrollStep(-1);
+          }
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            scrollStep(1);
+          }
+        }}
+        className={[
+          'flex snap-x snap-mandatory flex-nowrap overflow-x-auto overflow-y-hidden scroll-smooth pb-1 pl-10 pr-10 pt-0.5',
+          '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          gapClassName,
+        ].join(' ')}
+      >
+        {items.map((child, index) => {
+          const slideKey =
+            isValidElement(child) && child.key != null
+              ? String(child.key)
+              : `carousel-slide-${index}`;
+          return (
+            <div key={slideKey} className="shrink-0 snap-start">
+              {child}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CarouselNavButton({
+  direction,
+  focusKey,
+  disabled,
+  onPress,
+}: {
+  direction: 'prev' | 'next';
+  focusKey: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { ref, focused } = useFocusable<object>({
+    focusKey,
+    onEnterPress: () => {
+      if (!disabled) onPress();
+    },
+  });
+
+  const setRef = (node: HTMLButtonElement | null) => {
+    (ref as { current: HTMLButtonElement | null }).current = node;
+  };
+
+  const isPrev = direction === 'prev';
+
+  return (
+    <button
+      ref={setRef}
+      type="button"
+      disabled={disabled}
+      aria-label={isPrev ? 'Show previous items' : 'Show next items'}
+      data-focused={focused ? 'true' : 'false'}
+      onClick={() => {
+        if (!disabled) onPress();
+      }}
+      className={[
+        'absolute top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-full',
+        'border border-border bg-surface text-foreground shadow-md',
+        'transition-opacity hover:bg-surface-raised disabled:pointer-events-none disabled:opacity-25',
+        'outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+        isPrev ? 'left-1' : 'right-1',
+      ].join(' ')}
+    >
+      <span aria-hidden className="block size-4">
+        {isPrev ? <ChevronIcon flip /> : <ChevronIcon />}
+      </span>
+    </button>
+  );
+}
+
+function ChevronIcon({ flip }: { flip?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={flip ? 'rotate-180' : ''}
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}

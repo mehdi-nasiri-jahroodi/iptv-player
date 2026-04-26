@@ -8,7 +8,7 @@ import {
   type StreamProxyOption,
   type UseShakaPlayerResult,
 } from 'player';
-import { Button } from 'ui';
+import { Button, Carousel } from 'ui';
 import { formatNowNextLine } from '../lib/epg-display';
 import { inferStreamQualityHints } from '../lib/live-channel-badges';
 
@@ -187,20 +187,20 @@ function LiveRecentStrip({
       <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
         Continue watching
       </p>
-      <ul
-        className="flex list-none gap-3 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch]"
-        aria-label="Recently viewed channels"
+      <Carousel
+        ariaLabel="Recently viewed channels"
+        prevFocusKey="CONTINUE_CAROUSEL_PREV"
+        nextFocusKey="CONTINUE_CAROUSEL_NEXT"
       >
         {recentChannels.map((ch) => (
-          <li key={ch.id} className="shrink-0">
-            <RecentChannelCard
-              channel={ch}
-              selected={currentChannelId === ch.id}
-              onPick={() => onPick(ch)}
-            />
-          </li>
+          <RecentChannelCard
+            key={ch.id}
+            channel={ch}
+            selected={currentChannelId === ch.id}
+            onPick={() => onPick(ch)}
+          />
         ))}
-      </ul>
+      </Carousel>
     </div>
   );
 }
