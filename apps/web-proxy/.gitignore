@@ -1,0 +1,3 @@
+# Secret — never commit this
+.env
+.env.local

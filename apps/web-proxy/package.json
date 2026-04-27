@@ -21,7 +21,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/web-proxy",
-          "command": "tsx watch src/main.ts"
+          "command": "tsx watch --env-file=.env src/main.ts"
         }
       },
       "start": {
@@ -29,7 +29,7 @@
         "dependsOn": ["build"],
         "options": {
           "cwd": "apps/web-proxy",
-          "command": "node dist/main.js"
+          "command": "node --env-file=.env dist/main.js"
         }
       }
     }
