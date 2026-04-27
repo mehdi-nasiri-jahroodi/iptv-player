@@ -2,10 +2,10 @@
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["corepack enable", "corepack prepare pnpm@9.15.9 --activate", "pnpm install --frozen-lockfile"]
+cmds = []
 
 [phases.build]
-cmds = ["pnpm exec nx build web-proxy"]
+cmds = ["npm install -g pnpm@9.15.9 && PATH=\"$(npm prefix -g)/bin:$PATH\" pnpm install --frozen-lockfile && PATH=\"$(npm prefix -g)/bin:$PATH\" pnpm exec nx build web-proxy"]
 
 [start]
 cmd = "node apps/web-proxy/dist/main.js"
