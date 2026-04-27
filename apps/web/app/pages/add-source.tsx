@@ -7,27 +7,54 @@ import {
   type Source,
   type SourceValidationResult,
 } from 'core';
+import { buildSignedProxyUrl } from 'player';
 import { SourcesStore, newSourceId } from '../features/sources/sources-storage';
 import { PlaylistsStore } from '../features/sources/playlists-storage';
+import { useSettingsStore } from '../store/settings-store';
+
+type FetchLike = (input: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 /**
- * Browser `fetch` is shape-compatible with `core`'s `FetchLike`
- * (`{ ok, status, text() }` ⊂ `Response`); this thin wrapper narrows the type
- * and keeps any future cross-runtime tweaks (proxy, headers, …) in one place.
+ * Plain browser fetch — used when no proxy is configured or the page is
+ * already served over HTTP (no mixed-content concern).
  */
 async function browserFetch(input: string): Promise<{ ok: boolean; status: number; text(): Promise<string> }> {
   const res = await fetch(input, { redirect: 'follow' });
   return { ok: res.ok, status: res.status, text: () => res.text() };
 }
 
+/**
+ * Returns a fetcher that routes every request through the configured stream
+ * proxy so that HTTP Xtream panels are reachable from an HTTPS page.
+ */
+function makeProxyFetcher(baseUrl: string, secret: string, userAgent?: string): FetchLike {
+  return async (input: string) => {
+    const signed = await buildSignedProxyUrl({ baseUrl, secret, upstreamUrl: input, userAgent });
+    const res = await fetch(signed, { redirect: 'follow' });
+    return { ok: res.ok, status: res.status, text: () => res.text() };
+  };
+}
+
 export default function AddSourceRoute() {
   const navigate = useNavigate();
   const [savedSource, setSavedSource] = useState<Source | null>(null);
+  const streamProxy = useSettingsStore((s) => s.streamProxy);
 
   async function handleSubmit(submission: SourceFormSubmission): Promise<SourceValidationResult> {
     const candidate: Source = { id: newSourceId(), ...submission.source };
+
+    // Use the proxy fetcher when a proxy is configured — this lets HTTP Xtream
+    // panels be validated from an HTTPS page (avoids mixed-content blocks).
+    const proxyReady =
+      streamProxy !== null &&
+      streamProxy.baseUrl.length > 0 &&
+      streamProxy.secret.length >= 16;
+    const fetcher: FetchLike = proxyReady
+      ? makeProxyFetcher(streamProxy.baseUrl, streamProxy.secret, streamProxy.userAgent)
+      : browserFetch;
+
     const result = await validateSource(candidate, {
-      fetcher: browserFetch,
+      fetcher,
       rawM3uText: submission.rawText,
     });
     if (result.ok) {
