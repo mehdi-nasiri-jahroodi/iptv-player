@@ -10,8 +10,10 @@ import {
   type Source,
   type XtreamFetcher,
 } from 'core';
+import { buildSignedProxyUrl } from 'player';
 import { PlaylistsStore } from '../features/sources/playlists-storage';
 import { createIndexedDBCacheStorage } from '../features/cache/indexeddb-cache-storage';
+import { useSettingsStore, hasStreamProxy } from './settings-store';
 
 /**
  * catalogStore — the active source's parsed playlist plus browse-time state
@@ -97,6 +99,16 @@ export interface CatalogStoreDeps {
 }
 
 function rawXtreamFetcher(url: string): Promise<{ text(): Promise<string> }> {
+  // If a stream proxy is configured, route every Xtream API call through it.
+  // This bypasses CORS and mixed-content blocks when the panel is HTTP-only
+  // and the page is served over HTTPS (e.g. GitHub Pages).
+  const settings = useSettingsStore.getState();
+  if (hasStreamProxy(settings) && settings.streamProxy) {
+    const { baseUrl, secret, userAgent } = settings.streamProxy;
+    return buildSignedProxyUrl({ baseUrl, secret, upstreamUrl: url, userAgent })
+      .then((signed) => fetch(signed, { redirect: 'follow' }))
+      .then((r) => ({ text: () => r.text() }));
+  }
   return fetch(url, { redirect: 'follow' }).then((r) => ({ text: () => r.text() }));
 }
 
