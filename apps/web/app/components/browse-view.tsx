@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';import { useNavigate } from 'react-router';
 import {
   closestCenter,
   DndContext,
@@ -49,8 +48,6 @@ import {
 } from '../store/catalog-store';
 import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
 import { catalogOrderKey, recentKey, useProfileStore } from '../store/profile-store';
-import { useGuideStore } from '../store/guide-store';
-import { useMinuteClock } from '../hooks/use-minute-clock';
 import { parseRecentKey } from '../lib/epg-display';
 import { streamProxyForPlayback } from '../lib/playback-stream-proxy';
 import { sortVodChannels, type VodSortDir, type VodSortKey } from '../lib/vod-sort';
@@ -331,9 +328,6 @@ export function BrowseView({
   const preferredAppliedRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const pushRecent = useProfileStore((s) => s.pushRecent);
-  const guide = useGuideStore((s) => s.guide);
-  const guideReady = useGuideStore((s) => s.status === 'ready');
-  const clock = useMinuteClock();
   const playlist = useCatalogStore((s) => s.playlist);
   const recents = useProfileStore((s) => s.profile.recents);
   const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
@@ -656,9 +650,9 @@ export function BrowseView({
               streamProxyConfigured={streamProxyConfigured}
               recentChannels={recentChannels}
               onSelectRecent={(next) => setSelectedChannel(next)}
-              guide={guide}
-              guideReady={guideReady}
-              nowMs={clock.getTime()}
+              guide={null}
+              guideReady={false}
+              nowMs={0}
             />
           </div>
 
@@ -707,9 +701,9 @@ export function BrowseView({
                 setSelectedChannel(channel);
               }}
               sourceId={sourceId}
-              guide={guide}
-              guideReady={guideReady}
-              nowMs={clock.getTime()}
+              guide={null}
+              guideReady={false}
+              nowMs={0}
               empty={
                 searchQuery.trim()
                   ? 'No channels match your search.'

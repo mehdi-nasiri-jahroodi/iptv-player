@@ -40,6 +40,40 @@ export class SourcesStore {
     await this.storage.set(STORAGE_KEY, next);
     return next;
   }
+
+  /**
+   * Remove a source. If it was the active source, the next remaining source
+   * becomes active (or `null` if none remain). Callers are responsible for
+   * clearing related per-source artefacts (playlist snapshots, Xtream cache).
+   */
+  async removeSource(sourceId: string): Promise<SourcesState> {
+    const current = await this.read();
+    const filtered = current.sources.filter((s) => s.id !== sourceId);
+    const wasActive = current.activeSourceId === sourceId;
+    const nextActive = wasActive ? (filtered[0]?.id ?? null) : current.activeSourceId;
+    const next: SourcesState = { sources: filtered, activeSourceId: nextActive };
+    await this.storage.set(STORAGE_KEY, next);
+    return next;
+  }
+
+  /**
+   * Update fields of an existing source (label, url, credentials, etc.).
+   * Throws if the source id does not exist.
+   */
+  async updateSource(sourceId: string, patch: Partial<Omit<Source, 'id'>>): Promise<SourcesState> {
+    const current = await this.read();
+    const idx = current.sources.findIndex((s) => s.id === sourceId);
+    if (idx === -1) {
+      throw new Error(`Cannot update unknown source: ${sourceId}`);
+    }
+    const updated = { ...current.sources[idx], ...patch } as Source;
+    const next: SourcesState = {
+      ...current,
+      sources: current.sources.map((s, i) => (i === idx ? updated : s)),
+    };
+    await this.storage.set(STORAGE_KEY, next);
+    return next;
+  }
 }
 
 /**

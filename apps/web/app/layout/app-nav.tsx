@@ -53,14 +53,8 @@ export function AppNav() {
           </NavLink>
         </div>
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1 sm:ml-auto sm:gap-x-2">
-          <NavLink to="/add-source" end className={navPill}>
-            Add source
-          </NavLink>
-          <NavLink to="/epg" end className={navPill}>
-            Guide
-          </NavLink>
-          <NavLink to="/settings" end className={navPill}>
-            Settings
+          <NavLink to="/sources" end className={navPill}>
+            Sources
           </NavLink>
           {import.meta.env.DEV ? (
             <>

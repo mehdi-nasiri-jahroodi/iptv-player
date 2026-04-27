@@ -11,9 +11,9 @@ const devOnlyRoutes =
 export default [
   index('./pages/home.tsx'),
   route('add-source', './pages/add-source.tsx'),
+  route('sources', './pages/sources.tsx'),
   route('settings', './pages/settings.tsx'),
   route('browse/:kind', './pages/browse/$kind.tsx'),
-  route('epg', './pages/epg.tsx'),
   route('play/:sourceId/:kind/:channelId', './pages/play.tsx'),
   ...devOnlyRoutes,
 ] satisfies RouteConfig;
