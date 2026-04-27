@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_22"]
 cmds = []
 
 [phases.build]
-cmds = ["npm install -g pnpm@9.15.9 && PATH=\"$(npm prefix -g)/bin:$PATH\" NODE_ENV=development pnpm install --frozen-lockfile && PATH=\"$(npm prefix -g)/bin:$PATH\" pnpm exec nx build web-proxy"]
+cmds = ["npm install -g pnpm@9.15.9 && PATH=\"$(npm prefix -g)/bin:$PATH\" pnpm install --frozen-lockfile && cd apps/web-proxy && PATH=\"$(npm prefix -g)/bin:$PATH\" ../../node_modules/.bin/tsc --build tsconfig.lib.json"]
 
 [start]
 cmd = "node apps/web-proxy/dist/main.js"
