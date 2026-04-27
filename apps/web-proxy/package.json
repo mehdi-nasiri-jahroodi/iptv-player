@@ -30,6 +30,11 @@
         "options": {
           "cwd": "apps/web-proxy",
           "command": "node --env-file=.env dist/main.js"
+        },
+        "configurations": {
+          "production": {
+            "command": "node dist/main.js"
+          }
         }
       }
     }

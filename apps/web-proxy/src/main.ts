@@ -12,7 +12,8 @@ if (!secret || secret.length < 16) {
   process.exit(1);
 }
 
-const port = Number(process.env.PROXY_PORT ?? 8787);
+// Railway injects PORT; fall back to PROXY_PORT for local use, then 8787.
+const port = Number(process.env.PORT ?? process.env.PROXY_PORT ?? 8787);
 const hostname = process.env.PROXY_HOST ?? '0.0.0.0';
 const defaultUserAgent =
   process.env.PROXY_DEFAULT_UA ?? 'IPTVSmartersPlayer 3.1';

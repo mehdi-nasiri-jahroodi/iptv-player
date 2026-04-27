@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = ["npm install -g pnpm@9", "pnpm install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["pnpm exec nx build web-proxy"]
+
+[start]
+cmd = "node apps/web-proxy/dist/main.js"
