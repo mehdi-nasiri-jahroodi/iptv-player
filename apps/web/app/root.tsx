@@ -43,6 +43,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
+        {/* Restore path encoded by public/404.html after a GitHub Pages redirect. */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var p = window.location.search.match(/[?&]p=([^&]*)/);
+            var q = window.location.search.match(/[?&]q=([^&]*)/);
+            if (p) {
+              var path = '/' + p[1];
+              var search = q ? '?' + q[1] : '';
+              var hash = window.location.hash;
+              window.history.replaceState(null, null, path + search + hash);
+            }
+          })();
+        `}} />
         <AutoTheme />
         <SpatialNavigationRoot>
           <AppNav />

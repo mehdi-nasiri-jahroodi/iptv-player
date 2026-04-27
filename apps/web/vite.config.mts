@@ -11,6 +11,7 @@ const workspaceRoot = path.resolve(
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
+  base: process.env.VITE_BASE_PATH ?? '/',
   cacheDir: '../../node_modules/.vite/apps/web',
   resolve: {
     // Resolve workspace packages (`player`, `core`, `ui`) directly to their

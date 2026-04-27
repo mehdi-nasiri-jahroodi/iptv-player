@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Lumina IPTV</title>
+    <script>
+      // Single-page app redirect for GitHub Pages.
+      // When Pages returns a 404 for a client-side route (e.g. /browse/live),
+      // this page encodes the full path+query+hash into the search string and
+      // redirects to the repo root so index.html can restore it.
+      // Technique: https://github.com/rafgraph/spa-github-pages
+      var l = window.location;
+      var segmentCount = 1; // number of path segments in the repo name (/iptv-player)
+      l.replace(
+        l.protocol +
+          '//' +
+          l.hostname +
+          (l.port ? ':' + l.port : '') +
+          l.pathname
+            .split('/')
+            .slice(0, 1 + segmentCount)
+            .join('/') +
+          '/?p=' +
+          l.pathname
+            .split('/')
+            .slice(1 + segmentCount)
+            .join('/') +
+          (l.search ? '&q=' + l.search.slice(1) : '') +
+          l.hash
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
