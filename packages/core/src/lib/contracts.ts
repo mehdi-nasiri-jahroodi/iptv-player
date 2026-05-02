@@ -14,6 +14,26 @@ export const xtreamCredentialsSchema = z.object({
 });
 export type XtreamCredentials = z.infer<typeof xtreamCredentialsSchema>;
 
+/**
+ * Snapshot of Xtream `user_info` after a successful login probe, for display
+ * (subscription dates, status). Optional fields — panels vary.
+ */
+export const xtreamAccountSnapshotSchema = z.object({
+  /** Panel `exp_date` — often Unix seconds as a string. */
+  expDate: z.string().optional(),
+  /** Panel `created_at` — often Unix seconds or a date string. */
+  createdAt: z.string().optional(),
+  status: z.string().optional(),
+  isTrial: z.string().optional(),
+  /** Panel `username` when returned on `user_info` (may match saved credentials). */
+  username: z.string().optional(),
+  /** Panel `active_cons` — current concurrent streams. */
+  activeConnections: z.string().optional(),
+  /** Panel `max_connections` — allowed concurrent streams. */
+  maxConnections: z.string().optional(),
+});
+export type XtreamAccountSnapshot = z.infer<typeof xtreamAccountSnapshotSchema>;
+
 export const sourceSchema = z
   .object({
     id: z.string().min(1),
@@ -27,6 +47,8 @@ export const sourceSchema = z
      * When unset, proxy playback uses the global UA from Settings (if any).
      */
     userAgent: z.string().min(1).optional(),
+    /** Filled when an Xtream source validates successfully; refreshed on re-validate. */
+    xtreamAccount: xtreamAccountSnapshotSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.type === 'm3u_url' && !value.url) {
@@ -229,6 +251,7 @@ export const xtreamAuthFlagSchema = z.union([z.literal(0), z.literal(1), z.strin
 export const xtreamUserInfoSchema = z
   .object({
     auth: xtreamAuthFlagSchema,
+    username: z.string().optional(),
     status: z.string().optional(),
     active_cons: z.string().optional(),
     max_connections: z.string().optional(),

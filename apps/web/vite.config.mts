@@ -1,4 +1,5 @@
 /// <reference types='vitest' />
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
@@ -9,7 +10,20 @@ const workspaceRoot = path.resolve(
   '../..'
 );
 
+const monorepoVersion = (() => {
+  try {
+    const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
+    const v = (JSON.parse(raw) as { version?: string }).version;
+    return typeof v === 'string' && v.length > 0 ? v : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 export default defineConfig(() => ({
+  define: {
+    __APP_VERSION__: JSON.stringify(monorepoVersion),
+  },
   root: import.meta.dirname,
   base: process.env.VITE_BASE_PATH ?? '/',
   cacheDir: '../../node_modules/.vite/apps/web',

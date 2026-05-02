@@ -30,6 +30,7 @@ import {
   toVodChannel,
 } from './xtream';
 import { validateSource } from './source-validator';
+import { userInfoToXtreamAccountSnapshot } from './xtream-account-snapshot';
 import { core } from './core';
 
 const credentials = {
@@ -59,6 +60,24 @@ describe('Source contract', () => {
     expect(() =>
       sourceSchema.parse({ id: 's', label: 'X', type: 'xtream' })
     ).toThrow();
+  });
+
+  it('parses xtream source with optional xtreamAccount snapshot', () => {
+    const parsed = sourceSchema.parse({
+      id: 's',
+      label: 'X',
+      type: 'xtream',
+      credentials,
+      xtreamAccount: {
+        expDate: '1735689600',
+        createdAt: '1700000000',
+        username: 'u',
+        activeConnections: '1',
+        maxConnections: '3',
+      },
+    });
+    expect(parsed.xtreamAccount?.expDate).toBe('1735689600');
+    expect(parsed.xtreamAccount?.activeConnections).toBe('1');
   });
 });
 
@@ -700,6 +719,34 @@ describe('loadXtreamPlaylist', () => {
   });
 });
 
+describe('userInfoToXtreamAccountSnapshot', () => {
+  it('maps known Xtream user_info fields', () => {
+    const snap = userInfoToXtreamAccountSnapshot({
+      auth: 1,
+      username: 'u1',
+      status: 'Active',
+      exp_date: '2000000000',
+      created_at: '1000000000',
+      active_cons: 1,
+      max_connections: '2',
+      is_trial: '0',
+    });
+    expect(snap).toEqual({
+      username: 'u1',
+      status: 'Active',
+      expDate: '2000000000',
+      createdAt: '1000000000',
+      activeConnections: '1',
+      maxConnections: '2',
+      isTrial: '0',
+    });
+  });
+
+  it('returns undefined when user_info is empty', () => {
+    expect(userInfoToXtreamAccountSnapshot({ auth: 1 })).toBeUndefined();
+  });
+});
+
 describe('validateSource — Xtream', () => {
   const xtreamSource = {
     id: 's',
@@ -712,6 +759,36 @@ describe('validateSource — Xtream', () => {
     const fetcher = makeMockFetcher({ player_api: { user_info: { auth: 1 } } });
     const result = await validateSource(xtreamSource, { fetcher });
     expect(result.ok).toBe(true);
+  });
+
+  it('attaches xtreamAccount when user_info includes subscription fields', async () => {
+    const fetcher = makeMockFetcher({
+      player_api: {
+        user_info: {
+          auth: 1,
+          username: 'lineuser',
+          exp_date: '1735689600',
+          created_at: '1700000000',
+          status: 'Active',
+          is_trial: '0',
+          active_cons: '1',
+          max_connections: '2',
+        },
+      },
+    });
+    const result = await validateSource(xtreamSource, { fetcher });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.source.xtreamAccount).toEqual({
+        expDate: '1735689600',
+        createdAt: '1700000000',
+        status: 'Active',
+        isTrial: '0',
+        username: 'lineuser',
+        activeConnections: '1',
+        maxConnections: '2',
+      });
+    }
   });
 
   it('returns auth_failed when auth=0', async () => {

@@ -54,6 +54,33 @@
         "userAgent": {
           "type": "string",
           "minLength": 1
+        },
+        "xtreamAccount": {
+          "type": "object",
+          "properties": {
+            "expDate": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "isTrial": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "activeConnections": {
+              "type": "string"
+            },
+            "maxConnections": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

@@ -48,13 +48,15 @@ apps/web/
   app/                        # React Router 7 routes + layout (see routes.tsx)
     root.tsx                  # html shell + AutoTheme + SpatialNavigationRoot + AppNav + `<main>` viewport flex segment for routes
     routes.tsx                # URL → page-module manifest
-    layout/app-nav.tsx        # top nav — shared **`LAYOUT_CONTENT_CLASS`** (`max-w-[min(100%,1728px)]` + horizontal padding), **Live TV / Movies / Series** links + utilities; aligned with home / browse / EPG shells
+    layout/app-nav.tsx        # top nav — shared **`LAYOUT_CONTENT_CLASS`** (`max-w-[min(100%,1728px)]` + horizontal padding), **Live TV / Movies / Series** + **Settings** (profile, sources, stream proxy, version); aligned with home / browse / EPG shells
     layout/browse-nav-toolbar.tsx  # optional `RefreshSourceButton` when browsing a loaded catalog
     auto-theme.tsx            # theme prefs (auto/light/dark) + window.__setTheme
     spatial-navigation-root.tsx  # Norigin init/destroy on the client
     pages/                    # one file per route module — exported as default
       home.tsx                # tile launcher + Live spotlight (EPG) + source switcher + profile name
-      add-source.tsx
+      settings.tsx            # `/settings` — About (version), Profile, Sources, Stream proxy
+      sources.tsx             # `/sources` → redirect to `/settings#sources`
+      add-source.tsx            # `/add-source` → redirect to `/settings?addSource=1#sources`
       browse/
         $kind.tsx             # /browse/:kind page — wraps the shared BrowseView
       play.tsx                # /play/:sourceId/:kind/:channelId — fullscreen player; VOD: `PlayerSubtitlePicker` + `PlayerControls`
@@ -66,11 +68,16 @@ apps/web/
       browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); **series:** rail + Favorites + detail hero (season tabs + episode list; Play per episode) + poster grid (tile selects hero; 2:3 tiles with season/episode count badge + watched strip)
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
+      first-run-wizard.tsx       # optional guided setup: add source → proxy (skip) → success → home
+      add-source-modal.tsx       # Settings: add IPTV source (SourceForm) in a modal
+      settings-stream-proxy-modal.tsx  # Settings: add/edit stream proxy form in a modal
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
     features/                 # feature folders co-locating hooks + state
       sources/
         sources-storage.ts    # SourcesStore + newSourceId
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
+        persist-validated-source.ts  # validate + persist + M3U snapshot; `createWebSourceFetchLike` for Xtream fetches
+        probe-xtream-account-snapshot.ts  # login probe → `xtreamAccount` merge (Settings details refresh)
       cache/
         indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
     hooks/
@@ -79,6 +86,8 @@ apps/web/
       use-series-xtream-detail.ts  # `get_series_info` merge for the focused series hero — populates seasons/episodes on demand (Xtream)
     lib/
       layout-shell.ts         # `LAYOUT_CONTENT_CLASS` — shared max-width + horizontal padding (nav + home + browse + EPG)
+      source-detail-rows.ts   # `buildSourceDetailRows` — Settings + first-run source detail labels/values
+      stream-proxy-healthz.ts  # shared `GET …/healthz` check for stream proxy modal
       vod-sort.ts             # `sortVodChannels` — VOD browse sort (year, rating, duration, director, date added, title)
       playback-stream-proxy.ts  # merges Settings stream proxy + Source.userAgent for `<Player>`
       epg-display.ts          # pick preview live channels + format now/next line

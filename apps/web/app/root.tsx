@@ -13,6 +13,7 @@ import { AppNav } from './layout/app-nav';
 import { AutoTheme } from './layout/auto-theme';
 import { SpatialNavigationRoot } from './layout/spatial-navigation-root';
 import { ResponsibilityNotice } from './components/responsibility-notice';
+import { FirstRunWizard } from './components/first-run-wizard';
 
 export const meta: MetaFunction = () => [
   {
@@ -62,6 +63,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ResponsibilityNotice />
             {children}
+            <FirstRunWizard />
           </main>
         </SpatialNavigationRoot>
         <ScrollRestoration />

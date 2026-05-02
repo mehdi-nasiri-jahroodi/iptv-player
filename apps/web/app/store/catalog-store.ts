@@ -23,7 +23,7 @@ import { useSettingsStore, hasStreamProxy } from './settings-store';
  *
  * Loading strategy per source type:
  *   - `m3u_url`, `m3u_file` → read the persisted snapshot from `PlaylistsStore`
- *     (seeded by `add-source.tsx` when validation succeeds). M3U file imports
+ *     (seeded when a source is added from Settings). M3U file imports
  *     have no other source of truth; URL imports treat the snapshot as a cache.
  *   - `xtream` → live `loadXtreamPlaylist(...)` call against the panel; the
  *     credentials live on the `Source` so we never persist signed stream URLs.
@@ -192,7 +192,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           includeSeriesDetail: false,
         });
       } else {
-        // m3u_url / m3u_file — read snapshot persisted at add-source time.
+        // m3u_url / m3u_file — read snapshot persisted when the source was added.
         playlist = await playlistsStore.getForSource(source.id);
         if (!playlist) {
           throw new Error(

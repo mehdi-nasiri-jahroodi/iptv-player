@@ -1,5 +1,6 @@
 import { parseM3uToPlaylist } from './m3u';
 import { sourceSchema, type Source } from './contracts';
+import { userInfoToXtreamAccountSnapshot } from './xtream-account-snapshot';
 import { fetchXtreamPlayerApi, isXtreamAuthSuccessful } from './xtream';
 
 export type SourceValidationErrorCode =
@@ -98,7 +99,12 @@ export async function validateSource(
           message: 'Xtream panel rejected the credentials (auth=0).',
         };
       }
-      return { ok: true, source };
+      const xtreamAccount = userInfoToXtreamAccountSnapshot(payload.user_info);
+      const hasSnapshot = Boolean(xtreamAccount);
+      const nextSource: Source = hasSnapshot
+        ? { ...source, xtreamAccount }
+        : { ...source, xtreamAccount: undefined };
+      return { ok: true, source: nextSource };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown Xtream error.';
       // Zod parse failures throw `ZodError` whose message starts with `[`.

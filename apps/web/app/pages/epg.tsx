@@ -121,11 +121,11 @@ export default function EpgPage() {
         <Stack className="mx-auto max-w-3xl p-6" gap={4}>
           <h1 className="text-2xl font-semibold text-foreground">TV Guide</h1>
           <p className="text-sm text-foreground-muted">
-            This source has no EPG URL. Add an optional XMLTV link when you create or edit the
-            source (Add source → EPG URL).
+            This source has no EPG URL. Add an optional XMLTV link when you add a source in Settings
+            (Add source → EPG URL).
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button focusKey="EPG_ADD" variant="primary" onClick={() => void navigate('/add-source')}>
+            <Button focusKey="EPG_ADD" variant="primary" onClick={() => void navigate('/settings?addSource=1#sources')}>
               Add source
             </Button>
             <Button focusKey="EPG_HOME" variant="ghost" onClick={() => void navigate('/')}>

@@ -41,7 +41,7 @@ test('renders empty state when no sources are stored', async () => {
   expect(
     screen.getByRole('heading', { name: /no sources yet/i })
   ).toBeTruthy();
-  expect(screen.getByRole('button', { name: /add a source/i })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /open settings/i })).toBeTruthy();
 });
 
 test('renders the tile launcher with channel counts for the active source', async () => {

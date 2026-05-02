@@ -100,7 +100,7 @@ export function BrowseKindPage() {
         ) : activeSource === undefined ? (
           <p className="text-sm text-foreground-muted">Loading…</p>
         ) : !activeSource ? (
-          <NoActiveSource onAdd={() => void navigate('/sources')} />
+          <NoActiveSource onAdd={() => void navigate('/settings?addSource=1#sources')} />
         ) : (
           <BrowseView
             kind={kind}

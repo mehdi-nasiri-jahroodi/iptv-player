@@ -26,7 +26,7 @@ type SourcesView =
 /**
  * Home — the post-onboarding landing screen.
  *
- *  - no sources         → empty-state CTA → /sources
+ *  - no sources         → empty-state CTA → /settings (Sources)
  *  - sources, no active → source picker (defensive; SourcesStore auto-selects
  *    the first source on add, so this is rarely visible in practice)
  *  - sources + active   → catalog launcher: three large tiles for Live TV,
@@ -77,7 +77,7 @@ export function Home() {
             Loading sources…
           </p>
         ) : view.sources.length === 0 ? (
-          <EmptyState onAdd={() => void navigate('/sources')} />
+          <EmptyState onAdd={() => void navigate('/settings?addSource=1#sources')} />
         ) : view.activeSource ? (
           <Launcher
             sources={view.sources}
@@ -135,7 +135,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       </div>
       <div className="flex justify-center">
         <Button focusKey="HOME_ADD_SOURCE" onClick={onAdd}>
-          Manage sources
+          Open settings
         </Button>
       </div>
     </Stack>
