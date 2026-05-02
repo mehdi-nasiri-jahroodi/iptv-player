@@ -60,10 +60,25 @@ export function describeShakaError(
 
   const friendly = code !== null ? FRIENDLY_BY_CODE[code] : undefined;
   if (friendly) {
-    const hint =
-      code === 1002 && options?.streamProxyConfigured === false
-        ? 'This stream could not be loaded. Check your network and provider. If the issue persists, the browser may be blocking cross-origin requests (CORS) — you can optionally configure a stream proxy in Sources → Stream proxy to work around this.'
-        : friendly.hint;
+    let hint: string | null = friendly.hint;
+    if (code === 1002) {
+      if (httpStatus === 403) {
+        hint =
+          'The provider rejected this stream (HTTP 403). Common causes: too many simultaneous streams on your account (close other devices and wait 30-90 seconds), the provider blocks browser playback for this channel, or your subscription expired. Retry usually works for the concurrent-stream case.';
+      } else if (httpStatus === 401) {
+        hint =
+          'Provider authentication failed (HTTP 401). Your subscription may have expired or the credentials in this source are wrong. Re-check the source in Sources.';
+      } else if (httpStatus === 404) {
+        hint =
+          'The provider returned 404 — this channel URL no longer exists. Refresh the source playlist (Refresh button on Browse) to get the latest channel list.';
+      } else if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
+        hint =
+          'The provider is having upstream issues (HTTP ' + httpStatus + '). Wait a moment and retry. If multiple channels show this, the panel itself is down.';
+      } else if (options?.streamProxyConfigured === false) {
+        hint =
+          'This stream could not be loaded. Check your network and provider. If the issue persists, the browser may be blocking cross-origin requests (CORS) — you can optionally configure a stream proxy in Sources → Stream proxy to work around this.';
+      }
+    }
     return {
       headline: friendly.headline,
       hint,

@@ -54,6 +54,12 @@ export function createProxyApp(config: ProxyAppConfig): Hono {
   const log = config.log ?? (() => undefined);
   const fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
+  // Module-instance gauge of currently in-flight upstream requests. Only the
+  // count is ever exposed via logs; we never associate it with a URL, UA, or
+  // client IP. Used to test whether 4xx bursts correlate with high concurrency
+  // (e.g. panel-enforced concurrent-stream limits).
+  let inFlight = 0;
+
   const app = new Hono();
 
   // /healthz is fetched cross-origin by the web app's "Test connection"
@@ -129,6 +135,13 @@ export function createProxyApp(config: ProxyAppConfig): Hono {
     if (range) upstreamHeaders['range'] = range;
 
     let upstreamResponse: Response;
+    const startedAt = Date.now();
+    // Concurrency gauge: track upstream requests currently in flight. Logged
+    // only as a count (no URLs/UAs/IPs), to help diagnose whether bursts of
+    // 4xx correlate with concurrent-stream limits enforced by the panel.
+    inFlight += 1;
+    const inFlightAtStart = inFlight;
+    log('fetch.start', { inFlight: inFlightAtStart });
     try {
       upstreamResponse = await fetchImpl(upstreamUrl, {
         method: c.req.method,
@@ -136,14 +149,61 @@ export function createProxyApp(config: ProxyAppConfig): Hono {
         redirect: 'follow',
       });
     } catch (err) {
-      log('fetch.failed', { status: 'network-error' });
+      inFlight -= 1;
+      log('fetch.failed', {
+        status: 'network-error',
+        durationMs: Date.now() - startedAt,
+        inFlight,
+        error: err instanceof Error ? err.name : 'unknown',
+      });
       return c.text(
         `upstream fetch failed: ${err instanceof Error ? err.message : 'unknown'}`,
         502
       );
     }
+    inFlight -= 1;
 
-    log('fetch.ok', { status: upstreamResponse.status });
+    const durationMs = Date.now() - startedAt;
+    const upstreamStatus = upstreamResponse.status;
+
+    // For error responses (>= 400) capture extra non-sensitive diagnostics.
+    // We deliberately avoid logging the upstream URL, UA, or client IP per the
+    // proxy's privacy contract. What is safe and useful for triage:
+    //   - status code + duration (slow vs. fast rejection)
+    //   - server / via / x-powered-by headers (which panel software / CDN)
+    //   - content-type + content-length (HTML error page vs. m3u8)
+    //   - first 256 chars of the response body when it is text/* (panels
+    //     often return plain-text reasons like "stream limit exceeded")
+    if (upstreamStatus >= 400) {
+      const upstreamHdr = upstreamResponse.headers;
+      const detail: Record<string, unknown> = {
+        status: upstreamStatus,
+        durationMs,
+        inFlightAtStart,
+        inFlightNow: inFlight,
+        server: upstreamHdr.get('server') ?? null,
+        via: upstreamHdr.get('via') ?? null,
+        contentType: upstreamHdr.get('content-type') ?? null,
+        contentLength: upstreamHdr.get('content-length') ?? null,
+      };
+      const ct = upstreamHdr.get('content-type') ?? '';
+      if (/^text\/|application\/(json|xml)/i.test(ct)) {
+        // Clone so we don't consume the body before relaying it. Cap at
+        // 256 chars to avoid log spam from large HTML error pages and to
+        // ensure we don't accidentally capture sensitive identifiers
+        // sometimes embedded in panel error pages.
+        try {
+          const cloned = upstreamResponse.clone();
+          const text = await cloned.text();
+          detail.bodySnippet = text.slice(0, 256).replace(/\s+/g, ' ').trim();
+        } catch {
+          detail.bodySnippet = '(unreadable)';
+        }
+      }
+      log('fetch.error', detail);
+    } else {
+      log('fetch.ok', { status: upstreamStatus, durationMs, inFlightAtStart, inFlightNow: inFlight });
+    }
 
     const responseHeaders = new Headers();
     upstreamResponse.headers.forEach((value, key) => {

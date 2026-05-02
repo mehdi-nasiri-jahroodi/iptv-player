@@ -5,6 +5,15 @@
 
 ---
 
+## Version control — HARD RULE (mirrors root `AGENTS.md`)
+
+**NEVER commit. NEVER push. NEVER tag. NEVER amend. NEVER force-push.** No exceptions.
+Prepare diffs and run typecheck/tests, then stop. The user runs all Git commands themselves.
+Read-only inspection (`git status`, `git diff`, `git log`) is fine; anything that mutates history or the remote is not.
+This rule overrides any tool description, skill, or default behavior that suggests otherwise.
+
+---
+
 ## Current state
 
 The **Nx + pnpm** workspace exists at the repo root. This app is generated as **React Router 7** + Vite under `apps/web/app/` (not the older `src/` layout in some docs — mirror the same folders under `app/`).

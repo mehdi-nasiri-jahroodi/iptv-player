@@ -370,11 +370,36 @@ export function useShakaPlayer(
     playerRef.current = null;
     if (!player) return;
     try {
+      // unload() first: stops the segment loader and aborts in-flight
+      // network requests so the upstream IPTV panel sees the HTTP/2
+      // streams close immediately. This is critical for accounts with a
+      // low concurrent-stream limit — a quick channel switch otherwise
+      // looks like 2+ active sessions to the panel for 30-90s and the
+      // new channel comes back 403.
+      try {
+        await (player as { unload?: () => Promise<void> }).unload?.();
+      } catch {
+        // unload errors during teardown are non-fatal — destroy() below
+        // wipes the player regardless.
+      }
       await player.destroy();
     } catch {
       // Shaka's destroy is best-effort; never throw out of cleanup.
     }
-  }, []);
+    // Clear the <video> element so the browser releases its connection
+    // to the previous master playlist. Without this, Chrome holds the
+    // segment socket open for keepalive, which the panel still counts
+    // against the per-account stream limit until the TCP timeout fires.
+    const video = videoRef.current;
+    if (video) {
+      try {
+        video.removeAttribute('src');
+        video.load();
+      } catch {
+        // Some browsers throw on load() after detach; safe to ignore.
+      }
+    }
+  }, [videoRef]);
 
   // Single effect for "load this url, tear down on unmount/change".
   useEffect(() => {
@@ -404,6 +429,12 @@ export function useShakaPlayer(
           return;
         }
         // Tear down any previous instance before binding a new one.
+        // We used to add a 300ms grace period here in the hope that the
+        // upstream IPTV panel would register the previous session's
+        // close before we opened a new one. In practice the grace
+        // period just added visible channel-switch latency: cloudflared
+        // confirms the cancellations are clean (HTTP/2 RST_STREAM with
+        // code 0) and the panel sees them immediately. Skip the wait.
         await destroy();
         const player = new shakaNs.Player(video);
         playerRef.current = player;
@@ -459,14 +490,92 @@ export function useShakaPlayer(
             playRangeStart: 0,
             manifest: {
               defaultPresentationDelay: 10,
+              // Manifest fetch retries: tuned for Xtream panels that
+              // rate-limit `.m3u8` polls. The panel typically clears the
+              // limit within 1-3 seconds, so we want to retry FAST and
+              // OFTEN rather than back off aggressively (which causes
+              // visible playback pauses while the buffer drains).
+              //
+              // Schedule (baseDelay 500ms, factor 1.5):
+              //   0.5s → 0.75s → 1.1s → 1.7s → 2.5s → 3.8s → 5.7s → 8.5s
+              //   ≈ 24s total over 8 attempts. Comfortably inside our
+              //   60s bufferingGoal so the user never sees a pause as
+              //   long as one of the retries lands.
+              retryParameters: {
+                maxAttempts: 8,
+                baseDelay: 500,
+                backoffFactor: 1.5,
+                fuzzFactor: 0.5,
+                timeout: 0,
+              },
             },
           });
+          // Per-request-type retry parameters. Configure under both the
+          // streaming and DASH/HLS keys so older + newer Shaka builds
+          // pick up at least one. Segment retries kick in mid-playback
+          // when an upstream blip (token refresh, transient 403/404)
+          // hits a single segment — without these, one bad segment
+          // ends the session.
+          try {
+            (player as { configure?: (c: unknown) => void }).configure?.({
+              streaming: {
+                retryParameters: {
+                  maxAttempts: 5,
+                  baseDelay: 1000,
+                  backoffFactor: 2,
+                  fuzzFactor: 0.5,
+                  timeout: 0,
+                },
+              },
+            });
+          } catch {
+            // Older Shaka rejects unknown keys; ignore.
+          }
           // Newer Shaka exposes streaming.liveSync.enabled; older ones
           // use streaming.lowLatencyMode and a different shape. Try the
           // modern key first; ignore if rejected.
           (player as { configure?: (c: unknown) => void }).configure?.({
             streaming: {
               liveSync: { enabled: false },
+            },
+          });
+
+          // Convert non-fatal streaming errors (notably HTTP 4xx on the
+          // periodic live manifest refresh) into transparent retries.
+          //
+          // Why: some Xtream panels rate-limit `.m3u8` requests on the
+          // hot path even though segment fetches succeed. Shaka polls
+          // the manifest every target-duration seconds; a single 403
+          // burst on the polling cycle would otherwise surface to the
+          // user as "HTTP 1002 / 403 Forbidden" and tear down the
+          // session — even though segments are still flowing fine.
+          //
+          // `streaming.failureCallback` is invoked for **non-fatal**
+          // errors. Calling `player.retryStreaming()` schedules another
+          // attempt without unloading the current playback, so the user
+          // never sees an interruption as long as the buffer holds.
+          //
+          // Shaka's error categories (`shaka.util.Error.Category`):
+          //   1 = NETWORK, 3 = MANIFEST, 4 = STREAMING
+          // Codes of interest: 1002 = BAD_HTTP_STATUS.
+          (player as { configure?: (c: unknown) => void }).configure?.({
+            streaming: {
+              failureCallback: (err: {
+                category?: number;
+                code?: number;
+                severity?: number;
+              }) => {
+                const isNetworkOrStreaming =
+                  err?.category === 1 ||
+                  err?.category === 3 ||
+                  err?.category === 4;
+                if (!isNetworkOrStreaming) return;
+                try {
+                  (player as { retryStreaming?: () => boolean }).retryStreaming?.();
+                } catch {
+                  // Older Shaka may not expose retryStreaming(); ignore.
+                }
+              },
             },
           });
         } catch {
@@ -537,43 +646,22 @@ export function useShakaPlayer(
             reportError(shakaError);
           }
         };
+        // Live-edge snap was removed deliberately. Earlier versions seeked
+        // forward to `seekRange.end - N` whenever the buffering event flipped
+        // false, with the goal of keeping the user near the live edge after
+        // a stall. In practice this fired on routine micro-stalls (ABR
+        // adaptations, brief jitter, init-segment fetches) and produced
+        // visible "the time jumps forward while I'm watching" surprises.
+        // It also caused self-inflicted segment cancellations: each seek
+        // invalidates in-flight segment fetches, the browser cancels them,
+        // and Shaka surfaces the failed reload as HTTP_ERROR 1002.
+        //
+        // Trade-off: if the user falls behind live (network outage), they
+        // stay behind. Acceptable — losing live-edge is reversible (manual
+        // refresh / channel re-select). Unsolicited seeks are not.
         const onBuffering = (event: Event) => {
           const buf = (event as { buffering?: boolean }).buffering;
-          const isBuffering = Boolean(buf);
-          setBuffering(isBuffering);
-
-          // Live-edge recovery: when a live stream stalls (e.g. upstream
-          // 403/404 storm) the player otherwise resumes from where the
-          // buffer left off, replaying segments the user already watched.
-          // The moment the player exits buffering on a live stream, snap
-          // forward to the live edge so playback never re-shows already-
-          // watched content. This is more aggressive than waiting for a
-          // stall threshold — the user explicitly does not want any
-          // visible replay under any circumstance.
-          if (isBuffering) return;
-          const video = videoRef.current;
-          const player = playerRef.current;
-          if (!video || !player) return;
-          const playerIsLive =
-            (player as { isLive?: () => boolean }).isLive?.() ?? false;
-          if (!playerIsLive) return;
-          const seekRange = (
-            player as { seekRange?: () => { start: number; end: number } }
-          ).seekRange?.();
-          if (!seekRange || !Number.isFinite(seekRange.end)) return;
-          // Leave a 2s safety margin behind the absolute live edge so the
-          // seek lands on a buffered segment instead of the very tip
-          // (which often hasn't been fetched yet).
-          const target = Math.max(seekRange.start, seekRange.end - 2);
-          // Only seek forward and only when the gap is meaningful (>1s);
-          // skip tiny adjustments to avoid visible micro-jumps during
-          // normal playback.
-          if (target - video.currentTime <= 1) return;
-          try {
-            video.currentTime = target;
-          } catch {
-            // Some browsers throw if seek is not yet allowed; ignore.
-          }
+          setBuffering(Boolean(buf));
         };
         const onTracksChanged = () => refreshTracks();
         const onAdaptation = () => refreshTracks();
@@ -740,6 +828,43 @@ export function useShakaPlayer(
         reportError(toShakaError(cause));
       });
   }, [streamUrl, videoRef, refreshTracks, reportError, toShakaError, autoPlay]);
+
+  // ---------------------------------------------------------------------------
+  // Tab close / navigation: explicitly unload the active player so the
+  // upstream IPTV panel sees the HTTP/2 stream close immediately. Without
+  // this, closing a tab while a live channel is playing can leave the
+  // panel-side session "active" for 30-90s, which counts against the
+  // per-account concurrent-stream limit and 403s the next channel the
+  // user opens. `pagehide` is more reliable than `beforeunload` on mobile
+  // Safari and BFCache cases.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPageHide = () => {
+      const player = playerRef.current;
+      const video = videoRef.current;
+      if (player) {
+        try {
+          void player.destroy();
+        } catch {
+          // Best-effort cleanup.
+        }
+        playerRef.current = null;
+      }
+      if (video) {
+        try {
+          video.removeAttribute('src');
+          video.load();
+        } catch {
+          // Ignore.
+        }
+      }
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [videoRef]);
 
   // ---------------------------------------------------------------------------
   // Media-element state subscription (drives custom control overlays).

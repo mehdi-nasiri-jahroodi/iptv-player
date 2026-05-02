@@ -2,6 +2,10 @@
 
 Scoped to `apps/web-proxy/`. For repo-wide rules read the root [`AGENTS.md`](../../AGENTS.md). For web-app integration details read [`apps/web/AGENTS.md`](../web/AGENTS.md).
 
+## Version control — HARD RULE (mirrors root `AGENTS.md`)
+
+**NEVER commit. NEVER push. NEVER tag. NEVER amend. NEVER force-push.** No exceptions. Prepare diffs and run typecheck/tests, then stop. The user runs all Git commands themselves.
+
 ## What this project is
 
 A small **user-run** HTTP proxy that the `apps/web` target uses to bypass browser CORS when playing streams from servers that do not send `Access-Control-Allow-Origin` (the default for commercial Xtream panels). The user runs it themselves on their machine, LAN, or behind ngrok. **The project does not host this proxy.** See [README.md](./README.md) for end-user docs.
