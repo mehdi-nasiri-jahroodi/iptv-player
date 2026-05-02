@@ -39,6 +39,12 @@ export interface ProfileState {
   setProfileName(name: string): void;
   toggleFavorite(key: string): void;
   pushRecent(key: string): void;
+  /**
+   * Add a recent only if it is not already in the list. Preserves order of existing
+   * entries — re-selecting a channel that is already in Continue watching is a no-op.
+   * Use this for explicit user clicks on Live TV where re-ordering would be confusing.
+   */
+  addRecentIfMissing(key: string): void;
   /** Replace saved order for this source + catalog kind (live / vod / series). */
   setCatalogGroupOrder(sourceId: string, kind: string, orderedGroupIds: string[]): void;
 }
@@ -106,6 +112,13 @@ export const useProfileStore = create<ProfileState>()(
         const { recents } = get().profile;
         const filtered = recents.filter((k) => k !== key);
         const next = [key, ...filtered].slice(0, 50);
+        set({ profile: { ...get().profile, recents: next } });
+      },
+
+      addRecentIfMissing(key: string) {
+        const { recents } = get().profile;
+        if (recents.includes(key)) return;
+        const next = [key, ...recents].slice(0, 50);
         set({ profile: { ...get().profile, recents: next } });
       },
 

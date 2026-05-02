@@ -83,6 +83,19 @@ function findRecentLiveChannelInCatalog(
   return null;
 }
 
+/** Find which group contains the given channel (by reference equality). */
+function findGroupForChannel(
+  channel: Channel,
+  groups: CatalogGroup[]
+): string | null {
+  for (const g of groups) {
+    if (g.channels.some((c) => c.id === channel.id)) {
+      return g.id;
+    }
+  }
+  return null;
+}
+
 type GroupsSidebarProps = {
   groups: CatalogState['groupsByKind'][ChannelKind];
   reorderMode: boolean;
@@ -327,7 +340,7 @@ export function BrowseView({
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const preferredAppliedRef = useRef<string | null>(null);
   const navigate = useNavigate();
-  const pushRecent = useProfileStore((s) => s.pushRecent);
+  const addRecentIfMissing = useProfileStore((s) => s.addRecentIfMissing);
   const playlist = useCatalogStore((s) => s.playlist);
   const recents = useProfileStore((s) => s.profile.recents);
   const streamProxyConfig = useSettingsStore((s) => s.streamProxy);
@@ -556,12 +569,11 @@ export function BrowseView({
     return out;
   }, [kind, groups, watchedEpisodeIds]);
 
-  useEffect(() => {
-    if (kind !== 'live') return;
-    if (!selectedChannel || !sourceId) return;
-    if (!('streamUrl' in selectedChannel)) return;
-    pushRecent(recentKey(sourceId, kind, selectedChannel.id));
-  }, [selectedChannel, sourceId, kind, pushRecent]);
+  // NOTE: We deliberately do NOT auto-push the currently selected live channel
+  // to Continue watching. Auto-preview selections (catalog load, group switch
+  // fallback to first row) would otherwise pollute the list with channels the
+  // user never picked. Recents are added explicitly from the click handlers
+  // below via `addRecentIfMissing`, which also preserves order on re-selection.
 
   if (status === 'loading') {
     return (
@@ -649,7 +661,19 @@ export function BrowseView({
               playbackProxy={playbackProxy}
               streamProxyConfigured={streamProxyConfigured}
               recentChannels={recentChannels}
-              onSelectRecent={(next) => setSelectedChannel(next)}
+              onSelectRecent={(next) => {
+                // Re-selecting from Continue watching never reorders the list.
+                // If the channel belongs to a different group than the active one,
+                // switch the sidebar to that group so the inline player streams
+                // the correct channel instead of falling back to the current
+                // group's first channel.
+                const targetGroupId = findGroupForChannel(next, groups);
+                if (targetGroupId && targetGroupId !== activeGroupId) {
+                  setLiveFavoritesRail(false);
+                  setActiveGroup(kind, targetGroupId);
+                }
+                setSelectedChannel(next);
+              }}
               guide={null}
               guideReady={false}
               nowMs={0}
@@ -699,6 +723,12 @@ export function BrowseView({
               onSelect={(id) => {
                 const channel = visibleChannels.find((c) => c.id === id) ?? null;
                 setSelectedChannel(channel);
+                // Explicit user click: if this channel is new to Continue
+                // watching it goes to the top; existing entries keep their
+                // position so the list does not shuffle on every re-pick.
+                if (channel && sourceId && 'streamUrl' in channel) {
+                  addRecentIfMissing(recentKey(sourceId, kind, channel.id));
+                }
               }}
               sourceId={sourceId}
               guide={null}

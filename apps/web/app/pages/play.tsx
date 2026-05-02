@@ -139,6 +139,7 @@ export function PlayPage() {
   }, [channelId]);
 
   const pushRecent = useProfileStore((s) => s.pushRecent);
+  const addRecentIfMissing = useProfileStore((s) => s.addRecentIfMissing);
   const recentPushedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!source || !kind || !streamUrl) return;
@@ -147,8 +148,16 @@ export function PlayPage() {
     const key = recentKey(source.id, kind, itemId);
     if (recentPushedRef.current === key) return;
     recentPushedRef.current = key;
-    pushRecent(key);
-  }, [source, channel, kind, channelId, streamUrl, pushRecent]);
+    // Live Continue watching is a stable list of channels the user picks; never
+    // reorder on re-watch (matches inline live behaviour). VOD/series keep
+    // most-recent-first ordering since "what did I watch last night" is the
+    // expected mental model for movies and episodes.
+    if (kind === 'live') {
+      addRecentIfMissing(key);
+    } else {
+      pushRecent(key);
+    }
+  }, [source, channel, kind, channelId, streamUrl, pushRecent, addRecentIfMissing]);
 
   // Status banner state — kept minimal so the player remains the focal point.
   const banner = (() => {
