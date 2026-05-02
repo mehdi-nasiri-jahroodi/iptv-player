@@ -65,8 +65,10 @@ When working inside a specific app or package, read the scoped context file for 
 | Area | Context file |
 | ---- | ------------ |
 | `apps/web/` and `packages/core`, `packages/ui` | [`apps/web/AGENTS.md`](apps/web/AGENTS.md) |
+| `apps/android-tv/` | [`apps/android-tv/AGENTS.md`](apps/android-tv/AGENTS.md) |
 
 > If you are working in `apps/web/`, read `apps/web/AGENTS.md` for web-specific conventions before proceeding.
+> If you are working in `apps/android-tv/`, read `apps/android-tv/AGENTS.md` for Android TV-specific conventions before proceeding.
 
 ## If asked to add code
 

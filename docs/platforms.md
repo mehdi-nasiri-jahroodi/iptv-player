@@ -53,6 +53,27 @@ Order of delivery recommended in product discussions: **Web → Android TV → L
 - **Performance and memory** budgets are stricter than desktop browsers; test on real **mid-range** TV hardware.
 - **Input**: remote keys, no hover; must match **Web** + **Android TV** mental model for channel up/down and “back.”
 
+## macOS / Desktop
+
+**Role**
+
+- Desktop companion for managing sources, browsing EPG, and playback without a TV.
+- CORS is not a factor on desktop — direct HTTP requests, no proxy needed.
+
+**Approach comparison**
+
+| Approach | Proxy needed | MKV fixed | Effort |
+| -------- | ------------ | --------- | ------ |
+| Tauri (reuse web app) | No | No | Low |
+| Electron (reuse web app) | No | No | Low-Medium |
+| Native macOS (SwiftUI + AVPlayer) | No | No | High (new codebase, like Android TV) |
+| Electron + mpv/VLC | No | Yes | Medium-High |
+
+**Notes**
+
+- Apple's native media stack (AVPlayer) does **not** support MKV containers, DTS, or EAC3 (unless Apple Silicon hardware decode). This applies to both native macOS and Tauri/Electron when using web-based players.
+- Full codec/container support on any desktop approach requires bundling **mpv** (libmpv) or **VLC** as the playback engine.
+
 ## Cross-platform product consistency
 
 - **Same** names for: Profiles (if any), Favorites, and Source labels.
