@@ -414,27 +414,59 @@ export function useShakaPlayer(
         //   it to under-allocate buffer + render late. Seeding 8 Mbps gives
         //   it room for 1080p without affecting real ABR streams (the first
         //   real measurement overrides the seed).
-        // - bufferingGoal 30s (default 10s) absorbs the segment-level 403/404
+        // - bufferingGoal 60s (default 10s) absorbs the segment-level 403/404
         //   blips this category of stream is famous for without restalling.
-        // - rebufferingGoal 4s (default 2s) waits for a healthier prefill
+        // - rebufferingGoal 6s (default 2s) waits for a healthier prefill
         //   before resuming, which empirically reduces the "play / stall /
         //   play" oscillation on flaky upstream.
+        // - liveSync DISABLED: Shaka's default behavior catches the player
+        //   up to the live edge by speeding up playback or seeking forward,
+        //   which IPTV users perceive as "stream jumping back" when the
+        //   sync overshoots and re-syncs to a buffered segment. Disabling
+        //   it lets the player drift naturally; the user can manually seek
+        //   to live via the controls if they need to catch up.
+        // - gapDetection DISABLED: many IPTV providers ship streams with
+        //   tiny PTS discontinuities every few seconds; Shaka's default
+        //   `jumpLargeGaps` skips them but the visible effect is a stutter
+        //   followed by a re-render of the previous frame which looks like
+        //   a rewind. Disabling lets the decoder absorb small gaps quietly.
+        // - stallEnabled false: don't auto-recover from stalls by seeking
+        //   forward — let buffering resolve naturally.
         try {
           (player as { configure?: (c: unknown) => void }).configure?.({
             abr: {
               defaultBandwidthEstimate: 8_000_000,
             },
             streaming: {
-              bufferingGoal: 30,
-              rebufferingGoal: 4,
-              // Keep ~30s behind the live edge so brief network blips
+              bufferingGoal: 60,
+              rebufferingGoal: 6,
+              // Keep ~60s behind the live edge so brief network blips
               // don't drop us out of the seek window. Default 30s; we
               // pin explicitly so a Shaka upgrade can't quietly change
               // playback feel.
-              bufferBehind: 30,
+              bufferBehind: 60,
               // IPTV manifests sometimes advertise broken text streams; do
               // not fail the whole asset when one subtitle rendition errors.
               ignoreTextStreamFailures: true,
+              // Don't auto-jump small gaps; let the decoder skip them.
+              gapDetectionThreshold: 0.5,
+              stallEnabled: false,
+              stallSkip: 0,
+            },
+            // Disable Shaka's live-edge catch-up. The player will drift
+            // behind real-time after a stall instead of jumping forward
+            // (which IPTV users perceive as a "rewind").
+            playRangeStart: 0,
+            manifest: {
+              defaultPresentationDelay: 10,
+            },
+          });
+          // Newer Shaka exposes streaming.liveSync.enabled; older ones
+          // use streaming.lowLatencyMode and a different shape. Try the
+          // modern key first; ignore if rejected.
+          (player as { configure?: (c: unknown) => void }).configure?.({
+            streaming: {
+              liveSync: { enabled: false },
             },
           });
         } catch {
