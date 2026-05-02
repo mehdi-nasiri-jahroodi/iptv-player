@@ -337,7 +337,23 @@ export function BrowseView({
     return activeGroup.channels.filter((c) => c.name.toLowerCase().includes(q));
   }, [activeGroup, searchQuery]);
 
-  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(() => {
+    // On mount, if a preferred channel id was passed (e.g. coming back from /play),
+    // initialise the selection synchronously from the already-populated store so
+    // there is no first-render flash of "Select a movie from the grid".
+    // The restore useEffect below still runs to switch the active group if needed.
+    if (preferredChannelId && (kind === 'vod' || kind === 'series')) {
+      for (const g of groups) {
+        const ch = g.channels.find(
+          (c) =>
+            (kind === 'vod' ? c.type === 'vod' : c.type === 'series') &&
+            c.id === preferredChannelId
+        );
+        if (ch) return ch;
+      }
+    }
+    return null;
+  });
   const preferredAppliedRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const addRecentIfMissing = useProfileStore((s) => s.addRecentIfMissing);
@@ -368,7 +384,7 @@ export function BrowseView({
   }, [kind, sourceId, playlist, recents]);
 
   useEffect(() => {
-    setSelectedChannel(null);
+    if (!preferredChannelId) setSelectedChannel(null);
     setVodSortKey('default');
     setVodSortDir('asc');
   }, [kind, activeSource.id]);
@@ -399,6 +415,36 @@ export function BrowseView({
     groups,
     activeGroupId,
     vodFavoritesRail,
+    setActiveGroup,
+  ]);
+
+  // Series: restore preferred selection when coming back from /play.
+  useEffect(() => {
+    if (kind !== 'series') return;
+    if (!preferredChannelId) return;
+    const applyKey = `${activeSource.id}:${preferredChannelId}`;
+    if (preferredAppliedRef.current === applyKey) return;
+    const targetGroup = groups.find((g) =>
+      g.channels.some((c) => c.type === 'series' && c.id === preferredChannelId)
+    );
+    if (!targetGroup) return;
+    const target = targetGroup.channels.find(
+      (c): c is SeriesChannel => c.type === 'series' && c.id === preferredChannelId
+    );
+    if (!target) return;
+    if (seriesFavoritesRail) setSeriesFavoritesRail(false);
+    if (activeGroupId !== targetGroup.id) {
+      setActiveGroup(kind, targetGroup.id);
+    }
+    setSelectedChannel(target);
+    preferredAppliedRef.current = applyKey;
+  }, [
+    kind,
+    preferredChannelId,
+    activeSource.id,
+    groups,
+    activeGroupId,
+    seriesFavoritesRail,
     setActiveGroup,
   ]);
 
@@ -482,19 +528,20 @@ export function BrowseView({
   useEffect(() => {
     if (kind !== 'vod') return;
     if (!activeGroup || sortedVodRows.length === 0) {
-      setSelectedChannel(null);
+      if (!preferredChannelId) setSelectedChannel(null);
       return;
     }
     if (selectedChannel?.type === 'vod' && sortedVodRows.some((c) => c.id === selectedChannel.id)) {
       return;
     }
+    if (preferredChannelId) return;
     setSelectedChannel(sortedVodRows[0] ?? null);
-  }, [kind, activeGroup, sortedVodRows, selectedChannel]);
+  }, [kind, activeGroup, sortedVodRows, selectedChannel, preferredChannelId]);
 
   useEffect(() => {
     if (kind !== 'series') return;
     if (!activeGroup || visibleChannels.length === 0) {
-      setSelectedChannel(null);
+      if (!preferredChannelId) setSelectedChannel(null);
       return;
     }
     if (
@@ -504,8 +551,12 @@ export function BrowseView({
       return;
     }
     const firstSeries = visibleChannels.find((c): c is SeriesChannel => c.type === 'series') ?? null;
+    // When a preferred channel is set (coming back from /play), skip auto-selecting
+    // the first item entirely. The restore effect above is solely responsible for
+    // setting the correct selection.
+    if (preferredChannelId) return;
     setSelectedChannel(firstSeries);
-  }, [kind, activeGroup, visibleChannels, selectedChannel]);
+  }, [kind, activeGroup, visibleChannels, selectedChannel, preferredChannelId]);
 
   const baseVodForDetail =
     kind === 'vod' && selectedChannel?.type === 'vod' ? selectedChannel : null;

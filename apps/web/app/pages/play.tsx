@@ -280,6 +280,10 @@ export function PlayPage() {
                 void navigate(
                   `/browse/${kind}?selected=${encodeURIComponent(channel.id)}`
                 );
+              } else if (kind === 'series' && seriesChannel?.id) {
+                void navigate(
+                  `/browse/${kind}?selected=${encodeURIComponent(seriesChannel.id)}`
+                );
               } else {
                 void navigate(`/browse/${kind}`);
               }

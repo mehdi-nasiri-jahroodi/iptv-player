@@ -105,7 +105,7 @@ export function BrowseKindPage() {
           <BrowseView
             kind={kind}
             activeSource={activeSource}
-            preferredChannelId={kind === 'vod' ? preferredChannelId : null}
+            preferredChannelId={kind === 'vod' || kind === 'series' ? preferredChannelId : null}
             emptyHint={`${activeSource.label} has no ${meta?.title.toLowerCase() ?? kind} content.`}
           />
         )}

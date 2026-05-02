@@ -202,10 +202,20 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       }
 
       const groupsByKind = bucketGroupsByKind(playlist.groups);
+      // Preserve the active group selection for each kind if the previously
+      // active group still exists in the freshly loaded playlist — this keeps
+      // the user's place when the same source is reloaded (e.g. back-navigation).
+      const prevActive = get().activeGroupByKind;
       const activeGroupByKind: ActiveGroupByKind = {
-        live: groupsByKind.live[0]?.id ?? null,
-        vod: groupsByKind.vod[0]?.id ?? null,
-        series: groupsByKind.series[0]?.id ?? null,
+        live: groupsByKind.live.some((g) => g.id === prevActive.live)
+          ? prevActive.live
+          : (groupsByKind.live[0]?.id ?? null),
+        vod: groupsByKind.vod.some((g) => g.id === prevActive.vod)
+          ? prevActive.vod
+          : (groupsByKind.vod[0]?.id ?? null),
+        series: groupsByKind.series.some((g) => g.id === prevActive.series)
+          ? prevActive.series
+          : (groupsByKind.series[0]?.id ?? null),
       };
 
       set({

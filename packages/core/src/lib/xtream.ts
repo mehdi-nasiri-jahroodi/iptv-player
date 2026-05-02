@@ -953,14 +953,19 @@ function buildGroups(
     ordered.push({ name, channels: list });
   }
 
-  return ordered.map(({ name, channels: list }) =>
-    channelGroupSchema.parse({
-      id: `${sourceId}:${kind}:${slugify(name)}`,
+  const seenSlugs = new Map<string, number>();
+  return ordered.map(({ name, channels: list }) => {
+    const base = `${sourceId}:${kind}:${slugify(name)}`;
+    const count = seenSlugs.get(base) ?? 0;
+    seenSlugs.set(base, count + 1);
+    const id = count === 0 ? base : `${base}-${count}`;
+    return channelGroupSchema.parse({
+      id,
       name,
       kind,
       channels: list,
-    })
-  );
+    });
+  });
 }
 
 function slugify(value: string): string {
