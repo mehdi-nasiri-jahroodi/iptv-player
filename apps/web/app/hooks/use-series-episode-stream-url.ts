@@ -3,6 +3,7 @@ import {
   buildSeriesEpisodeUrl,
   fetchSeriesInfo,
   type Source,
+  type SubtitleTrack,
 } from 'core';
 import { _getDefaultXtreamCache } from '../store/catalog-store';
 
@@ -16,16 +17,25 @@ import { _getDefaultXtreamCache } from '../store/catalog-store';
  * episode's `container_extension` to build the correct stream URL.
  *
  * Returns `null` while loading, `undefined` on any error, or the resolved URL.
+ * Also returns any subtitle tracks found on the episode.
  */
 export function useSeriesEpisodeStreamUrl(
   episodeChannelId: string,
   source: Source | null | undefined
-): { streamUrl: string | null | undefined; loading: boolean } {
+): {
+  streamUrl: string | null | undefined;
+  subtitles: SubtitleTrack[] | undefined;
+  loading: boolean;
+} {
   const [streamUrl, setStreamUrl] = useState<string | null | undefined>(null);
+  const [subtitles, setSubtitles] = useState<SubtitleTrack[] | undefined>(
+    undefined
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setStreamUrl(null);
+    setSubtitles(undefined);
     setLoading(false);
   }, [episodeChannelId, source?.id]);
 
@@ -66,16 +76,45 @@ export function useSeriesEpisodeStreamUrl(
 
         // Find the episode by its raw Xtream id across all seasons.
         let ext = 'mp4';
+        let epSubs: SubtitleTrack[] | undefined;
         for (const episodeList of Object.values(info.episodes ?? {})) {
           const ep = episodeList.find((e) => String(e.id) === rawEpisodeId);
           if (ep) {
             ext = ep.container_extension ?? 'mp4';
+            // Extract subtitles from root-level or info-level.
+            const rawSubs =
+              (ep as { subtitles?: unknown[] }).subtitles ??
+              ep.info?.subtitles;
+            if (Array.isArray(rawSubs)) {
+              epSubs = rawSubs
+                .filter(
+                  (
+                    s
+                  ): s is {
+                    url: string;
+                    language?: string;
+                    label?: string;
+                  } =>
+                    typeof (s as { url?: unknown })?.url === 'string' &&
+                    (s as { url: string }).url.length > 0
+                )
+                .map((s) => ({
+                  url: s.url,
+                  ...(s.language ? { language: s.language } : {}),
+                  ...(s.label ? { label: s.label } : {}),
+                }));
+            }
             break;
           }
         }
 
         const url = buildSeriesEpisodeUrl(credentials, rawEpisodeId, ext);
-        if (!cancelled) setStreamUrl(url);
+        if (!cancelled) {
+          setStreamUrl(url);
+          setSubtitles(
+            epSubs && epSubs.length > 0 ? epSubs : undefined
+          );
+        }
       } catch {
         if (!cancelled) setStreamUrl(undefined);
       } finally {
@@ -88,5 +127,5 @@ export function useSeriesEpisodeStreamUrl(
     };
   }, [episodeChannelId, source]);
 
-  return { streamUrl, loading };
+  return { streamUrl, subtitles, loading };
 }

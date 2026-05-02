@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { verifyProxySignature } from './hmac.js';
 import { isHlsManifestContentType, rewriteHlsManifest } from './manifest.js';
+import { registerSubtitleRoutes } from './subtitles.js';
+import { registerTranscodeRoutes } from './transcode.js';
 
 export interface ProxyAppConfig {
   /** HMAC shared secret. Must match the secret configured in the web app. */
@@ -259,6 +261,12 @@ export function createProxyApp(config: ProxyAppConfig): Hono {
       headers: responseHeaders,
     });
   });
+
+  // Subtitle discovery + extraction (ffprobe / ffmpeg on the host).
+  registerSubtitleRoutes(app, { secret: config.secret, defaultUserAgent: config.defaultUserAgent, log });
+
+  // Audio transcoding: remux MKV as fMP4 with video copy + AAC audio.
+  registerTranscodeRoutes(app, { secret: config.secret, defaultUserAgent: config.defaultUserAgent, log });
 
   return app;
 }

@@ -1,6 +1,15 @@
 import { serve } from '@hono/node-server';
 import { createProxyApp } from './index.js';
 
+// Prevent the process from crashing on unhandled errors (e.g. broken pipe
+// from a disconnected ffmpeg stream). Log the event but keep running.
+process.on('uncaughtException', (err) => {
+  console.error('[web-proxy] uncaughtException:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[web-proxy] unhandledRejection:', reason);
+});
+
 const secret = process.env.PROXY_SECRET;
 if (!secret || secret.length < 16) {
   console.error(

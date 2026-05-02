@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import type { Channel, Source } from 'core';
+import type { Channel, Source, SubtitleTrack } from 'core';
 import {
   Player,
   PlayerControls,
   PlayerErrorOverlay,
   PlayerSubtitlePicker,
+  type ExternalTextTrack,
   type ShakaError,
+  type UseShakaPlayerResult,
 } from 'player';
 import { Button } from 'ui';
 import { SourcesStore } from '../features/sources/sources-storage';
@@ -19,9 +21,23 @@ import {
 import { hasStreamProxy, useSettingsStore } from '../store/settings-store';
 import { recentKey, useProfileStore } from '../store/profile-store';
 import { useSeriesEpisodeStreamUrl } from '../hooks/use-series-episode-stream-url';
+import { useVodXtreamDetail } from '../hooks/use-vod-xtream-detail';
+import {
+  useEmbeddedSubtitles,
+  type EmbeddedSubtitleTrack,
+} from '../hooks/use-embedded-subtitles';
+import { useTranscodeUrl } from '../hooks/use-transcode-url';
 
 function isChannelKind(value: string | undefined): value is ChannelKind {
   return value !== undefined && (CHANNEL_KINDS as string[]).includes(value);
+}
+
+function isDirectFileUrl(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const p = new URL(url).pathname.toLowerCase();
+    return !p.endsWith('.m3u8') && !p.endsWith('.m3u');
+  } catch { return false; }
 }
 
 /**
@@ -106,11 +122,19 @@ export function PlayPage() {
   }, [kind, groups, channelId]);
 
   // Series: fetch the episode stream URL on demand (TTL-cached get_series_info).
-  const { streamUrl: seriesStreamUrl, loading: seriesLoading } =
+  const { streamUrl: seriesStreamUrl, subtitles: seriesSubtitles, loading: seriesLoading } =
     useSeriesEpisodeStreamUrl(
       kind === 'series' ? channelId : '',
       kind === 'series' ? source : null
     );
+
+  // VOD: fetch get_vod_info to get subtitles (and enrich metadata). The hook
+  // is a no-op for non-Xtream sources or non-VOD kinds.
+  const vodBase = kind === 'vod' && channel?.type === 'vod' ? channel : null;
+  const { channel: vodDetail } = useVodXtreamDetail(
+    vodBase,
+    source ?? ({ type: 'unknown' } as Source)
+  );
 
   const [error, setError] = useState<ShakaError | null>(null);
   useEffect(() => {
@@ -129,6 +153,54 @@ export function PlayPage() {
     if (channel && 'streamUrl' in channel) return channel.streamUrl;
     return null;
   })();
+
+  // Discover embedded subtitle tracks via ffprobe on the proxy host.
+  // Also returns the file duration (for the transcode fallback seekbar).
+  // Tracks are enumerated but NOT extracted yet — extraction is on-demand.
+  const { tracks: embeddedTracks, extractTrack, duration: probedDuration } =
+    useEmbeddedSubtitles(
+      kind === 'vod' || kind === 'series' ? streamUrl : null,
+      playbackProxy
+    );
+
+  // Audio transcode toggle: by default play through /stream (normal, with
+  // seeking). User can flip to /transcode when audio is missing (EAC3/AC3/DTS
+  // in MKV). Transcoded playback has no seeking but gains AAC audio.
+  const [transcodeEnabled, setTranscodeEnabled] = useState(false);
+  // Reset transcode toggle when switching content.
+  useEffect(() => { setTranscodeEnabled(false); }, [streamUrl]);
+
+  const {
+    effectiveUrl,
+    effectiveProxy,
+    isTranscoding,
+  } = useTranscodeUrl(
+    streamUrl,
+    playbackProxy,
+    kind,
+    probedDuration,
+    transcodeEnabled
+  );
+
+  const playerUrl = effectiveUrl;
+
+  // Xtream API subtitle fallback (currently always empty — API has no subtitle
+  // field, but kept for forward compat).
+  const externalTextTracks: ExternalTextTrack[] | undefined = useMemo(() => {
+    let subs: SubtitleTrack[] | undefined;
+    if (kind === 'vod' && vodDetail?.type === 'vod') {
+      subs = vodDetail.subtitles;
+    } else if (kind === 'series') {
+      subs = seriesSubtitles;
+    }
+    if (!subs || subs.length === 0) return undefined;
+    return subs.map((s) => ({
+      url: s.url,
+      language: s.language ?? 'und',
+      label: s.label,
+      mimeType: s.mimeType,
+    }));
+  }, [kind, vodDetail, seriesSubtitles]);
 
   // Parse a human-readable episode label from the episode id.
   // Format: xtream:series:{seriesId}:s{season}:e{ep}:{rawId}
@@ -245,26 +317,69 @@ export function PlayPage() {
           <Banner testid="play-no-stream">
             This item has no playable stream.
           </Banner>
+         ) : isTranscoding && playerUrl ? (
+          <div
+            className="relative aspect-video w-full max-w-6xl overflow-hidden rounded-md bg-black"
+            data-testid="play-frame"
+          >
+            {/* Transcoded playback: bypass Shaka entirely. Use native <video>
+                so we avoid Shaka's HEAD probe (which Cloudflare tunnels reject).
+                No seeking — the fMP4 stream is linear. */}
+            <video
+              src={playerUrl}
+              autoPlay
+              playsInline
+              className="h-full w-full bg-black"
+            />
+            {/* Minimal controls overlay for transcode mode */}
+            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-black/70 px-4 py-2 backdrop-blur-sm">
+              <span className="text-xs text-foreground-muted">
+                Audio fix active — no seeking
+              </span>
+              <TranscodeToggle
+                enabled={transcodeEnabled}
+                onToggle={setTranscodeEnabled}
+              />
+            </div>
+          </div>
         ) : (
           <div
             className="relative aspect-video w-full max-w-6xl overflow-hidden rounded-md bg-black"
             data-testid="play-frame"
           >
             <Player
-              src={streamUrl}
+              src={playerUrl}
               onError={setError}
-              streamProxy={playbackProxy}
+              streamProxy={effectiveProxy}
+              externalTextTracks={externalTextTracks}
               className="h-full w-full"
             >
               {(api) => (
                 <>
-                  {kind === 'vod' || kind === 'series' ? (
-                    <PlayerSubtitlePicker
-                      api={api}
-                      className="absolute right-3 top-3 md:right-4 md:top-4"
-                    />
-                  ) : null}
-                  <PlayerControls api={api} />
+                  <PlayerControls
+                    api={api}
+                    trailing={
+                      (kind === 'vod' || kind === 'series') ? (
+                        <div className="pointer-events-auto flex items-center gap-2">
+                          {embeddedTracks.length > 0 ? (
+                            <EmbeddedSubtitlePicker
+                              api={api}
+                              tracks={embeddedTracks}
+                              extractTrack={extractTrack}
+                            />
+                          ) : (
+                            <PlayerSubtitlePicker api={api} />
+                          )}
+                          {playbackProxy && isDirectFileUrl(streamUrl) && (
+                            <TranscodeToggle
+                              enabled={transcodeEnabled}
+                              onToggle={setTranscodeEnabled}
+                            />
+                          )}
+                        </div>
+                      ) : undefined
+                    }
+                  />
                   {error ? (
                     <PlayerErrorOverlay
                       error={error}
@@ -280,6 +395,170 @@ export function PlayPage() {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * On-demand subtitle picker for MKV-embedded tracks discovered via ffprobe.
+ * Only extracts the selected track (via ffmpeg on the proxy) when the user
+ * picks it — avoids spawning 26 concurrent ffmpeg processes.
+ */
+function EmbeddedSubtitlePicker({
+  tracks,
+  extractTrack,
+  className = '',
+}: {
+  api: UseShakaPlayerResult;
+  tracks: EmbeddedSubtitleTrack[];
+  extractTrack: (trackIndex: number) => Promise<string | null>;
+  className?: string;
+}) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const containerRef = useRef<HTMLLabelElement>(null);
+
+  const handleChange = useCallback(
+    async (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const value = e.target.value;
+
+      // Find the video element by walking up to the player frame.
+      const video = containerRef.current
+        ?.closest('[data-testid="play-frame"]')
+        ?.querySelector('video') as HTMLVideoElement | null;
+
+      if (!value) {
+        setActiveIndex(null);
+        // Disable all embedded subtitle tracks.
+        if (video) {
+          for (let i = 0; i < video.textTracks.length; i++) {
+            video.textTracks[i].mode = 'hidden';
+          }
+        }
+        return;
+      }
+
+      const trackIndex = Number(value);
+      const track = tracks.find((t) => t.index === trackIndex);
+      if (!track) return;
+
+      setLoading(true);
+      setActiveIndex(trackIndex);
+
+      try {
+        const extractUrl = await extractTrack(trackIndex);
+        if (!extractUrl || !video) {
+          setActiveIndex(null);
+          return;
+        }
+
+        // Fetch the VTT content and create a blob URL.
+        const res = await fetch(extractUrl);
+        if (!res.ok) {
+          setActiveIndex(null);
+          return;
+        }
+        const vttBlob = await res.blob();
+        const blobUrl = URL.createObjectURL(vttBlob);
+
+        // Remove any previously added embedded subtitle tracks.
+        video.querySelectorAll('track[data-embedded-sub]').forEach((el) => {
+          URL.revokeObjectURL((el as HTMLTrackElement).src);
+          el.remove();
+        });
+
+        const trackEl = document.createElement('track');
+        trackEl.kind = 'subtitles';
+        trackEl.label = track.label;
+        trackEl.srclang = track.language;
+        trackEl.src = blobUrl;
+        trackEl.dataset.embeddedSub = 'true';
+        trackEl.default = true;
+        video.appendChild(trackEl);
+
+        // Activate only this track.
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const tt = video.textTracks[i];
+          if (tt.label === track.label && tt.language === track.language) {
+            tt.mode = 'showing';
+          } else {
+            tt.mode = 'hidden';
+          }
+        }
+      } catch {
+        setActiveIndex(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [tracks, extractTrack]
+  );
+
+  if (tracks.length === 0) return null;
+
+  return (
+    <label
+      ref={containerRef}
+      className={[
+        'pointer-events-auto z-[15] flex min-w-0 items-center gap-2',
+        'text-xs text-foreground',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <select
+        aria-label="Subtitles"
+        data-testid="player-embedded-subtitle-picker"
+        className="max-w-[min(100%,10rem)] cursor-pointer rounded border border-border bg-surface/80 px-1.5 py-0.5 text-xs text-foreground outline-none backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-accent"
+        value={activeIndex !== null ? String(activeIndex) : ''}
+        onChange={(e) => void handleChange(e)}
+        disabled={loading}
+      >
+        <option value="">{loading ? 'Loading…' : 'Subtitles'}</option>
+        {tracks.map((t) => (
+          <option key={t.index} value={String(t.index)}>
+            {t.label || t.language}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * Toggle button for audio transcoding. Shows in the player controls for
+ * direct-file VOD/series when the proxy is configured. Off by default
+ * (normal playback with seeking). Turning it on switches to /transcode
+ * (AAC audio, but no seeking).
+ */
+function TranscodeToggle({
+  enabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={enabled ? 'Disable audio fix' : 'Enable audio fix'}
+      title={
+        enabled
+          ? 'Audio fix active (no seeking). Click to use normal playback.'
+          : 'No audio? Click to fix (loses seeking).'
+      }
+      data-testid="transcode-toggle"
+      className={[
+        'rounded border px-1.5 py-0.5 text-xs outline-none backdrop-blur-sm',
+        'focus-visible:ring-2 focus-visible:ring-accent',
+        enabled
+          ? 'border-accent bg-accent/20 text-accent'
+          : 'border-border bg-surface/80 text-foreground-muted',
+      ].join(' ')}
+      onClick={() => onToggle(!enabled)}
+    >
+      {enabled ? 'AAC' : 'Fix audio'}
+    </button>
   );
 }
 

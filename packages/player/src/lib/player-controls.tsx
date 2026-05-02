@@ -25,6 +25,12 @@ export interface PlayerControlsProps {
    * while any control inside the bar has focus.
    */
   idleHideMs?: number;
+  /**
+   * Optional trailing content rendered at the end of the controls bar
+   * (before fullscreen). Follows the same auto-hide behaviour as the
+   * built-in controls.
+   */
+  trailing?: ReactNode;
 }
 
 /**
@@ -49,6 +55,7 @@ export function PlayerControls({
   api,
   alwaysVisible = false,
   idleHideMs = 3000,
+  trailing,
 }: PlayerControlsProps): ReactNode {
   const { media, status, buffering, tracks, selectTrack, clearTextTrack, abrEnabled, setAbrEnabled } =
     api;
@@ -249,6 +256,8 @@ export function PlayerControls({
             ) : null}
           </div>
         ) : null}
+
+        {trailing}
 
         <ControlButton
           label="Toggle fullscreen"

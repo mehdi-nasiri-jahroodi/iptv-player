@@ -1,6 +1,7 @@
 export { loadShakaModule } from './lib/load-shaka.js';
 export {
   useShakaPlayer,
+  type ExternalTextTrack,
   type ShakaError,
   type ShakaMedia,
   type ShakaStatus,
@@ -31,6 +32,7 @@ export {
 } from './lib/player-error-overlay.js';
 export {
   buildSignedProxyUrl,
+  buildSignedTranscodeUrl,
   encodeProxyUrl,
   signProxyRequest,
 } from './lib/proxy-signing.js';

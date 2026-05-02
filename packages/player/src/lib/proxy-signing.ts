@@ -109,3 +109,23 @@ export async function buildSignedProxyUrl(params: {
   const ua = userAgent ? `&ua=${encodeURIComponent(userAgent)}` : '';
   return `${base}/stream?u=${u}${ua}&sig=${sig}`;
 }
+
+/**
+ * Build a fully-signed proxy URL for the `/transcode` endpoint.
+ *
+ * This endpoint remuxes the upstream MKV as fragmented MP4 with video
+ * passthrough and AAC audio — fixing EAC3/AC3/DTS playback in browsers.
+ */
+export async function buildSignedTranscodeUrl(params: {
+  baseUrl: string;
+  secret: string;
+  upstreamUrl: string;
+  userAgent?: string;
+}): Promise<string> {
+  const { baseUrl, secret, upstreamUrl, userAgent } = params;
+  const u = encodeProxyUrl(upstreamUrl);
+  const sig = await signProxyRequest({ secret, encodedUrl: u, userAgent });
+  const base = baseUrl.replace(/\/+$/, '');
+  const ua = userAgent ? `&ua=${encodeURIComponent(userAgent)}` : '';
+  return `${base}/transcode?u=${u}${ua}&sig=${sig}`;
+}

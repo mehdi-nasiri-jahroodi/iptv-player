@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import {
   useShakaPlayer,
+  type ExternalTextTrack,
   type ShakaError,
   type ShakaTrack,
   type ShakaStatus,
@@ -35,6 +36,22 @@ export interface PlayerProps {
    * contract; the web app passes this from its settings store.
    */
   streamProxy?: StreamProxyOption | null;
+  /**
+   * External subtitle tracks to sideload (SRT/VTT files from the Xtream
+   * `get_vod_info` or `get_series_info` response). Forwarded to
+   * `useShakaPlayer`'s `externalTextTracks` option.
+   */
+  externalTextTracks?: ExternalTextTrack[];
+  /**
+   * Override duration for transcoded streams (from ffprobe).
+   * See {@link useShakaPlayer}'s `knownDuration` option.
+   */
+  knownDuration?: number | null;
+  /**
+   * Custom seek handler for transcoded streams.
+   * See {@link useShakaPlayer}'s `onSeekOverride` option.
+   */
+  onSeekOverride?: (seconds: number) => void;
   /** Render-prop hook for custom overlay (loading, error, track picker). */
   children?: (api: UseShakaPlayerResult) => React.ReactNode;
 }
@@ -57,10 +74,13 @@ export function Player(props: PlayerProps) {
     muted = false,
     poster,
     streamProxy = null,
+    externalTextTracks,
+    knownDuration,
+    onSeekOverride,
     children,
   } = props;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const api = useShakaPlayer(videoRef, src, { onError, autoPlay, streamProxy });
+  const api = useShakaPlayer(videoRef, src, { onError, autoPlay, streamProxy, externalTextTracks, knownDuration, onSeekOverride });
 
   // Surface status changes via callback if requested.
   if (onStatusChange) {

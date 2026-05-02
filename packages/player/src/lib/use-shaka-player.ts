@@ -26,6 +26,27 @@ export interface ShakaTrack {
   codecs?: string;
 }
 
+/**
+ * An external subtitle track to sideload into Shaka after `player.load()`.
+ * Used for Xtream panels that serve subtitles as separate files (SRT/VTT)
+ * rather than embedding them in the HLS manifest.
+ */
+export interface ExternalTextTrack {
+  /** Absolute URL to the subtitle file (.srt, .vtt, etc.). */
+  url: string;
+  /** BCP 47 language tag (e.g. "en", "fr", "ar"). */
+  language: string;
+  /** Human-readable label shown in the picker (e.g. "English", "French"). */
+  label?: string;
+  /**
+   * MIME type. Shaka needs this for non-VTT formats. Common values:
+   * - `text/vtt` (WebVTT)
+   * - `application/x-subrip` (SRT — Shaka converts internally)
+   * Defaults to `text/vtt` if omitted.
+   */
+  mimeType?: string;
+}
+
 /** Public shape of an error surfaced by the hook. */
 export interface ShakaError {
   /** Stable code if Shaka provided one (`shaka.util.Error.Code`). */
@@ -77,6 +98,28 @@ export interface UseShakaPlayerOptions {
    * segment URIs to point at itself, no need to double-wrap).
    */
   streamProxy?: StreamProxyOption | null;
+  /**
+   * External subtitle tracks to sideload after `player.load()`. Xtream
+   * panels typically serve subtitles as separate SRT/VTT files rather than
+   * embedding them in the HLS manifest. Each entry is added via Shaka's
+   * `addTextTrackAsync`. The existing `PlayerSubtitlePicker` and tracks
+   * menu will pick them up automatically once they appear in
+   * `player.getTextTracks()`.
+   */
+  externalTextTracks?: ExternalTextTrack[];
+  /**
+   * Override the duration reported by the media element. Useful for
+   * transcoded streams where the browser sees `Infinity` because the
+   * server streams fMP4 without Content-Length. When set, `media.duration`
+   * and `media.seekable` reflect this value instead of the video element's.
+   */
+  knownDuration?: number | null;
+  /**
+   * Custom seek handler. When provided, `seek(seconds)` calls this instead
+   * of setting `video.currentTime`. Used for transcoded streams where seeking
+   * requires rebuilding the URL with a `?start=N` parameter.
+   */
+  onSeekOverride?: (seconds: number) => void;
 }
 
 /**
@@ -206,8 +249,17 @@ function scheduleAutoplayAfterLoad(
     void video.play().catch((err: unknown) => {
       if (isStale()) return;
       if (isNotAllowedError(err) && !video.muted) {
+        // Autoplay policy blocked unmuted playback. Mute and retry so
+        // the user at least sees the video. Once playback starts, try
+        // unmuting — most browsers allow it after the first frame.
         video.muted = true;
-        void video.play().catch(() => undefined);
+        void video.play().then(() => {
+          if (isStale()) return;
+          // Best-effort unmute after playback has started. If the
+          // browser still blocks, the user sees the mute icon in
+          // PlayerControls and can unmute manually.
+          try { video.muted = false; } catch { /* ignore */ }
+        }).catch(() => undefined);
       }
     });
   };
@@ -235,7 +287,13 @@ export function useShakaPlayer(
   streamUrl: string | null,
   options: UseShakaPlayerOptions = {}
 ): UseShakaPlayerResult {
-  const { onError, autoPlay = true, streamProxy = null } = options;
+  const { onError, autoPlay = true, streamProxy = null, knownDuration, onSeekOverride } = options;
+
+  // Refs for transcode-aware overrides.
+  const knownDurationRef = useRef<number | null | undefined>(knownDuration);
+  useEffect(() => { knownDurationRef.current = knownDuration; }, [knownDuration]);
+  const onSeekOverrideRef = useRef(onSeekOverride);
+  useEffect(() => { onSeekOverrideRef.current = onSeekOverride; }, [onSeekOverride]);
   const playerRef = useRef<shaka.Player | null>(null);
   const reloadTokenRef = useRef(0);
 
@@ -247,6 +305,16 @@ export function useShakaPlayer(
   useEffect(() => {
     streamProxyRef.current = streamProxy;
   }, [streamProxy]);
+
+  // External subtitle tracks to sideload after player.load(). Kept in a ref
+  // so changing subtitles doesn't re-trigger the heavy load effect; the
+  // sideloading itself re-runs via a separate lightweight effect.
+  const externalTextTracksRef = useRef<ExternalTextTrack[] | undefined>(
+    options.externalTextTracks
+  );
+  useEffect(() => {
+    externalTextTracksRef.current = options.externalTextTracks;
+  }, [options.externalTextTracks]);
 
   const [status, setStatus] = useState<ShakaStatus>('idle');
   const [buffering, setBuffering] = useState(false);
@@ -679,6 +747,49 @@ export function useShakaPlayer(
         // manual selection from the previous channel should not silently
         // pin the new channel to a non-existent variant id.
         setAbrEnabledState(true);
+
+        // Sideload external text tracks (subtitles served as separate
+        // SRT/VTT files by Xtream panels). Shaka's addTextTrackAsync
+        // fetches and parses the file, then exposes it via
+        // getTextTracks(). The existing TracksMenu and
+        // PlayerSubtitlePicker pick them up after refreshTracks().
+        const extTracks = externalTextTracksRef.current;
+        if (extTracks && extTracks.length > 0) {
+          const addText = (
+            player as {
+              addTextTrackAsync?: (
+                uri: string,
+                language: string,
+                kind: string,
+                mimeType?: string,
+                codec?: string,
+                label?: string
+              ) => Promise<unknown>;
+            }
+          ).addTextTrackAsync;
+          if (addText) {
+            for (const ext of extTracks) {
+              if (cancelled || token !== reloadTokenRef.current) break;
+              try {
+                await addText.call(
+                  player,
+                  ext.url,
+                  ext.language,
+                  'subtitle',
+                  ext.mimeType ?? 'text/vtt',
+                  undefined,
+                  ext.label ?? ext.language
+                );
+              } catch {
+                // Subtitle sideload failure is non-fatal — the stream
+                // plays fine, user just doesn't get that language.
+              }
+            }
+            if (!cancelled && token === reloadTokenRef.current) {
+              refreshTracks();
+            }
+          }
+        }
         // DEV-only diagnostic: dump the variant table so a developer can
         // see exactly what Shaka is being offered for any given channel.
         // This is the cheapest way to answer "does this stream actually
@@ -820,7 +931,9 @@ export function useShakaPlayer(
         void v.play().catch((err: unknown) => {
           if (isNotAllowedError(err) && !v.muted) {
             v.muted = true;
-            void v.play().catch(() => undefined);
+            void v.play().then(() => {
+              try { v.muted = false; } catch { /* ignore */ }
+            }).catch(() => undefined);
           }
         });
       })
@@ -881,13 +994,17 @@ export function useShakaPlayer(
     const sync = () => {
       // `seekable` length 0 means live HLS / pre-metadata; otherwise the
       // stream advertises a window we can scrub through.
-      const seekable = video.seekable && video.seekable.length > 0
+      const nativeSeekable = video.seekable && video.seekable.length > 0
         && Number.isFinite(video.duration);
+      // When knownDuration is provided (transcode streams), override the
+      // browser's duration/seekable which would show Infinity/false.
+      const kd = knownDurationRef.current;
+      const hasDurationOverride = typeof kd === 'number' && Number.isFinite(kd) && kd > 0;
       setMedia({
         paused: video.paused,
         currentTime: video.currentTime,
-        duration: video.duration,
-        seekable: Boolean(seekable),
+        duration: hasDurationOverride ? kd : video.duration,
+        seekable: hasDurationOverride ? true : Boolean(nativeSeekable),
         volume: video.volume,
         muted: video.muted,
       });
@@ -930,6 +1047,12 @@ export function useShakaPlayer(
   }, [videoRef]);
 
   const seek = useCallback((seconds: number) => {
+    // Transcode streams: delegate to the override (rebuilds URL with ?start=N).
+    const override = onSeekOverrideRef.current;
+    if (override) {
+      override(seconds);
+      return;
+    }
     const video = videoRef.current;
     if (!video) return;
     const dur = video.duration;

@@ -101,6 +101,15 @@ export const liveChannelSchema = z.object({
 });
 export type LiveChannel = z.infer<typeof liveChannelSchema>;
 
+/** A single external subtitle track (SRT/VTT URL + language metadata). */
+export const subtitleTrackSchema = z.object({
+  url: z.string(),
+  language: z.string().optional(),
+  label: z.string().optional(),
+  mimeType: z.string().optional(),
+});
+export type SubtitleTrack = z.infer<typeof subtitleTrackSchema>;
+
 /** Video on demand entry (a single movie). */
 export const vodChannelSchema = z.object({
   type: z.literal('vod'),
@@ -124,6 +133,8 @@ export const vodChannelSchema = z.object({
    * rails; not all providers populate `added`.
    */
   xtreamAddedAtSec: z.number().int().nonnegative().optional(),
+  /** External subtitle tracks from `get_vod_info` (SRT/VTT files). */
+  subtitles: z.array(subtitleTrackSchema).optional(),
 });
 export type VodChannel = z.infer<typeof vodChannelSchema>;
 
@@ -137,6 +148,8 @@ export const seriesEpisodeSchema = z.object({
   durationSeconds: z.number().int().nonnegative().optional(),
   plot: z.string().optional(),
   xtreamEpisodeId: z.string().optional(),
+  /** External subtitle tracks from `get_series_info` (SRT/VTT files). */
+  subtitles: z.array(subtitleTrackSchema).optional(),
 });
 export type SeriesEpisode = z.infer<typeof seriesEpisodeSchema>;
 
@@ -356,6 +369,18 @@ export const xtreamVodInfoSchema = z
         rating_5based: z.union([z.string(), z.number()]).optional(),
         duration_secs: z.union([z.string(), z.number()]).optional(),
         duration: z.string().optional(),
+        /** Some panels embed subtitles inside `info`. */
+        subtitles: z
+          .array(
+            z
+              .object({
+                url: z.string(),
+                language: z.string().optional(),
+                label: z.string().optional(),
+              })
+              .passthrough()
+          )
+          .optional(),
       })
       .passthrough()
       .optional(),
@@ -367,6 +392,18 @@ export const xtreamVodInfoSchema = z
         category_id: z.union([z.string(), z.number()]).optional(),
       })
       .passthrough()
+      .optional(),
+    /** Root-level subtitles array — the more common panel convention. */
+    subtitles: z
+      .array(
+        z
+          .object({
+            url: z.string(),
+            language: z.string().optional(),
+            label: z.string().optional(),
+          })
+          .passthrough()
+      )
       .optional(),
   })
   .passthrough();
@@ -402,8 +439,32 @@ export const xtreamEpisodeSchema = z
         plot: z.string().optional(),
         duration_secs: z.union([z.string(), z.number()]).optional(),
         movie_image: z.string().optional(),
+        /** Some panels embed per-episode subtitles. */
+        subtitles: z
+          .array(
+            z
+              .object({
+                url: z.string(),
+                language: z.string().optional(),
+                label: z.string().optional(),
+              })
+              .passthrough()
+          )
+          .optional(),
       })
       .passthrough()
+      .optional(),
+    /** Root-level per-episode subtitles (alternative panel convention). */
+    subtitles: z
+      .array(
+        z
+          .object({
+            url: z.string(),
+            language: z.string().optional(),
+            label: z.string().optional(),
+          })
+          .passthrough()
+      )
       .optional(),
   })
   .passthrough();

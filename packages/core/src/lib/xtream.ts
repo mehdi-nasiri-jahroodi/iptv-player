@@ -559,6 +559,21 @@ export function mergeVodChannelWithXtreamInfo(
   const ratingFromInfo =
     asNumber(info?.rating_5based) ?? asNumber(info?.rating) ?? base.rating;
   const trailerUrl = normalizeYouTubeTrailerUrl(info?.youtube_trailer) ?? base.trailerUrl;
+  // Subtitles: prefer root-level, fall back to info-level. Filter to entries
+  // that have at least a `url` string. Panels send varying shapes; our Zod
+  // schema is lenient (.passthrough()) so stray extra fields are harmless.
+  const rawSubs = detail.subtitles ?? info?.subtitles;
+  const subtitles = Array.isArray(rawSubs)
+    ? rawSubs
+        .filter((s): s is { url: string; language?: string; label?: string } =>
+          typeof s?.url === 'string' && s.url.length > 0
+        )
+        .map((s) => ({
+          url: s.url,
+          ...(s.language ? { language: s.language } : {}),
+          ...(s.label ? { label: s.label } : {}),
+        }))
+    : undefined;
   return vodChannelSchema.parse({
     ...base,
     plot: info?.plot ?? base.plot,
@@ -572,6 +587,7 @@ export function mergeVodChannelWithXtreamInfo(
     posterUrl: movieImage ?? base.posterUrl,
     backdropUrl: backdropFromPaths ?? base.backdropUrl,
     logoUrl: base.logoUrl ?? movieImage,
+    subtitles: subtitles && subtitles.length > 0 ? subtitles : base.subtitles,
   });
 }
 
@@ -599,6 +615,22 @@ export function mergeSeriesChannelWithXtreamInfo(
       const episodeId = String(ep.id);
       const ext = ep.container_extension ?? 'mp4';
       const epNum = asInt(ep.episode_num) ?? 1;
+      // Extract per-episode subtitles: root-level first, then info-level.
+      const epRawSubs = (ep as { subtitles?: unknown[] }).subtitles
+        ?? ep.info?.subtitles;
+      const epSubs = Array.isArray(epRawSubs)
+        ? epRawSubs
+            .filter(
+              (s): s is { url: string; language?: string; label?: string } =>
+                typeof (s as { url?: unknown })?.url === 'string' &&
+                ((s as { url: string }).url).length > 0
+            )
+            .map((s) => ({
+              url: s.url,
+              ...(s.language ? { language: s.language } : {}),
+              ...(s.label ? { label: s.label } : {}),
+            }))
+        : undefined;
       return {
         id: seriesId !== undefined
           ? `xtream:series:${seriesId}:s${seasonNumber}:e${epNum}:${episodeId}`
@@ -610,6 +642,7 @@ export function mergeSeriesChannelWithXtreamInfo(
         durationSeconds: asInt(ep.info?.duration_secs),
         plot: ep.info?.plot,
         xtreamEpisodeId: episodeId,
+        ...(epSubs && epSubs.length > 0 ? { subtitles: epSubs } : {}),
       };
     });
 
