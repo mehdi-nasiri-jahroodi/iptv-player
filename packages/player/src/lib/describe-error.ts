@@ -62,7 +62,7 @@ export function describeShakaError(
   if (friendly) {
     const hint =
       code === 1002 && options?.streamProxyConfigured === false
-        ? 'The browser may be blocking this stream (CORS). Open Settings and configure the stream proxy to route playback through your local proxy, or check your network and provider.'
+        ? 'This stream could not be loaded. Check your network and provider. If the issue persists, the browser may be blocking cross-origin requests (CORS) — you can optionally configure a stream proxy in Sources → Stream proxy to work around this.'
         : friendly.hint;
     return {
       headline: friendly.headline,

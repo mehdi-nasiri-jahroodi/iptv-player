@@ -180,11 +180,11 @@ export default function SettingsPage() {
       <section className="rounded-lg border border-border bg-surface p-5">
         <h2 className="text-lg font-medium text-foreground">Stream proxy</h2>
         <p className="mt-1 text-sm text-foreground-muted">
-          Browsers block most Xtream streams under CORS. Run the bundled{' '}
+          Optional: if streams fail to load due to CORS restrictions, run the bundled{' '}
           <code className="rounded bg-background px-1 py-0.5 text-xs">
             apps/web-proxy
           </code>{' '}
-          locally, then paste its URL and secret here. Native targets
+          locally, then paste its URL and secret here to route playback through it. Native targets
           (Android TV, webOS) play streams directly and ignore this
           setting.
         </p>

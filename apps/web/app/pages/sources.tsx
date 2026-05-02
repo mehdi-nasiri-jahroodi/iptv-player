@@ -362,9 +362,9 @@ function StreamProxySection() {
     <section className="rounded-lg border border-border bg-surface p-5" data-testid="settings-page">
       <h2 className="text-lg font-medium text-foreground">Stream proxy</h2>
       <p className="mt-1 text-sm text-foreground-muted">
-        Browsers block most Xtream streams under CORS. Run the bundled{' '}
+        Optional: if streams fail to load due to CORS restrictions, run the bundled{' '}
         <code className="rounded bg-background px-1 py-0.5 text-xs">apps/web-proxy</code>{' '}
-        locally, then paste its URL and secret here.
+        locally, then paste its URL and secret here to route playback through it.
       </p>
 
       <form onSubmit={handleSave} className="mt-5 space-y-4">
