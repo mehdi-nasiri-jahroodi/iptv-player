@@ -539,7 +539,41 @@ export function useShakaPlayer(
         };
         const onBuffering = (event: Event) => {
           const buf = (event as { buffering?: boolean }).buffering;
-          setBuffering(Boolean(buf));
+          const isBuffering = Boolean(buf);
+          setBuffering(isBuffering);
+
+          // Live-edge recovery: when a live stream stalls (e.g. upstream
+          // 403/404 storm) the player otherwise resumes from where the
+          // buffer left off, replaying segments the user already watched.
+          // The moment the player exits buffering on a live stream, snap
+          // forward to the live edge so playback never re-shows already-
+          // watched content. This is more aggressive than waiting for a
+          // stall threshold — the user explicitly does not want any
+          // visible replay under any circumstance.
+          if (isBuffering) return;
+          const video = videoRef.current;
+          const player = playerRef.current;
+          if (!video || !player) return;
+          const playerIsLive =
+            (player as { isLive?: () => boolean }).isLive?.() ?? false;
+          if (!playerIsLive) return;
+          const seekRange = (
+            player as { seekRange?: () => { start: number; end: number } }
+          ).seekRange?.();
+          if (!seekRange || !Number.isFinite(seekRange.end)) return;
+          // Leave a 2s safety margin behind the absolute live edge so the
+          // seek lands on a buffered segment instead of the very tip
+          // (which often hasn't been fetched yet).
+          const target = Math.max(seekRange.start, seekRange.end - 2);
+          // Only seek forward and only when the gap is meaningful (>1s);
+          // skip tiny adjustments to avoid visible micro-jumps during
+          // normal playback.
+          if (target - video.currentTime <= 1) return;
+          try {
+            video.currentTime = target;
+          } catch {
+            // Some browsers throw if seek is not yet allowed; ignore.
+          }
         };
         const onTracksChanged = () => refreshTracks();
         const onAdaptation = () => refreshTracks();
