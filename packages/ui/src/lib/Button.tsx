@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { useFocusable } from '@noriginmedia/norigin-spatial-navigation';
 
-export type ButtonVariant = 'primary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md';
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -17,6 +17,8 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
     'bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50',
+  secondary:
+    'border border-border bg-background text-foreground hover:bg-surface-raised disabled:opacity-50',
   ghost:
     'bg-transparent text-foreground hover:bg-surface-raised disabled:opacity-50',
   danger:
@@ -34,6 +36,8 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
  * Wraps Norigin's `useFocusable` so D-pad / arrow-key navigation works without
  * extra wiring. Visual focus uses the shared `shadow-focus` token from the
  * Tailwind preset; consumers should not override the focus ring.
+ *
+ * Variants: **primary** (accent fill), **secondary** (border + background), **ghost** (text-only), **danger**.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {

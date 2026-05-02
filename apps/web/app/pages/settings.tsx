@@ -6,9 +6,10 @@ import { getAppVersion } from '../lib/app-version';
 import { SettingsProfileSection } from '../components/settings-profile-section';
 import { SettingsStreamProxySection } from '../components/settings-stream-proxy-section';
 import { SettingsSourcesSection } from '../components/settings-sources-section';
+import { SettingsBackupSection } from '../components/settings-backup-section';
 
 /**
- * `/settings` — version, profile, sources, stream proxy, and legal-related prefs
+ * `/settings` — version, profile, sources, stream proxy, backup/restore, and legal-related prefs
  * (responsibility acknowledgement is still surfaced via the root modal).
  */
 export default function SettingsPage() {
@@ -51,6 +52,7 @@ export default function SettingsPage() {
           <SettingsProfileSection />
           <SettingsSourcesSection />
           <SettingsStreamProxySection />
+          <SettingsBackupSection />
         </Stack>
       </div>
     </main>

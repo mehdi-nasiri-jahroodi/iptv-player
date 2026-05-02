@@ -11,6 +11,7 @@ import { probeXtreamAccountSnapshot } from '../features/sources/probe-xtream-acc
 import { useCatalogStore, _getDefaultXtreamCache } from '../store/catalog-store';
 import { useSettingsStore } from '../store/settings-store';
 import { AddSourceModal } from './add-source-modal';
+import { LUMINA_BACKUP_APPLIED_EVENT } from '../features/backup/lumina-backup';
 
 function describeSource(source: Source): string {
   if (source.type === 'xtream') return `Xtream Codes · ${source.credentials?.host ?? ''}`;
@@ -39,6 +40,14 @@ export function SettingsSourcesSection() {
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    const onApplied = () => {
+      void reload();
+    };
+    window.addEventListener(LUMINA_BACKUP_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(LUMINA_BACKUP_APPLIED_EVENT, onApplied);
   }, [reload]);
 
   useEffect(() => {
@@ -303,11 +312,6 @@ export function SettingsSourcesSection() {
                             </Button>
                           ) : null}
                         </div>
-                        {source.type === 'xtream' && xtreamProbe.loading ? (
-                          <p className="mb-2 text-xs text-foreground-muted" data-testid="xtream-probe-loading">
-                            Fetching subscription info from the panel…
-                          </p>
-                        ) : null}
                         {source.type === 'xtream' && xtreamProbe.error ? (
                           <p role="alert" className="mb-2 text-xs text-danger">
                             {xtreamProbe.error}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, SourceForm, Stack, type SourceFormSubmission } from 'ui';
 import type { Source, SourceValidationResult } from 'core';
@@ -10,6 +10,7 @@ import {
 } from '../store/settings-store';
 import { readGuidedSourceSetupDone, setGuidedSourceSetupDone } from '../lib/guided-setup-storage';
 import { buildSourceDetailRows } from '../lib/source-detail-rows';
+import { importLuminaBackupFromJson } from '../features/backup/lumina-backup';
 
 /**
  * Guided first launch: add source → optional stream proxy → success summary → home.
@@ -29,6 +30,10 @@ export function FirstRunWizard() {
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxySecret, setProxySecret] = useState('');
   const [proxyError, setProxyError] = useState<string | null>(null);
+  const importBackupInputRef = useRef<HTMLInputElement>(null);
+  const [importBackupBusy, setImportBackupBusy] = useState(false);
+  const [importBackupError, setImportBackupError] = useState<string | null>(null);
+  const [importBackupNotice, setImportBackupNotice] = useState<string | null>(null);
   const sessionBootstrapped = useRef(false);
   const openRef = useRef(false);
   openRef.current = open;
@@ -118,6 +123,42 @@ export function FirstRunWizard() {
     setStep('success');
   }
 
+  async function handleImportBackupFile(ev: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file) return;
+
+    const ok = window.confirm(
+      'Replace all data on this device with this backup? Anything you already set here will be overwritten.'
+    );
+    if (!ok) return;
+
+    setImportBackupError(null);
+    setImportBackupNotice(null);
+    setImportBackupBusy(true);
+    try {
+      const text = await file.text();
+      const result = await importLuminaBackupFromJson(text);
+      if (!result.ok) {
+        setImportBackupError(result.message);
+        return;
+      }
+      if (result.sourcesCount > 0) {
+        setGuidedSourceSetupDone();
+        sessionBootstrapped.current = false;
+        setOpen(false);
+        setStep('source');
+        lastAdded.current = null;
+        setAddedSource(null);
+        void navigate('/');
+      } else {
+        setImportBackupNotice('Backup applied. This file had no sources — add one below.');
+      }
+    } finally {
+      setImportBackupBusy(false);
+    }
+  }
+
   function finishToHome(): void {
     setGuidedSourceSetupDone();
     sessionBootstrapped.current = false;
@@ -149,6 +190,37 @@ export function FirstRunWizard() {
               <p className="mt-2 text-sm text-foreground-muted">
                 Connect a playlist or Xtream Codes account. You can manage more sources later in Settings.
               </p>
+            </div>
+            <div className="rounded-lg border border-border bg-background px-4 py-3">
+              <p className="text-sm text-foreground-muted">
+                Already have a backup from another device? Restore it here — if it includes sources, setup continues
+                on the home screen.
+              </p>
+              <input
+                ref={importBackupInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                aria-hidden
+                tabIndex={-1}
+                onChange={(e) => void handleImportBackupFile(e)}
+              />
+              <div className="mt-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  focusKey="WIZARD_IMPORT_BACKUP"
+                  disabled={importBackupBusy}
+                  onClick={() => importBackupInputRef.current?.click()}
+                >
+                  {importBackupBusy ? 'Importing…' : 'Import backup…'}
+                </Button>
+              </div>
+              {importBackupError ? <p className="mt-2 text-sm text-danger">{importBackupError}</p> : null}
+              {importBackupNotice ? (
+                <p className="mt-2 text-sm text-foreground-muted">{importBackupNotice}</p>
+              ) : null}
             </div>
             <SourceForm
               initialMode="xtream"

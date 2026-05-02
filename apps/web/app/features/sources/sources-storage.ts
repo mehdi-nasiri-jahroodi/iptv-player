@@ -20,6 +20,14 @@ export class SourcesStore {
     return (await this.storage.get<SourcesState>(STORAGE_KEY)) ?? EMPTY;
   }
 
+  /** Replace persisted sources (import / restore). Overwrites previous data. */
+  async writeState(next: SourcesState): Promise<void> {
+    await this.storage.set(STORAGE_KEY, {
+      sources: [...next.sources],
+      activeSourceId: next.activeSourceId,
+    });
+  }
+
   async addSource(source: Source): Promise<SourcesState> {
     const current = await this.read();
     const next: SourcesState = {

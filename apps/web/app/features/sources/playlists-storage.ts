@@ -34,6 +34,13 @@ export class PlaylistsStore {
     return (await this.storage.get<PlaylistsState>(STORAGE_KEY)) ?? EMPTY;
   }
 
+  /** Replace all playlist snapshots (import / restore). Overwrites previous data. */
+  async writeState(next: PlaylistsState): Promise<void> {
+    await this.storage.set(STORAGE_KEY, {
+      bySourceId: { ...next.bySourceId },
+    });
+  }
+
   async getForSource(sourceId: string): Promise<Playlist | null> {
     const state = await this.read();
     return state.bySourceId[sourceId] ?? null;

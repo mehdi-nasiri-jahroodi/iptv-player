@@ -68,7 +68,8 @@ apps/web/
       browse-view.tsx         # live: rail + Favorites + groups; hero + table; **vod:** rail + Favorites + detail hero + poster grid (tile selects hero; **Watch** in hero → `/play`); **series:** rail + Favorites + detail hero (season tabs + episode list; Play per episode) + poster grid (tile selects hero; 2:3 tiles with season/episode count badge + watched strip)
       favorite-channel-button.tsx
       responsibility-notice.tsx  # first-launch legal ack (settings slice)
-      first-run-wizard.tsx       # optional guided setup: add source → proxy (skip) → success → home
+      first-run-wizard.tsx       # optional guided setup: add source → proxy (skip) → success → home; step 1 can import full-device backup
+      settings-backup-section.tsx  # Settings: export/import JSON backup (sources, M3U snapshots, profile, settings, guided + legal ack)
       add-source-modal.tsx       # Settings: add IPTV source (SourceForm) in a modal
       settings-stream-proxy-modal.tsx  # Settings: add/edit stream proxy form in a modal
       refresh-source-button.tsx  # ghost button → loadForSource(source, { force: true })
@@ -78,6 +79,8 @@ apps/web/
         playlists-storage.ts  # PlaylistsStore (parsed-Playlist snapshots per source)
         persist-validated-source.ts  # validate + persist + M3U snapshot; `createWebSourceFetchLike` for Xtream fetches
         probe-xtream-account-snapshot.ts  # login probe → `xtreamAccount` merge (Settings details refresh)
+      backup/
+        lumina-backup.ts        # v1 JSON backup: parse/export/import; clears catalog + Xtream cache; `LUMINA_BACKUP_APPLIED_EVENT`
       cache/
         indexeddb-cache-storage.ts  # XtreamCacheStorage adapter (IndexedDB)
     hooks/
