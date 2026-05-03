@@ -112,15 +112,15 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: A Gradle project that builds, installs on an Android TV emulator, and shows a blank Compose for TV screen with the Lumina color theme.
 
 **Tasks**:
-- [ ] Create Gradle project under `apps/android-tv/` with Kotlin DSL
-- [ ] Configure `build.gradle.kts` with Compose for TV dependencies
-- [ ] Set up `AndroidManifest.xml` with `android.software.leanback` and `android.hardware.touchscreen` (not required) declarations
-- [ ] Create `MainActivity.kt` with a `TvLazyColumn` placeholder
-- [ ] Import Lumina color tokens from `packages/config/tokens/iptv-tavern-palette.json` → Kotlin `Color` constants
-- [ ] Import semantic color roles from `iptv-semantic-colors.json` → Compose `MaterialTheme` / custom theme
-- [ ] Set up light/dark theme (Compose for TV `TvMaterialTheme`)
-- [ ] Create app icon (leanback banner: 320dp × 180dp)
-- [ ] Verify build: `./gradlew :apps:android-tv:assembleDebug`
+- [x] Create Gradle project under `apps/android-tv/` with Kotlin DSL
+- [x] Configure `build.gradle.kts` with Compose for TV dependencies
+- [x] Set up `AndroidManifest.xml` with `android.software.leanback` and `android.hardware.touchscreen` (not required) declarations
+- [x] Create `MainActivity.kt` with a `TvLazyColumn` placeholder
+- [x] Import Lumina color tokens from `packages/config/tokens/iptv-tavern-palette.json` → Kotlin `Color` constants
+- [x] Import semantic color roles from `iptv-semantic-colors.json` → Compose `MaterialTheme` / custom theme
+- [x] Set up light/dark theme (Compose for TV `TvMaterialTheme`)
+- [x] Create app icon (leanback banner: 320dp × 180dp)
+- [x] Verify build: `./gradlew :apps:android-tv:assembleDebug`
 
 **Web parity**: None — this is infrastructure.
 

@@ -313,7 +313,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
-| 1 — Project scaffold | pending | Gradle project, Compose for TV shell, Lumina theme |
+| 1 — Project scaffold | **done** | Gradle project, Compose for TV shell, Lumina theme |
 | 2 — Domain models | pending | Kotlin data classes, Room, DataStore, Hilt |
 | 3 — M3U parser | pending | Kotlin port of M3U parser + source validator |
 | 4 — Navigation shell | pending | Routes, first-run wizard, settings skeleton |
