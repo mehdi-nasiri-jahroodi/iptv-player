@@ -61,6 +61,7 @@ import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 @Composable
 fun BrowseScreen(
     kind: String,
+    onNavigateToPlayer: (channelId: String) -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
     val colors = LuminaTheme.colors
@@ -167,7 +168,7 @@ fun BrowseScreen(
                         isFavorite = channel.id in uiState.favorites,
                         onSelect = {
                             viewModel.addRecent(channel.id)
-                            // Phase 7: navigate to player
+                            onNavigateToPlayer(channel.id)
                         },
                         onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                     )

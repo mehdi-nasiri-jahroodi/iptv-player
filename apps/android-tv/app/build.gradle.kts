@@ -97,6 +97,14 @@ dependencies {
     // Coil — Compose-native image loading (channel logos, posters)
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Media3 / ExoPlayer — video playback
+    val media3Version = "1.5.1"
+    implementation("androidx.media3:media3-exoplayer:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
+    implementation("androidx.media3:media3-ui:$media3Version")
+    implementation("androidx.media3:media3-session:$media3Version")
+
     // Compose Material Icons (for sidebar icons)
     implementation("androidx.compose.material:material-icons-extended")
 

@@ -55,6 +55,7 @@ import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 fun HomeScreen(
     onNavigateToBrowse: (kind: String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToPlayer: (channelId: String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val colors = LuminaTheme.colors
@@ -179,7 +180,7 @@ fun HomeScreen(
                     items(uiState.recentChannels, key = { it.id }) { channel ->
                         RecentChannelCard(
                             channel = channel,
-                            onClick = { /* Phase 7: navigate to player */ },
+                            onClick = { onNavigateToPlayer(channel.id) },
                         )
                     }
                 }

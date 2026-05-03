@@ -313,7 +313,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 | 4 — Navigation shell | **done** | Routes, first-run wizard, settings skeleton |
 | 5 — Add Source | **done** | M3U URL + file import form |
 | 6 — Live TV browser | **done** | Home, groups, channel list, favorites, search |
-| 7 — Live playback | pending | Media3 player, D-pad controls, channel zapping |
+| 7 — Live playback | **done** | Media3 player, D-pad controls, channel zapping |
 | 8 — Xtream Codes | pending | Xtream API client, login, catalog fetch |
 | 9 — VOD browser | pending | Poster grid, detail hero, VOD playback |
 | 10 — EPG | pending | XMLTV parser, now/next, schedule screen |

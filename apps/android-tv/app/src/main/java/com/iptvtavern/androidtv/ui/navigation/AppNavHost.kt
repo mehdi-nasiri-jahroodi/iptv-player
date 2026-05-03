@@ -34,6 +34,9 @@ fun AppNavHost(
             HomeScreen(
                 onNavigateToBrowse = { kind -> navController.navigate(Routes.browse(kind)) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                onNavigateToPlayer = { channelId ->
+                    navController.navigate(Routes.play(channelId))
+                },
             )
         }
 
@@ -42,11 +45,21 @@ fun AppNavHost(
             arguments = listOf(navArgument("kind") { type = NavType.StringType }),
         ) { backStackEntry ->
             val kind = backStackEntry.arguments?.getString("kind") ?: "live"
-            BrowseScreen(kind = kind)
+            BrowseScreen(
+                kind = kind,
+                onNavigateToPlayer = { channelId ->
+                    navController.navigate(Routes.play(channelId))
+                },
+            )
         }
 
-        composable(Routes.PLAY) {
-            PlayerScreen()
+        composable(
+            route = Routes.PLAY,
+            arguments = listOf(navArgument("channelId") { type = NavType.StringType }),
+        ) {
+            PlayerScreen(
+                onNavigateBack = { navController.popBackStack() },
+            )
         }
 
         composable(Routes.SETTINGS) {
@@ -77,7 +90,6 @@ fun AppNavHost(
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onFinished = {
-                    // Navigate to Home and clear the onboarding from back stack
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
