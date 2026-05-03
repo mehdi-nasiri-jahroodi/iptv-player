@@ -140,7 +140,15 @@ fun PlayerScreen(
                             viewModel.channelDown()
                             true
                         }
-                        else -> false
+                        else -> {
+                            // Green button = previous channel
+                            if (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
+                                event.key == Key.G
+                            ) {
+                                viewModel.previousChannel()
+                                true
+                            } else false
+                        }
                     }
                 } else false
             }
@@ -337,6 +345,30 @@ private fun ControlsOverlay(
                             onClick = { onSelectSubtitleTrack(track.groupIndex, track.index) },
                         )
                     }
+                }
+            }
+
+            // Color button hints
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Green = previous channel
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .background(Color(0xFF22C55E), CircleShape),
+                    )
+                    Text(
+                        text = "Previous channel",
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 12.sp,
+                    )
                 }
             }
         }

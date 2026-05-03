@@ -38,6 +38,14 @@ data class BrowseUiState(
     val searchQuery: String = "",
     val favorites: Set<String> = emptySet(),
     val error: String? = null,
+    /** Channel currently playing in the mini player (null = no mini player). */
+    val playingChannel: Channel? = null,
+    /** True when the user is reordering groups (Red button toggle). */
+    val isReorderingGroups: Boolean = false,
+    /** Search/filter query for the groups sidebar. */
+    val groupSearchQuery: String = "",
+    /** Groups filtered by groupSearchQuery (used for display). */
+    val filteredGroups: List<ChannelGroup> = emptyList(),
 )
 
 @HiltViewModel
@@ -53,6 +61,10 @@ class BrowseViewModel @Inject constructor(
 
     private var allGroups: List<ChannelGroup> = emptyList()
     private var allChannels: List<Channel> = emptyList()
+    /** Cached source ID so we can persist group order per-source. */
+    private var currentSourceId: String? = null
+    /** Custom group order loaded from DataStore (null = use playlist order). */
+    private var customGroupOrder: List<String>? = null
 
     init {
         loadCatalog()
@@ -106,6 +118,10 @@ class BrowseViewModel @Inject constructor(
 
             allGroups = playlist.groups
             allChannels = playlist.groups.flatMap { it.channels }
+            currentSourceId = source.id
+
+            // Load persisted custom group order for this source
+            customGroupOrder = settingsDataStore.getGroupOrder(source.id)
 
             // Build groups list with a "Favorites" virtual group at top
             val displayGroups = buildDisplayGroups(playlist.groups, favSet)
@@ -113,6 +129,7 @@ class BrowseViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 groups = displayGroups,
+                filteredGroups = displayGroups,
                 selectedGroupIndex = 0,
                 channels = displayGroups.firstOrNull()?.channels.orEmpty(),
                 favorites = favSet,
@@ -155,7 +172,7 @@ class BrowseViewModel @Inject constructor(
     ): List<ChannelGroup> {
         val result = mutableListOf<ChannelGroup>()
 
-        // Favorites virtual group
+        // Favorites virtual group — always pinned at top
         val favChannels = allChannels.filter { it.id in favorites }
         if (favChannels.isNotEmpty()) {
             result.add(
@@ -168,7 +185,7 @@ class BrowseViewModel @Inject constructor(
             )
         }
 
-        // "All" virtual group
+        // "All" virtual group — always second
         result.add(
             ChannelGroup(
                 id = "__all__",
@@ -178,12 +195,22 @@ class BrowseViewModel @Inject constructor(
             )
         )
 
-        result.addAll(groups)
+        // Apply custom order if available, otherwise use playlist order
+        val orderedGroups = customGroupOrder?.let { order ->
+            val byId = groups.associateBy { it.id }
+            val ordered = order.mapNotNull { byId[it] }
+            // Append any new groups not in the saved order (added after last save)
+            val seen = order.toSet()
+            val remaining = groups.filter { it.id !in seen }
+            ordered + remaining
+        } ?: groups
+
+        result.addAll(orderedGroups)
         return result
     }
 
     fun selectGroup(index: Int) {
-        val groups = _uiState.value.groups
+        val groups = _uiState.value.filteredGroups
         if (index !in groups.indices) return
 
         val group = groups[index]
@@ -198,12 +225,30 @@ class BrowseViewModel @Inject constructor(
 
     fun updateSearch(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
-        val groups = _uiState.value.groups
+        val groups = _uiState.value.filteredGroups
         val groupIndex = _uiState.value.selectedGroupIndex
         if (groupIndex in groups.indices) {
             val filtered = filterChannels(groups[groupIndex].channels, query)
             _uiState.value = _uiState.value.copy(channels = filtered)
         }
+    }
+
+    fun updateGroupSearch(query: String) {
+        val allDisplayGroups = _uiState.value.groups
+        val filtered = if (query.isBlank()) {
+            allDisplayGroups
+        } else {
+            val lower = query.lowercase()
+            allDisplayGroups.filter {
+                it.id.startsWith("__") || it.name.lowercase().contains(lower)
+            }
+        }
+        _uiState.value = _uiState.value.copy(
+            groupSearchQuery = query,
+            filteredGroups = filtered,
+            selectedGroupIndex = 0,
+            channels = filtered.firstOrNull()?.channels.orEmpty(),
+        )
     }
 
     private fun filterChannels(channels: List<Channel>, query: String): List<Channel> {
@@ -222,15 +267,26 @@ class BrowseViewModel @Inject constructor(
 
             // Rebuild groups with updated favorites
             val displayGroups = buildDisplayGroups(allGroups, current)
-            val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(displayGroups.indices)
+            // Re-apply group search filter
+            val groupQuery = _uiState.value.groupSearchQuery
+            val filtered = if (groupQuery.isBlank()) {
+                displayGroups
+            } else {
+                val lower = groupQuery.lowercase()
+                displayGroups.filter {
+                    it.id.startsWith("__") || it.name.lowercase().contains(lower)
+                }
+            }
+            val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
             val query = _uiState.value.searchQuery
-            val filtered = filterChannels(displayGroups[groupIndex].channels, query)
+            val channelFiltered = filterChannels(filtered[groupIndex].channels, query)
 
             _uiState.value = _uiState.value.copy(
                 favorites = current,
                 groups = displayGroups,
+                filteredGroups = filtered,
                 selectedGroupIndex = groupIndex,
-                channels = filtered,
+                channels = channelFiltered,
             )
         }
     }
@@ -238,6 +294,82 @@ class BrowseViewModel @Inject constructor(
     fun addRecent(channelId: String) {
         viewModelScope.launch {
             profileRepository.addRecent(channelId)
+        }
+    }
+
+    /** Set channel to play in the inline mini player. */
+    fun playInMiniPlayer(channel: Channel) {
+        _uiState.value = _uiState.value.copy(playingChannel = channel)
+        viewModelScope.launch {
+            profileRepository.addRecent(channel.id)
+        }
+    }
+
+    /** Stop the mini player — call before navigating away. */
+    fun stopMiniPlayer() {
+        _uiState.value = _uiState.value.copy(playingChannel = null)
+    }
+
+    // ── Group reorder ───────────────────────────────────────────
+
+    /** Toggle reorder mode (Red button). */
+    fun toggleReorderMode() {
+        val wasReordering = _uiState.value.isReorderingGroups
+        _uiState.value = _uiState.value.copy(isReorderingGroups = !wasReordering)
+
+        // When exiting reorder mode, persist the current order
+        if (wasReordering) {
+            saveGroupOrder()
+        }
+    }
+
+    /**
+     * Move the currently selected group up or down.
+     * Only real groups can be moved — virtual groups (__favorites__, __all__)
+     * are pinned and cannot be reordered.
+     *
+     * @param direction -1 = move up, +1 = move down
+     */
+    fun moveGroup(direction: Int) {
+        val state = _uiState.value
+        if (!state.isReorderingGroups) return
+
+        val groups = state.groups.toMutableList()
+        val idx = state.selectedGroupIndex
+
+        // Count virtual groups at top (they're pinned)
+        val pinnedCount = groups.count { it.id.startsWith("__") }
+
+        // Can't move virtual groups
+        if (idx < pinnedCount) return
+
+        val targetIdx = idx + direction
+        // Can't move outside the real-group range
+        if (targetIdx < pinnedCount || targetIdx >= groups.size) return
+
+        // Swap
+        val temp = groups[idx]
+        groups[idx] = groups[targetIdx]
+        groups[targetIdx] = temp
+
+        _uiState.value = state.copy(
+            groups = groups,
+            selectedGroupIndex = targetIdx,
+        )
+    }
+
+    private fun saveGroupOrder() {
+        val sourceId = currentSourceId ?: return
+        // Extract only real group IDs (skip virtual groups)
+        val realGroupIds = _uiState.value.groups
+            .filter { !it.id.startsWith("__") }
+            .map { it.id }
+
+        // Also update the in-memory cache so future buildDisplayGroups calls use it
+        customGroupOrder = realGroupIds
+
+        viewModelScope.launch {
+            settingsDataStore.setGroupOrder(sourceId, realGroupIds)
         }
     }
 }

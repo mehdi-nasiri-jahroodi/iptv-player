@@ -18,8 +18,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.iptvtavern.androidtv.ui.navigation.AppNavHost
 import com.iptvtavern.androidtv.ui.navigation.Routes
-import com.iptvtavern.androidtv.ui.navigation.SIDEBAR_ITEMS
-import com.iptvtavern.androidtv.ui.navigation.SidebarNavigation
+import com.iptvtavern.androidtv.ui.navigation.TAB_ITEMS
+import com.iptvtavern.androidtv.ui.navigation.TopTabNavigation
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
  * Root composable — determines whether to show onboarding or the main app.
  *
  * Checks if any sources exist. If not, starts at onboarding.
- * Once onboarding is complete (or sources exist), shows the sidebar + NavHost.
+ * Once onboarding is complete (or sources exist), shows the top tab bar + NavHost.
  */
 @Composable
 fun AppRoot(
@@ -74,28 +74,28 @@ fun AppRoot(
     val navController = rememberNavController()
     val startDestination = if (hasCompletedSetup == true) Routes.HOME else Routes.ONBOARDING
 
-    // Track which sidebar item is selected
-    var selectedSidebarIndex by rememberSaveable { mutableIntStateOf(0) }
+    // Track which tab is selected
+    var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
-    // Determine if sidebar should be visible (not during onboarding, player, or add-source)
+    // Determine if top tabs should be visible (not during onboarding, player, or add-source)
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
-    val showSidebar = currentRoute != null &&
+    val showTabs = currentRoute != null &&
         currentRoute != Routes.ONBOARDING &&
         currentRoute != Routes.PLAY &&
         currentRoute != Routes.ADD_SOURCE &&
         currentRoute != Routes.EDIT_SOURCE
 
-    if (showSidebar) {
-        SidebarNavigation(
-            selectedIndex = selectedSidebarIndex,
+    if (showTabs) {
+        TopTabNavigation(
+            selectedIndex = selectedTabIndex,
             onItemSelected = { index, route ->
-                selectedSidebarIndex = index
+                selectedTabIndex = index
                 navController.navigate(route) {
-                    // Pop up to home to avoid building up a large back stack
-                    popUpTo(Routes.HOME) { saveState = true }
+                    popUpTo(Routes.HOME) {
+                        inclusive = route == Routes.HOME
+                    }
                     launchSingleTop = true
-                    restoreState = true
                 }
             },
         ) {

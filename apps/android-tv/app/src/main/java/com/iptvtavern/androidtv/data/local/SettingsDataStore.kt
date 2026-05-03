@@ -11,6 +11,7 @@ import com.iptvtavern.androidtv.domain.model.AppSettings
 import com.iptvtavern.androidtv.domain.model.AppTheme
 import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /**
@@ -78,6 +79,27 @@ class SettingsDataStore(private val dataStore: DataStore<Preferences>) {
             } else {
                 prefs.remove(ACTIVE_SOURCE_ID)
             }
+        }
+    }
+
+    // ── Group order (per-source) ──────────────────────────────────
+    // Key format: "group_order_<sourceId>"
+    // Value: comma-separated group IDs in the user's preferred order.
+    // Virtual groups (__favorites__, __all__) are excluded — they are
+    // always pinned at the top by BrowseViewModel.
+
+    /** Read persisted group order for a source. Returns null if none saved. */
+    suspend fun getGroupOrder(sourceId: String): List<String>? {
+        val key = stringPreferencesKey("group_order_$sourceId")
+        val raw = dataStore.data.first()[key] ?: return null
+        return raw.split(",").filter { it.isNotBlank() }
+    }
+
+    /** Persist custom group order for a source. */
+    suspend fun setGroupOrder(sourceId: String, orderedGroupIds: List<String>) {
+        val key = stringPreferencesKey("group_order_$sourceId")
+        dataStore.edit { prefs ->
+            prefs[key] = orderedGroupIds.joinToString(",")
         }
     }
 
