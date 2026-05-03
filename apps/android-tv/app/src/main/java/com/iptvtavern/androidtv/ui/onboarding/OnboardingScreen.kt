@@ -1,0 +1,349 @@
+package com.iptvtavern.androidtv.ui.onboarding
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.tv.material3.Text
+import com.iptvtavern.androidtv.ui.settings.FocusableButton
+import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+
+/**
+ * First-run onboarding wizard.
+ *
+ * Steps:
+ * 1. Responsibility notice — legal acknowledgement (same text as web)
+ * 2. Add source — M3U URL input with validation
+ * 3. Profile name — set display name
+ * 4. Done — navigate to Home
+ *
+ * Web equivalent: `responsibility-notice.tsx` + `first-run-wizard.tsx`
+ */
+@Composable
+fun OnboardingScreen(
+    onFinished: () -> Unit,
+    viewModel: OnboardingViewModel = hiltViewModel(),
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    // When step reaches DONE, trigger navigation
+    LaunchedEffect(uiState.step) {
+        if (uiState.step == OnboardingStep.DONE) {
+            onFinished()
+        }
+    }
+
+    when (uiState.step) {
+        OnboardingStep.RESPONSIBILITY -> ResponsibilityStep(
+            onAccept = viewModel::acknowledgeResponsibility,
+        )
+        OnboardingStep.ADD_SOURCE -> AddSourceStep(
+            sourceUrl = uiState.sourceUrl,
+            sourceLabel = uiState.sourceLabel,
+            isValidating = uiState.isValidating,
+            validationError = uiState.validationError,
+            onUrlChange = viewModel::updateSourceUrl,
+            onLabelChange = viewModel::updateSourceLabel,
+            onSubmit = viewModel::validateAndAddSource,
+            onSkip = viewModel::skipSource,
+        )
+        OnboardingStep.PROFILE_NAME -> ProfileNameStep(
+            profileName = uiState.profileName,
+            onNameChange = viewModel::updateProfileName,
+            onFinish = viewModel::saveProfileAndFinish,
+        )
+        OnboardingStep.DONE -> {
+            // Handled by LaunchedEffect above
+        }
+    }
+}
+
+// ── Step 1: Responsibility Notice ───────────────────────────────────────
+
+@Composable
+private fun ResponsibilityStep(onAccept: () -> Unit) {
+    val colors = LuminaTheme.colors
+
+    WizardFrame(
+        stepLabel = "Before you stream",
+        stepNumber = null,
+    ) {
+        Text(
+            text = "You are responsible for the content you access. " +
+                "This app does not host channels or playlists. " +
+                "Only stream content you have the right to view.",
+            color = colors.foreground,
+            fontSize = 18.sp,
+            lineHeight = 28.sp,
+            modifier = Modifier.padding(bottom = 32.dp),
+        )
+
+        FocusableButton(
+            text = "I understand",
+            onClick = onAccept,
+        )
+    }
+}
+
+// ── Step 2: Add Source ──────────────────────────────────────────────────
+
+@Composable
+private fun AddSourceStep(
+    sourceUrl: String,
+    sourceLabel: String,
+    isValidating: Boolean,
+    validationError: String?,
+    onUrlChange: (String) -> Unit,
+    onLabelChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+
+    WizardFrame(
+        stepLabel = "Step 1 of 2",
+        stepNumber = null,
+    ) {
+        Text(
+            text = "Add your first source",
+            color = colors.foreground,
+            fontSize = 22.sp,
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
+
+        // Source label
+        Text(
+            text = "Label",
+            color = colors.foregroundMuted,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        TvTextField(
+            value = sourceLabel,
+            onValueChange = onLabelChange,
+            placeholder = "My Source",
+            modifier = Modifier.padding(bottom = 16.dp),
+        )
+
+        // URL input
+        Text(
+            text = "M3U Playlist URL",
+            color = colors.foregroundMuted,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        TvTextField(
+            value = sourceUrl,
+            onValueChange = onUrlChange,
+            placeholder = "https://example.com/playlist.m3u",
+            imeAction = ImeAction.Done,
+            onImeAction = onSubmit,
+        )
+
+        // Validation error
+        if (validationError != null) {
+            Text(
+                text = validationError,
+                color = colors.danger,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        // Loading indicator
+        if (isValidating) {
+            Text(
+                text = "Validating source...",
+                color = colors.foregroundMuted,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            FocusableButton(
+                text = "Add & Continue",
+                onClick = onSubmit,
+            )
+            FocusableButton(
+                text = "Skip for now",
+                onClick = onSkip,
+            )
+        }
+    }
+}
+
+// ── Step 3: Profile Name ────────────────────────────────────────────────
+
+@Composable
+private fun ProfileNameStep(
+    profileName: String,
+    onNameChange: (String) -> Unit,
+    onFinish: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+
+    WizardFrame(
+        stepLabel = "Step 2 of 2",
+        stepNumber = null,
+    ) {
+        Text(
+            text = "What should we call you?",
+            color = colors.foreground,
+            fontSize = 22.sp,
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
+
+        TvTextField(
+            value = profileName,
+            onValueChange = onNameChange,
+            placeholder = "User",
+            imeAction = ImeAction.Done,
+            onImeAction = onFinish,
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        FocusableButton(
+            text = "Let's go!",
+            onClick = onFinish,
+        )
+    }
+}
+
+// ── Shared components ───────────────────────────────────────────────────
+
+/**
+ * Centered wizard frame with a step label and content area.
+ */
+@Composable
+private fun WizardFrame(
+    stepLabel: String,
+    stepNumber: Int?,
+    content: @Composable () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 600.dp)
+                .background(colors.surface, RoundedCornerShape(16.dp))
+                .padding(48.dp),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Text(
+                text = stepLabel,
+                color = colors.accent,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            content()
+        }
+    }
+}
+
+/**
+ * Text input field styled for TV (large text, visible focus border).
+ *
+ * On Android TV, text input opens the on-screen keyboard when the field
+ * is focused and the user presses Select/Enter. This is different from
+ * web where the keyboard is always available.
+ */
+@Composable
+fun TvTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String = "",
+    modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Next,
+    onImeAction: (() -> Unit)? = null,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        textStyle = TextStyle(
+            color = colors.foreground,
+            fontSize = 18.sp,
+        ),
+        cursorBrush = SolidColor(colors.accent),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = imeAction),
+        keyboardActions = KeyboardActions(
+            onDone = { onImeAction?.invoke() },
+            onNext = { onImeAction?.invoke() },
+        ),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.backgroundSubtle, RoundedCornerShape(8.dp))
+                    .border(
+                        width = 2.dp,
+                        color = if (isFocused) colors.accent else colors.border,
+                        shape = RoundedCornerShape(8.dp),
+                    )
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = colors.foregroundMuted,
+                        fontSize = 18.sp,
+                    )
+                }
+                innerTextField()
+            }
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
+    )
+}

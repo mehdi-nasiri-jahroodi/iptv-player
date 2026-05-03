@@ -223,18 +223,18 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Users can add an M3U source by URL or file import, validate it, and persist it.
 
 **Tasks**:
-- [ ] Build **Add Source** screen with Compose for TV form:
+- [x] Build **Add Source** screen with Compose for TV form:
   - URL text input (with on-screen keyboard support)
-  - File picker (Android Storage Access Framework)
-  - Optional: paste raw M3U text
+  - File picker (Android Storage Access Framework) — deferred (URL covers primary use case)
+  - Optional: paste raw M3U text — deferred
   - Per-source User-Agent field (optional, advanced)
   - EPG URL field (optional)
-- [ ] Integrate `SourceValidator` — show loading, success, or error states
+- [x] Integrate `SourceValidator` — show loading, success, or error states
   - Error messages must be actionable (same copy as web where possible)
-- [ ] On success: persist source + parsed playlist to Room
-- [ ] Show source in Settings → Sources list
-- [ ] Allow **edit** and **delete** existing sources from Settings
-- [ ] D-pad: all form fields navigable, submit with Select button
+- [x] On success: persist source + parsed playlist to Room
+- [x] Show source in Settings → Sources list
+- [x] Allow **edit** and **delete** existing sources from Settings
+- [x] D-pad: all form fields navigable, submit with Select button
 
 **Web parity**: `packages/ui/src/lib/SourceForm.tsx`, `apps/web/app/features/sources/`.
 
