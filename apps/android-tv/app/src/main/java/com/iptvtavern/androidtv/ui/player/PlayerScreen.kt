@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -85,6 +86,16 @@ fun PlayerScreen(
         }
     }
 
+    // Tick position every 500ms while VOD overlay is visible
+    LaunchedEffect(uiState.showOverlay, uiState.isVod) {
+        if (uiState.showOverlay && uiState.isVod) {
+            while (true) {
+                delay(500)
+                viewModel.updatePositionIfVod()
+            }
+        }
+    }
+
     // Request focus on the root so key events are captured
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -124,8 +135,22 @@ fun PlayerScreen(
                             }
                             true
                         }
-                        Key.DirectionLeft, Key.DirectionRight -> {
-                            viewModel.showOverlay()
+                        Key.DirectionLeft -> {
+                            if (uiState.isVod) {
+                                viewModel.seekBackward()
+                                viewModel.showOverlay()
+                            } else {
+                                viewModel.showOverlay()
+                            }
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            if (uiState.isVod) {
+                                viewModel.seekForward()
+                                viewModel.showOverlay()
+                            } else {
+                                viewModel.showOverlay()
+                            }
                             true
                         }
                         Key.MediaPlayPause -> {
@@ -206,6 +231,8 @@ fun PlayerScreen(
                 onPlayPause = viewModel::togglePlayPause,
                 onChannelUp = viewModel::channelUp,
                 onChannelDown = viewModel::channelDown,
+                onSeekForward = viewModel::seekForward,
+                onSeekBackward = viewModel::seekBackward,
                 onSelectAudioTrack = viewModel::selectAudioTrack,
                 onSelectSubtitleTrack = viewModel::selectSubtitleTrack,
                 onDisableSubtitles = viewModel::disableSubtitles,
@@ -224,6 +251,8 @@ private fun ControlsOverlay(
     onPlayPause: () -> Unit,
     onChannelUp: () -> Unit,
     onChannelDown: () -> Unit,
+    onSeekForward: () -> Unit,
+    onSeekBackward: () -> Unit,
     onSelectAudioTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onSelectSubtitleTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onDisableSubtitles: () -> Unit,
@@ -266,15 +295,26 @@ private fun ControlsOverlay(
                 )
             }
 
-            // Live badge
-            Text(
-                text = "LIVE",
-                color = Color.White,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .background(Color(0xFFE53935), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+            // Badge: LIVE or VOD duration
+            if (uiState.isVod) {
+                Text(
+                    text = "VOD",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .background(Color(0xFF1E88E5), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            } else {
+                Text(
+                    text = "LIVE",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .background(Color(0xFFE53935), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
         }
 
         // Bottom: controls bar
@@ -285,6 +325,41 @@ private fun ControlsOverlay(
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .align(Alignment.BottomCenter),
         ) {
+            // VOD seek bar
+            if (uiState.isVod && uiState.durationMs > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = formatMs(uiState.positionMs),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp)
+                            .height(6.dp)
+                            .background(Color(0xFF424242), RoundedCornerShape(3.dp)),
+                    ) {
+                        val fraction = (uiState.positionMs.toFloat() / uiState.durationMs).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction)
+                                .background(Color(0xFF1E88E5), RoundedCornerShape(3.dp)),
+                        )
+                    }
+                    Text(
+                        text = formatMs(uiState.durationMs),
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 14.sp,
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             // Playback controls row
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -294,14 +369,25 @@ private fun ControlsOverlay(
                     text = if (uiState.isPlaying) "⏸ Pause" else "▶ Play",
                     onClick = onPlayPause,
                 )
-                FocusableButton(
-                    text = "▲ Ch+",
-                    onClick = onChannelUp,
-                )
-                FocusableButton(
-                    text = "▼ Ch−",
-                    onClick = onChannelDown,
-                )
+                if (uiState.isVod) {
+                    FocusableButton(
+                        text = "⏪ −10s",
+                        onClick = onSeekBackward,
+                    )
+                    FocusableButton(
+                        text = "⏩ +10s",
+                        onClick = onSeekForward,
+                    )
+                } else {
+                    FocusableButton(
+                        text = "▲ Ch+",
+                        onClick = onChannelUp,
+                    )
+                    FocusableButton(
+                        text = "▼ Ch−",
+                        onClick = onChannelDown,
+                    )
+                }
             }
 
             // Track pickers (only if tracks available)
@@ -373,6 +459,15 @@ private fun ControlsOverlay(
             }
         }
     }
+}
+
+/** Format milliseconds as H:MM:SS or M:SS. */
+private fun formatMs(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 @Composable

@@ -140,6 +140,28 @@ object XtreamClient {
         return json.decodeFromString(fetchText(url))
     }
 
+    suspend fun fetchVodInfo(credentials: XtreamCredentials, vodId: Int): XtreamVodInfo {
+        val url = buildPlayerApiUrl(credentials, "get_vod_info", mapOf("vod_id" to "$vodId"))
+        return json.decodeFromString(fetchText(url))
+    }
+
+    /**
+     * Fetch VOD info with caching. Uses XtreamCache's 24h TTL for `get_vod_info`.
+     */
+    suspend fun fetchVodInfoCached(
+        credentials: XtreamCredentials,
+        vodId: Int,
+        cache: XtreamCache?,
+    ): XtreamVodInfo = withContext(Dispatchers.IO) {
+        val url = buildPlayerApiUrl(credentials, "get_vod_info", mapOf("vod_id" to "$vodId"))
+        val text = if (cache != null) {
+            cache.fetchCached(url, credentials)
+        } else {
+            fetchTextRaw(url)
+        }
+        json.decodeFromString(text)
+    }
+
     // ── Wire → Domain mappers ────────────────────────────────────
 
     fun toLiveChannel(
@@ -181,6 +203,61 @@ object XtreamClient {
             containerExtension = ext,
             xtreamStreamId = streamId,
         )
+    }
+
+    /**
+     * Merge a base VodChannel with detailed info from `get_vod_info`.
+     *
+     * Ported from web's `mergeVodChannelWithXtreamInfo` in
+     * `packages/core/src/lib/xtream.ts`.
+     *
+     * The base channel comes from the catalog listing (has name, group,
+     * streamUrl, basic fields). The info response fills in plot, cast,
+     * director, trailer, backdrop, better rating, duration, etc.
+     */
+    fun mergeVodChannelWithXtreamInfo(
+        base: Channel.Vod,
+        info: XtreamVodInfo,
+    ): Channel.Vod {
+        val data = info.info ?: return base
+
+        val rating = jsonElementToDouble(data.rating5based) ?: base.rating
+        val durationSecs = jsonElementToInt(data.durationSecs) ?: base.durationSeconds
+        val yearFromDate = data.releasedate
+            ?.take(4)
+            ?.toIntOrNull()
+        val trailerUrl = normalizeYoutubeTrailerUrl(data.youtubeTrailer)
+        val backdropUrl = data.backdropPath?.firstOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { asUrl(it) }
+
+        return base.copy(
+            plot = data.plot?.takeIf { it.isNotBlank() } ?: base.plot,
+            cast = data.cast?.takeIf { it.isNotBlank() } ?: base.cast,
+            director = data.director?.takeIf { it.isNotBlank() } ?: base.director,
+            genre = data.genre?.takeIf { it.isNotBlank() } ?: base.genre,
+            trailerUrl = trailerUrl ?: base.trailerUrl,
+            rating = rating,
+            year = yearFromDate ?: base.year,
+            durationSeconds = durationSecs,
+            posterUrl = asUrl(data.movieImage) ?: base.posterUrl,
+            backdropUrl = backdropUrl ?: base.backdropUrl,
+        )
+    }
+
+    /**
+     * Normalize YouTube trailer URLs.
+     * Handles: full URLs, short URLs, just video IDs.
+     */
+    private fun normalizeYoutubeTrailerUrl(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("http")) return trimmed
+        // Looks like a bare video ID (11 chars, alphanumeric)
+        if (trimmed.length == 11 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+            return "https://www.youtube.com/watch?v=$trimmed"
+        }
+        return null
     }
 
     fun toSeriesChannel(

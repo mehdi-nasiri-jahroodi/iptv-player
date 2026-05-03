@@ -69,6 +69,12 @@ data class PlayerUiState(
     /** Current channel index in the flat channel list (for zapping). */
     val channelIndex: Int = -1,
     val totalChannels: Int = 0,
+    /** True if this is a VOD/seekable stream (not live). */
+    val isVod: Boolean = false,
+    /** Current playback position in ms (VOD). */
+    val positionMs: Long = 0,
+    /** Total duration in ms (VOD). */
+    val durationMs: Long = 0,
 )
 
 @HiltViewModel
@@ -233,6 +239,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         currentChannelId = channel.id
+        val isVod = channel is Channel.Vod
 
         _uiState.value = _uiState.value.copy(
             isLoading = true,
@@ -245,6 +252,9 @@ class PlayerViewModel @Inject constructor(
             showOverlay = true,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
+            isVod = isVod,
+            positionMs = 0,
+            durationMs = 0,
         )
 
         val mediaItem = MediaItem.fromUri(channel.streamUrl)
@@ -305,11 +315,41 @@ class PlayerViewModel @Inject constructor(
 
     fun showOverlay() {
         _uiState.value = _uiState.value.copy(showOverlay = true)
+        updatePositionIfVod()
     }
 
     fun hideOverlay() {
         if (_uiState.value.error == null) {
             _uiState.value = _uiState.value.copy(showOverlay = false)
+        }
+    }
+
+    // ── Seeking (VOD) ────────────────────────────────────────────
+
+    /** Seek forward by 10 seconds. */
+    fun seekForward() {
+        val pos = player.currentPosition
+        val dur = player.duration
+        if (dur > 0) {
+            player.seekTo(minOf(pos + 10_000, dur))
+            updatePositionIfVod()
+        }
+    }
+
+    /** Seek backward by 10 seconds. */
+    fun seekBackward() {
+        val pos = player.currentPosition
+        player.seekTo(maxOf(pos - 10_000, 0))
+        updatePositionIfVod()
+    }
+
+    /** Update position/duration state for the scrubber display. */
+    fun updatePositionIfVod() {
+        if (_uiState.value.isVod) {
+            _uiState.value = _uiState.value.copy(
+                positionMs = player.currentPosition,
+                durationMs = player.duration.coerceAtLeast(0),
+            )
         }
     }
 

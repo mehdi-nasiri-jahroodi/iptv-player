@@ -12,6 +12,7 @@ import com.iptvtavern.androidtv.ui.home.HomeScreen
 import com.iptvtavern.androidtv.ui.onboarding.OnboardingScreen
 import com.iptvtavern.androidtv.ui.player.PlayerScreen
 import com.iptvtavern.androidtv.ui.settings.SettingsScreen
+import com.iptvtavern.androidtv.ui.vod.VodBrowseScreen
 
 /**
  * App-level NavHost — the "router" for the Android TV app.
@@ -45,12 +46,19 @@ fun AppNavHost(
             arguments = listOf(navArgument("kind") { type = NavType.StringType }),
         ) { backStackEntry ->
             val kind = backStackEntry.arguments?.getString("kind") ?: "live"
-            BrowseScreen(
-                kind = kind,
-                onNavigateToPlayer = { channelId ->
-                    navController.navigate(Routes.play(channelId))
-                },
-            )
+            when (kind) {
+                "vod" -> VodBrowseScreen(
+                    onNavigateToPlayer = { channelId ->
+                        navController.navigate(Routes.play(channelId))
+                    },
+                )
+                else -> BrowseScreen(
+                    kind = kind,
+                    onNavigateToPlayer = { channelId ->
+                        navController.navigate(Routes.play(channelId))
+                    },
+                )
+            }
         }
 
         composable(
