@@ -653,7 +653,7 @@ class PlayerViewModel @Inject constructor(
     fun getDiagnosticsText(): String {
         val state = _uiState.value
         return buildString {
-            appendLine("IPTV Tavern — Player Diagnostics")
+            appendLine("Lumina — Player Diagnostics")
             appendLine("Channel: ${state.channelName}")
             appendLine("Index: ${state.channelIndex + 1} / ${state.totalChannels}")
             if (state.error != null) appendLine("Error: ${state.error}")

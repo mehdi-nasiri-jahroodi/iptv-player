@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,7 +87,7 @@ fun TopTabNavigation(
         ) {
             // App brand
             Text(
-                text = "IPTV Tavern",
+                text = "Lumina",
                 color = colors.accent,
                 fontSize = 16.sp,
                 modifier = Modifier.padding(end = 24.dp),
@@ -99,6 +100,17 @@ fun TopTabNavigation(
                     onSelect = { onItemSelected(index, item.route) },
                 )
             }
+
+            // Push date/time to the right
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+
+            // Date & time
+            val currentTime = rememberUpdatingTime()
+            Text(
+                text = currentTime,
+                color = colors.foregroundMuted,
+                fontSize = 14.sp,
+            )
         }
 
         // Main content area
@@ -169,4 +181,28 @@ private fun TabNavItem(
             fontSize = 14.sp,
         )
     }
+}
+
+/**
+ * Returns a formatted date/time string that updates every minute.
+ * Format: "Mon, Jan 5 · 3:42 PM" (no year).
+ */
+@Composable
+private fun rememberUpdatingTime(): String {
+    var time by remember {
+        mutableStateOf(formatCurrentTime())
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000L) // update every 30s
+            time = formatCurrentTime()
+        }
+    }
+    return time
+}
+
+private fun formatCurrentTime(): String {
+    val now = java.time.LocalDateTime.now()
+    val formatter = java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a")
+    return now.format(formatter)
 }

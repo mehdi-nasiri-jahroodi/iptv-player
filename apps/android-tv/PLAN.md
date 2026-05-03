@@ -485,19 +485,19 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Complete settings screen and backup/restore functionality.
 
 **Tasks**:
-- [ ] **Settings screen** (complete):
+- [x] **Settings screen** (complete):
   - About: app version
   - Profile: edit display name
   - Sources: list, add, edit, delete — show Xtream account info if applicable
   - Theme: light/dark/system toggle
   - Player: buffer mode toggle (if exposed by Media3)
-- [ ] **Backup / Restore**:
+- [x] **Backup / Restore**:
   - Export all app state as JSON file (sources, playlists, profile, settings)
   - Import JSON file to restore state
   - Use same JSON format as web's `lumina-backup.ts` (v1 format) for **cross-platform portability**
   - Warn before overwriting existing data on import
   - Port or align with web's backup format so users can backup on web and restore on Android TV (and vice versa)
-- [ ] **Group reordering**:
+- [x] **Group reordering**:
   - Allow users to reorder category groups (persist order in profile)
   - D-pad: select group → move up/down with dedicated buttons (no drag-and-drop on TV)
 
