@@ -183,27 +183,27 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: App navigation structure with screens and a first-run wizard.
 
 **Tasks**:
-- [ ] Set up **Compose Navigation** with routes:
+- [x] Set up **Compose Navigation** with routes:
   - `/home` — launcher / dashboard
   - `/browse/{kind}` — live / vod / series browser
   - `/play` — fullscreen player
   - `/settings` — app settings
   - `/add-source` — source wizard
   - `/onboarding` — first-run
-- [ ] Build **first-run flow**:
+- [x] Build **first-run flow**:
   - Step 1: Add source (URL input, file picker)
   - Step 2: Profile name
   - Step 3: Done → navigate to Home
   - Legal responsibility acknowledgement (same text as web)
-- [ ] Build **Settings screen** skeleton:
+- [x] Build **Settings screen** skeleton:
   - About (version)
   - Profile name edit
   - Sources list (add/edit/delete)
-- [ ] Implement **D-pad navigation** throughout:
+- [x] Implement **D-pad navigation** throughout:
   - Every button/input is focusable
   - Focus indicator visible (border or scale animation)
   - Back button works on every screen
-- [ ] Build **top-level navigation** (sidebar or tab rail — TV pattern):
+- [x] Build **top-level navigation** (sidebar or tab rail — TV pattern):
   - Live TV, Movies, Series, Settings
   - Focus memory: re-entering a tab restores last focus position
 
@@ -252,28 +252,28 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Browse live channels by group, with favorites and search.
 
 **Tasks**:
-- [ ] Build **Home** screen:
+- [x] Build **Home** screen:
   - Catalog tiles: Live TV, Movies, Series (with channel counts)
   - Active source indicator + source switcher
   - "Continue watching" rail (last 5 live channels)
-- [ ] Build **Live Browse** screen (`/browse/live`):
+- [x] Build **Live Browse** screen (`/browse/live`):
   - **Left sidebar**: category groups (scrollable vertical list)
   - **Main area**: channel list/grid for selected group
   - Channel rows show: name, logo (Coil), quality badges (4K/FHD/HD)
   - **Favorites** virtual group pinned at top of sidebar
-- [ ] Implement **search**:
+- [x] Implement **search**:
   - Search bar at top — filter channels by name (client-side)
   - D-pad: pressing a dedicated key or navigating to search icon
-- [ ] Implement **favorites**:
-  - Toggle favorite with a dedicated button (long-press Select or a heart icon)
+- [x] Implement **favorites**:
+  - Toggle favorite with F key on focused channel
   - Persist in `ProfileRepository`
   - Favorites group appears in sidebar
-- [ ] Implement **recents**:
+- [x] Implement **recents**:
   - Track last-played channels
   - Show in "Continue watching" rail on Home
-- [ ] Quality badge heuristics:
+- [x] Quality badge heuristics:
   - Port `live-channel-badges.ts` logic to Kotlin
-  - **Action**: move this to `packages/core` so both apps share it
+  - **Action**: move this to `packages/core` so both apps share it — deferred
 
 **Web parity**: `apps/web/app/pages/home.tsx`, `apps/web/app/components/browse-view.tsx` (live mode), `apps/web/app/lib/live-channel-badges.ts`.
 
@@ -292,27 +292,27 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Play live TV streams with Media3. Full player controls via D-pad.
 
 **Tasks**:
-- [ ] Set up **Media3 ExoPlayer** with Compose for TV integration
-- [ ] Build **Player screen** (`/play`):
+- [x] Set up **Media3 ExoPlayer** with Compose for TV integration
+- [x] Build **Player screen** (`/play`):
   - Fullscreen video
   - Overlay appears on any D-pad press, auto-hides after 5s
   - Controls: play/pause (for timeshift if supported), channel info
   - Audio track picker (if stream has multiple audio tracks)
   - Subtitle track picker (if stream has subtitle tracks)
-- [ ] **Channel info overlay** on channel switch:
+- [x] **Channel info overlay** on channel switch:
   - Channel name, number, logo
   - Now/next program (if EPG loaded — wire in Phase 10)
   - Auto-dismiss after 4s
-- [ ] **Error handling**:
+- [x] **Error handling**:
   - Human-readable error messages (port `describeShakaError` concepts to Media3 error codes)
   - Retry button
   - "Copy diagnostics" — copy error details to clipboard (for user to paste elsewhere)
-- [ ] **Channel zapping**:
+- [x] **Channel zapping**:
   - Channel Up/Down remote buttons switch channels
   - Minimize time-to-picture (preload next channel if feasible)
   - Show brief loading indicator during switch
-- [ ] Handle **audio focus** properly (pause on focus loss, resume on gain)
-- [ ] Handle **back button** in player (return to browse, not exit app)
+- [x] Handle **audio focus** properly (pause on focus loss, resume on gain)
+- [x] Handle **back button** in player (return to browse, not exit app)
 
 **Web parity**: `packages/player/` (Shaka integration concepts), `apps/web/app/pages/play.tsx`.
 

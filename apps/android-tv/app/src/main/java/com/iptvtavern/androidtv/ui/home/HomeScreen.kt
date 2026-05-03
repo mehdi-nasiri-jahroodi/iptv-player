@@ -1,19 +1,25 @@
 package com.iptvtavern.androidtv.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,25 +33,32 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
+import coil.compose.AsyncImage
+import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
 /**
  * Home screen — the launcher / dashboard.
  *
- * Shows catalog tiles (Live TV, Movies, Series) with channel counts
- * and a "Continue watching" rail. Full implementation in Phase 6.
+ * Shows catalog tiles (Live TV, Movies, Series) with channel counts,
+ * active source indicator, and a "Continue watching" rail of recent channels.
  *
- * For now: shows the three catalog tiles as focusable cards.
+ * Web equivalent: `apps/web/app/pages/home.tsx`
  */
 @Composable
 fun HomeScreen(
     onNavigateToBrowse: (kind: String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val colors = LuminaTheme.colors
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -54,79 +67,159 @@ fun HomeScreen(
             .padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        Text(
-            text = "Home",
-            color = colors.foreground,
-            fontSize = 28.sp,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Catalog tiles row
+        // Header with source indicator
         Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            CatalogTile(
-                title = "Live TV",
-                subtitle = "Channels",
-                onClick = { onNavigateToBrowse("live") },
-                modifier = Modifier.weight(1f),
+            Text(
+                text = "Home",
+                color = colors.foreground,
+                fontSize = 28.sp,
             )
-            CatalogTile(
-                title = "Movies",
-                subtitle = "VOD",
-                onClick = { onNavigateToBrowse("vod") },
-                modifier = Modifier.weight(1f),
-            )
-            CatalogTile(
-                title = "Series",
-                subtitle = "TV Shows",
-                onClick = { onNavigateToBrowse("series") },
-                modifier = Modifier.weight(1f),
-            )
+
+            // Active source badge
+            if (uiState.activeSource != null) {
+                Text(
+                    text = uiState.activeSource!!.label,
+                    color = colors.accent,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .background(colors.surface, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Loading / error states
+        if (uiState.isLoading) {
+            Text(
+                text = "Loading catalog…",
+                color = colors.foregroundMuted,
+                fontSize = 16.sp,
+            )
+        } else if (uiState.error != null) {
+            Text(
+                text = uiState.error!!,
+                color = colors.danger,
+                fontSize = 16.sp,
+            )
+            FocusableButton(
+                text = "Retry",
+                onClick = viewModel::refreshCatalog,
+            )
+        } else if (uiState.activeSource == null) {
+            // No sources — nudge to settings
+            Text(
+                text = "No sources configured",
+                color = colors.foregroundMuted,
+                fontSize = 18.sp,
+            )
+            FocusableButton(
+                text = "Add Source",
+                onClick = onNavigateToSettings,
+            )
+        } else {
+            // Source switcher (only if multiple sources)
+            if (uiState.sources.size > 1) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(uiState.sources, key = { it.id }) { source ->
+                        val isActive = source.id == uiState.activeSource?.id
+                        FocusableButton(
+                            text = source.label,
+                            onClick = { viewModel.switchSource(source.id) },
+                            modifier = if (isActive) {
+                                Modifier.border(2.dp, colors.accent, RoundedCornerShape(8.dp))
+                            } else Modifier,
+                        )
+                    }
+                }
+            }
 
-        // Continue watching placeholder
-        Text(
-            text = "Continue Watching",
-            color = colors.foregroundMuted,
-            fontSize = 18.sp,
-        )
-        Text(
-            text = "Your recent channels will appear here",
-            color = colors.foregroundMuted,
-            fontSize = 14.sp,
-        )
+            // Catalog tiles row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                CatalogTile(
+                    title = "Live TV",
+                    count = uiState.liveCount,
+                    onClick = { onNavigateToBrowse("live") },
+                    modifier = Modifier.weight(1f),
+                )
+                CatalogTile(
+                    title = "Movies",
+                    count = uiState.vodCount,
+                    onClick = { onNavigateToBrowse("vod") },
+                    modifier = Modifier.weight(1f),
+                )
+                CatalogTile(
+                    title = "Series",
+                    count = uiState.seriesCount,
+                    onClick = { onNavigateToBrowse("series") },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            // Continue watching rail
+            if (uiState.recentChannels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Continue Watching",
+                    color = colors.foreground,
+                    fontSize = 18.sp,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(end = 32.dp),
+                ) {
+                    items(uiState.recentChannels, key = { it.id }) { channel ->
+                        RecentChannelCard(
+                            channel = channel,
+                            onClick = { /* Phase 7: navigate to player */ },
+                        )
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Continue Watching",
+                    color = colors.foregroundMuted,
+                    fontSize = 18.sp,
+                )
+                Text(
+                    text = "Your recent channels will appear here",
+                    color = colors.foregroundMuted,
+                    fontSize = 14.sp,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun CatalogTile(
     title: String,
-    subtitle: String,
+    count: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
 
-    val bgColor = if (isFocused) colors.surfaceRaised else colors.surface
-    val borderColor = if (isFocused) colors.accent else colors.border
-
     Box(
         modifier = modifier
             .height(120.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
-            .then(
-                if (isFocused) {
-                    Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                } else Modifier
+            .background(if (isFocused) colors.surfaceRaised else colors.surface)
+            .border(
+                width = if (isFocused) 3.dp else 1.dp,
+                color = if (isFocused) colors.accent else colors.border,
+                shape = RoundedCornerShape(12.dp),
             )
-            .padding(2.dp)
             .onFocusChanged { isFocused = it.isFocused }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
@@ -151,10 +244,78 @@ private fun CatalogTile(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = subtitle,
+                text = if (count > 0) "$count channels" else "—",
                 color = colors.foregroundMuted,
                 fontSize = 14.sp,
             )
         }
+    }
+}
+
+/**
+ * A card for a recently watched channel in the Continue Watching rail.
+ */
+@Composable
+private fun RecentChannelCard(
+    channel: Channel,
+    onClick: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) colors.surfaceRaised else colors.surface)
+            .border(
+                width = if (isFocused) 3.dp else 1.dp,
+                color = if (isFocused) colors.accent else colors.border,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .focusable(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Logo
+        if (channel.logoUrl != null) {
+            AsyncImage(
+                model = channel.logoUrl,
+                contentDescription = channel.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .background(colors.backgroundSubtle),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = channel.name.take(2).uppercase(),
+                    color = colors.foregroundMuted,
+                    fontSize = 20.sp,
+                )
+            }
+        }
+        Text(
+            text = channel.name,
+            color = colors.foreground,
+            fontSize = 13.sp,
+            maxLines = 1,
+            modifier = Modifier.padding(8.dp),
+        )
     }
 }

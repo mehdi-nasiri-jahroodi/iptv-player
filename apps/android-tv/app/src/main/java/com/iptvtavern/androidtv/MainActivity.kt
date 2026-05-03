@@ -83,7 +83,8 @@ fun AppRoot(
     val showSidebar = currentRoute != null &&
         currentRoute != Routes.ONBOARDING &&
         currentRoute != Routes.PLAY &&
-        currentRoute != Routes.ADD_SOURCE
+        currentRoute != Routes.ADD_SOURCE &&
+        currentRoute != Routes.EDIT_SOURCE
 
     if (showSidebar) {
         SidebarNavigation(

@@ -102,3 +102,11 @@ apps/_web_docs_backup/
 # When adding Android TV / native: uncomment or extend, e.g.
 # *.apk, *.aab, .gradle/, local.properties, **/build/ (already covered)
 # =============================================================================
+
+# --- Android ---
+local.properties
+*.apk
+*.aab
+.gradle/
+.cxx/
+captures/

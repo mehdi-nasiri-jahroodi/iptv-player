@@ -94,6 +94,9 @@ dependencies {
     // Navigation — Compose Navigation for screen routing (like React Router)
     implementation("androidx.navigation:navigation-compose:2.8.5")
 
+    // Coil — Compose-native image loading (channel logos, posters)
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     // Compose Material Icons (for sidebar icons)
     implementation("androidx.compose.material:material-icons-extended")
 

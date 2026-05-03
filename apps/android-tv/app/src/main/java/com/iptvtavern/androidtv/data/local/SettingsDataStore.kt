@@ -38,6 +38,7 @@ class SettingsDataStore(private val dataStore: DataStore<Preferences>) {
         val THEME = stringPreferencesKey("theme")
         val PLAYER_BUFFER_MODE = stringPreferencesKey("player_buffer_mode")
         val AUTO_PLAY = booleanPreferencesKey("auto_play")
+        val ACTIVE_SOURCE_ID = stringPreferencesKey("active_source_id")
     }
 
     /**
@@ -63,6 +64,21 @@ class SettingsDataStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun updateAutoPlay(autoPlay: Boolean) {
         dataStore.edit { prefs -> prefs[AUTO_PLAY] = autoPlay }
+    }
+
+    /** The ID of the currently active source (like web's activeSourceId). */
+    val activeSourceId: Flow<String?> = dataStore.data.map { prefs ->
+        prefs[ACTIVE_SOURCE_ID]
+    }
+
+    suspend fun setActiveSourceId(sourceId: String?) {
+        dataStore.edit { prefs ->
+            if (sourceId != null) {
+                prefs[ACTIVE_SOURCE_ID] = sourceId
+            } else {
+                prefs.remove(ACTIVE_SOURCE_ID)
+            }
+        }
     }
 
     private fun parseTheme(value: String): AppTheme = try {
