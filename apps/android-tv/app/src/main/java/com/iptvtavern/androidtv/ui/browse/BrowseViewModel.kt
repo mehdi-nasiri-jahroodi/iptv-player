@@ -9,7 +9,10 @@ import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.Playlist
+import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
+import com.iptvtavern.androidtv.domain.xtream.XtreamCache
+import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +45,7 @@ class BrowseViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val xtreamCache: XtreamCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BrowseUiState())
@@ -72,8 +76,12 @@ class BrowseViewModel @Inject constructor(
             }
 
             // Get playlist (cached or fetch)
-            val playlist = sourceRepository.getCachedPlaylist(source.id)
-                ?: fetchPlaylist(source)
+            // Xtream sources use per-action cache (XtreamCache), not whole-playlist Room cache
+            val playlist = if (source.type != SourceType.XTREAM) {
+                sourceRepository.getCachedPlaylist(source.id) ?: fetchPlaylist(source)
+            } else {
+                fetchPlaylist(source)
+            }
 
             if (playlist == null) {
                 _uiState.value = _uiState.value.copy(
@@ -83,9 +91,13 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Cache if fresh
-            if (sourceRepository.getCachedPlaylist(source.id) == null) {
-                sourceRepository.cachePlaylist(playlist)
+            // Cache M3U playlists in Room; Xtream uses per-action cache
+            if (source.type != SourceType.XTREAM && sourceRepository.getCachedPlaylist(source.id) == null) {
+                try {
+                    sourceRepository.cachePlaylist(playlist)
+                } catch (_: Exception) {
+                    // Cache write can fail for very large playlists
+                }
             }
 
             // Load favorites
@@ -110,18 +122,26 @@ class BrowseViewModel @Inject constructor(
     }
 
     private suspend fun fetchPlaylist(source: com.iptvtavern.androidtv.domain.model.Source): Playlist? {
-        val url = source.url ?: return null
         return try {
-            withContext(Dispatchers.IO) {
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
-                try {
-                    val text = connection.inputStream.bufferedReader().use { it.readText() }
-                    parseM3uToPlaylist(text, source.id)
-                } finally {
-                    connection.disconnect()
+            when (source.type) {
+                SourceType.XTREAM -> {
+                    val creds = source.credentials ?: return null
+                    XtreamClient.loadXtreamPlaylist(creds, source.id, xtreamCache)
+                }
+                SourceType.M3U_URL, SourceType.M3U_FILE -> {
+                    val url = source.url ?: return null
+                    withContext(Dispatchers.IO) {
+                        val connection = URL(url).openConnection() as HttpURLConnection
+                        connection.connectTimeout = 15_000
+                        connection.readTimeout = 30_000
+                        source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
+                        try {
+                            val text = connection.inputStream.bufferedReader().use { it.readText() }
+                            parseM3uToPlaylist(text, source.id)
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
                 }
             }
         } catch (_: Exception) {

@@ -8,9 +8,12 @@ import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
+import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.parser.validateSource
 import com.iptvtavern.androidtv.domain.parser.SourceValidationResult
+import com.iptvtavern.androidtv.domain.xtream.XtreamCache
+import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +49,7 @@ class HomeViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val xtreamCache: XtreamCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -93,18 +97,30 @@ class HomeViewModel @Inject constructor(
     private suspend fun loadCatalog(source: Source) {
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-        // Try cached playlist first
-        val cached = sourceRepository.getCachedPlaylist(source.id)
-        if (cached != null) {
-            applyPlaylist(cached)
-            return
+        // For M3U sources, try the whole-playlist Room cache first.
+        // For Xtream sources, skip it — per-action caching in XtreamCache
+        // handles freshness with TTLs and avoids the OOM from serializing
+        // huge playlists into a single JSON blob.
+        if (source.type != SourceType.XTREAM) {
+            val cached = sourceRepository.getCachedPlaylist(source.id)
+            if (cached != null) {
+                applyPlaylist(cached)
+                return
+            }
         }
 
         // Fetch and parse
         try {
             val playlist = fetchAndParsePlaylist(source)
             if (playlist != null) {
-                sourceRepository.cachePlaylist(playlist)
+                // Only cache M3U playlists in Room — Xtream uses per-action cache
+                if (source.type != SourceType.XTREAM) {
+                    try {
+                        sourceRepository.cachePlaylist(playlist)
+                    } catch (_: Exception) {
+                        // Cache write can fail for very large playlists
+                    }
+                }
                 applyPlaylist(playlist)
             } else {
                 _uiState.value = _uiState.value.copy(
@@ -121,17 +137,25 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun fetchAndParsePlaylist(source: Source): Playlist? {
-        val url = source.url ?: return null
-        return withContext(Dispatchers.IO) {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 30_000
-            source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
-            try {
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
-                parseM3uToPlaylist(text, source.id)
-            } finally {
-                connection.disconnect()
+        return when (source.type) {
+            SourceType.XTREAM -> {
+                val creds = source.credentials ?: return null
+                XtreamClient.loadXtreamPlaylist(creds, source.id, xtreamCache)
+            }
+            SourceType.M3U_URL, SourceType.M3U_FILE -> {
+                val url = source.url ?: return null
+                withContext(Dispatchers.IO) {
+                    val connection = URL(url).openConnection() as HttpURLConnection
+                    connection.connectTimeout = 15_000
+                    connection.readTimeout = 30_000
+                    source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
+                    try {
+                        val text = connection.inputStream.bufferedReader().use { it.readText() }
+                        parseM3uToPlaylist(text, source.id)
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
             }
         }
     }
@@ -177,7 +201,11 @@ class HomeViewModel @Inject constructor(
     fun refreshCatalog() {
         val source = _uiState.value.activeSource ?: return
         viewModelScope.launch {
-            sourceRepository.clearPlaylistCache(source.id)
+            if (source.type == SourceType.XTREAM && source.credentials != null) {
+                xtreamCache.invalidateSource(source.credentials)
+            } else {
+                sourceRepository.clearPlaylistCache(source.id)
+            }
             loadCatalog(source)
         }
     }

@@ -331,25 +331,25 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Add Xtream Codes API as a source type. Login, fetch catalog, play streams.
 
 **Tasks**:
-- [ ] Port Xtream API client from `packages/core/src/lib/xtream.ts` to Kotlin:
+- [x] Port Xtream API client from `packages/core/src/lib/xtream.ts` to Kotlin:
   - `buildPlayerApiUrl`, `fetchXtreamPlayerApi`, `isXtreamAuthSuccessful`
   - Category fetchers: `fetchLiveCategories`, `fetchVodCategories`, `fetchSeriesCategories`
   - Stream fetchers: `fetchLiveStreams`, `fetchVodStreams`, `fetchSeries`
   - Detail fetchers: `fetchVodInfo`, `fetchSeriesInfo`
   - URL builders: `buildLiveStreamUrl`, `buildVodStreamUrl`, `buildSeriesEpisodeUrl`
   - Wire-to-domain mappers: `toLiveChannel`, `toVodChannel`, `toSeriesChannel`
-- [ ] Update **Add Source** screen:
+- [x] Update **Add Source** screen:
   - Add "Xtream Codes" tab: host, username, password fields
   - Auth probe on submit
   - Show account info (expiration, status, max connections) on success
-- [ ] Implement **Xtream catalog loading**:
+- [x] Implement **Xtream catalog loading**:
   - Fetch live/vod/series categories + streams
   - Map to domain `Playlist` with proper groups
   - Cache in Room with TTLs (same as web: categories 1h, streams 10min, info 24h)
-- [ ] Implement **cache invalidation**:
+- [x] Implement **cache invalidation**:
   - "Refresh" action on source (like web's `RefreshSourceButton`)
   - Clear cache for that source and reload
-- [ ] **Credential safety**: never log passwords; strip from cache keys
+- [x] **Credential safety**: never log passwords; strip from cache keys
 
 **Web parity**: `packages/core/src/lib/xtream.ts`, `packages/core/src/lib/xtream-cache.ts`, `apps/web/app/features/sources/`.
 

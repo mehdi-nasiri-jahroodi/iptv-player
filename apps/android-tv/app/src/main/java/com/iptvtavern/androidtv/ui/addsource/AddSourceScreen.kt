@@ -25,16 +25,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
+import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
 /**
- * Full Add / Edit Source form — Phase 5.
- *
- * Supports M3U URL sources with optional EPG URL and User-Agent.
- * File import (Storage Access Framework) is listed in the plan but
- * deferred — URL input covers the primary use case.
+ * Full Add / Edit Source form — supports M3U URL and Xtream Codes.
  *
  * Web equivalent: `packages/ui/src/lib/SourceForm.tsx`
  */
@@ -48,14 +45,10 @@ fun AddSourceScreen(
 
     BackHandler(onBack = onNavigateBack)
 
-    // Navigate back after successful save
     LaunchedEffect(uiState.savedSuccessfully) {
-        if (uiState.savedSuccessfully) {
-            onNavigateBack()
-        }
+        if (uiState.savedSuccessfully) onNavigateBack()
     }
 
-    // Wait for form to load (matters in edit mode)
     if (!uiState.isLoaded) return
 
     val isEditing = uiState.editingSourceId != null
@@ -74,51 +67,50 @@ fun AddSourceScreen(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.Start,
         ) {
-            // Title
             Text(
                 text = if (isEditing) "Edit Source" else "Add Source",
                 color = colors.foreground,
                 fontSize = 24.sp,
-                modifier = Modifier.padding(bottom = 32.dp),
+                modifier = Modifier.padding(bottom = 24.dp),
             )
 
-            // Label
+            // Source type selector (only for new sources)
+            if (!isEditing) {
+                FieldLabel("Source Type")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 16.dp),
+                ) {
+                    FocusableButton(
+                        text = "M3U URL",
+                        onClick = { viewModel.setSourceType(SourceType.M3U_URL) },
+                        modifier = if (uiState.sourceType == SourceType.M3U_URL) {
+                            Modifier.background(colors.accent, RoundedCornerShape(8.dp))
+                        } else Modifier,
+                    )
+                    FocusableButton(
+                        text = "Xtream Codes",
+                        onClick = { viewModel.setSourceType(SourceType.XTREAM) },
+                        modifier = if (uiState.sourceType == SourceType.XTREAM) {
+                            Modifier.background(colors.accent, RoundedCornerShape(8.dp))
+                        } else Modifier,
+                    )
+                }
+            }
+
+            // Label (shared)
             FieldLabel("Label")
             TvTextField(
                 value = uiState.label,
                 onValueChange = viewModel::updateLabel,
-                placeholder = "My Source",
+                placeholder = if (uiState.sourceType == SourceType.XTREAM) "My IPTV" else "My Source",
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            // URL
-            FieldLabel("M3U Playlist URL")
-            TvTextField(
-                value = uiState.url,
-                onValueChange = viewModel::updateUrl,
-                placeholder = "https://example.com/playlist.m3u",
-                modifier = Modifier.padding(bottom = 16.dp),
-            )
-
-            // EPG URL (optional)
-            FieldLabel("EPG URL (optional)")
-            TvTextField(
-                value = uiState.epgUrl,
-                onValueChange = viewModel::updateEpgUrl,
-                placeholder = "https://example.com/epg.xml",
-                modifier = Modifier.padding(bottom = 16.dp),
-            )
-
-            // User-Agent (optional)
-            FieldLabel("User-Agent (optional)")
-            TvTextField(
-                value = uiState.userAgent,
-                onValueChange = viewModel::updateUserAgent,
-                placeholder = "Custom user agent string",
-                imeAction = ImeAction.Done,
-                onImeAction = viewModel::validateAndSave,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+            when (uiState.sourceType) {
+                SourceType.M3U_URL, SourceType.M3U_FILE -> M3uFields(uiState, viewModel)
+                SourceType.XTREAM -> XtreamFields(uiState, viewModel)
+            }
 
             // Validation error
             if (uiState.validationError != null) {
@@ -133,7 +125,7 @@ fun AddSourceScreen(
             // Loading indicator
             if (uiState.isValidating) {
                 Text(
-                    text = "Validating source…",
+                    text = if (uiState.sourceType == SourceType.XTREAM) "Authenticating…" else "Validating source…",
                     color = colors.foregroundMuted,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 8.dp),
@@ -155,6 +147,72 @@ fun AddSourceScreen(
             }
         }
     }
+}
+
+@Composable
+private fun M3uFields(uiState: AddSourceUiState, viewModel: AddSourceViewModel) {
+    FieldLabel("M3U Playlist URL")
+    TvTextField(
+        value = uiState.url,
+        onValueChange = viewModel::updateUrl,
+        placeholder = "https://example.com/playlist.m3u",
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    FieldLabel("EPG URL (optional)")
+    TvTextField(
+        value = uiState.epgUrl,
+        onValueChange = viewModel::updateEpgUrl,
+        placeholder = "https://example.com/epg.xml",
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    FieldLabel("User-Agent (optional)")
+    TvTextField(
+        value = uiState.userAgent,
+        onValueChange = viewModel::updateUserAgent,
+        placeholder = "Custom user agent string",
+        imeAction = ImeAction.Done,
+        onImeAction = viewModel::validateAndSave,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun XtreamFields(uiState: AddSourceUiState, viewModel: AddSourceViewModel) {
+    FieldLabel("Server URL")
+    TvTextField(
+        value = uiState.xtreamHost,
+        onValueChange = viewModel::updateXtreamHost,
+        placeholder = "http://example.com:8080",
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    FieldLabel("Username")
+    TvTextField(
+        value = uiState.xtreamUsername,
+        onValueChange = viewModel::updateXtreamUsername,
+        placeholder = "username",
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    FieldLabel("Password")
+    TvTextField(
+        value = uiState.xtreamPassword,
+        onValueChange = viewModel::updateXtreamPassword,
+        placeholder = "password",
+        imeAction = ImeAction.Done,
+        onImeAction = viewModel::validateAndSave,
+        modifier = Modifier.padding(bottom = 16.dp),
+    )
+
+    FieldLabel("EPG URL (optional)")
+    TvTextField(
+        value = uiState.epgUrl,
+        onValueChange = viewModel::updateEpgUrl,
+        placeholder = "https://example.com/epg.xml",
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
 }
 
 @Composable

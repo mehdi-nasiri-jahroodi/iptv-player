@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
+import com.iptvtavern.androidtv.domain.model.XtreamAccountSnapshot
+import com.iptvtavern.androidtv.domain.model.XtreamCredentials
 import com.iptvtavern.androidtv.domain.parser.SourceValidationResult
 import com.iptvtavern.androidtv.domain.parser.validateSource
+import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,22 +22,27 @@ import javax.inject.Inject
 /**
  * UI state for the Add/Edit Source form.
  *
- * Think of this like a React form's state object — all inputs and
- * feedback live here, and the ViewModel is the "reducer" that updates it.
+ * Supports both M3U URL and Xtream Codes source types.
  */
 data class AddSourceUiState(
-    /** Non-null when editing an existing source. */
     val editingSourceId: String? = null,
+    val sourceType: SourceType = SourceType.M3U_URL,
     val label: String = "",
+    // M3U fields
     val url: String = "",
     val epgUrl: String = "",
     val userAgent: String = "",
+    // Xtream fields
+    val xtreamHost: String = "",
+    val xtreamUsername: String = "",
+    val xtreamPassword: String = "",
+    // Status
     val isValidating: Boolean = false,
     val validationError: String? = null,
-    /** Set to true after a successful save — signals the screen to navigate back. */
     val savedSuccessfully: Boolean = false,
-    /** True when the form has loaded an existing source for editing. */
     val isLoaded: Boolean = false,
+    /** Xtream account info shown after successful auth probe. */
+    val xtreamAccountInfo: String? = null,
 )
 
 @HiltViewModel
@@ -47,9 +55,6 @@ class AddSourceViewModel @Inject constructor(
     val uiState: StateFlow<AddSourceUiState> = _uiState.asStateFlow()
 
     init {
-        // Check if a sourceId was passed via navigation (edit mode).
-        // SavedStateHandle automatically gets nav arguments — like
-        // reading `useParams()` in React Router.
         val sourceId = savedStateHandle.get<String>("sourceId")
         if (sourceId != null) {
             loadExistingSource(sourceId)
@@ -64,17 +69,28 @@ class AddSourceViewModel @Inject constructor(
             if (source != null) {
                 _uiState.value = _uiState.value.copy(
                     editingSourceId = source.id,
+                    sourceType = source.type,
                     label = source.label,
                     url = source.url.orEmpty(),
                     epgUrl = source.epgUrl.orEmpty(),
                     userAgent = source.userAgent.orEmpty(),
+                    xtreamHost = source.credentials?.host.orEmpty(),
+                    xtreamUsername = source.credentials?.username.orEmpty(),
+                    xtreamPassword = source.credentials?.password.orEmpty(),
                     isLoaded = true,
                 )
             } else {
-                // Source not found — treat as new
                 _uiState.value = _uiState.value.copy(isLoaded = true)
             }
         }
+    }
+
+    fun setSourceType(type: SourceType) {
+        _uiState.value = _uiState.value.copy(
+            sourceType = type,
+            validationError = null,
+            xtreamAccountInfo = null,
+        )
     }
 
     fun updateLabel(value: String) {
@@ -93,12 +109,27 @@ class AddSourceViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(userAgent = value)
     }
 
-    /**
-     * Validate the source URL and save on success.
-     *
-     * Flow: validate URL → parse M3U → persist Source + cache Playlist → signal done.
-     */
+    fun updateXtreamHost(value: String) {
+        _uiState.value = _uiState.value.copy(xtreamHost = value, validationError = null)
+    }
+
+    fun updateXtreamUsername(value: String) {
+        _uiState.value = _uiState.value.copy(xtreamUsername = value, validationError = null)
+    }
+
+    fun updateXtreamPassword(value: String) {
+        _uiState.value = _uiState.value.copy(xtreamPassword = value, validationError = null)
+    }
+
     fun validateAndSave() {
+        when (_uiState.value.sourceType) {
+            SourceType.M3U_URL -> validateAndSaveM3u()
+            SourceType.XTREAM -> validateAndSaveXtream()
+            SourceType.M3U_FILE -> {} // Not implemented yet
+        }
+    }
+
+    private fun validateAndSaveM3u() {
         val state = _uiState.value
         val url = state.url.trim()
         val label = state.label.trim().ifEmpty { "My Source" }
@@ -139,6 +170,94 @@ class AddSourceViewModel @Inject constructor(
                         validationError = result.message,
                     )
                 }
+            }
+        }
+    }
+
+    private fun validateAndSaveXtream() {
+        val state = _uiState.value
+        val host = state.xtreamHost.trim()
+        val username = state.xtreamUsername.trim()
+        val password = state.xtreamPassword.trim()
+        val label = state.label.trim().ifEmpty { "$username@${host.substringAfter("://")}" }
+
+        if (host.isEmpty()) {
+            _uiState.value = state.copy(validationError = "Please enter a server URL")
+            return
+        }
+        if (username.isEmpty()) {
+            _uiState.value = state.copy(validationError = "Please enter a username")
+            return
+        }
+        if (password.isEmpty()) {
+            _uiState.value = state.copy(validationError = "Please enter a password")
+            return
+        }
+
+        _uiState.value = state.copy(isValidating = true, validationError = null, xtreamAccountInfo = null)
+
+        viewModelScope.launch {
+            val credentials = XtreamCredentials(
+                host = host,
+                username = username,
+                password = password,
+            )
+
+            try {
+                val playerApi = XtreamClient.fetchPlayerApi(credentials)
+
+                if (!XtreamClient.isAuthSuccessful(playerApi)) {
+                    _uiState.value = _uiState.value.copy(
+                        isValidating = false,
+                        validationError = "Authentication failed. Check your credentials.",
+                    )
+                    return@launch
+                }
+
+                // Build account snapshot
+                val userInfo = playerApi.userInfo
+                val snapshot = XtreamAccountSnapshot(
+                    expDate = userInfo?.expDate,
+                    createdAt = userInfo?.createdAt,
+                    status = userInfo?.status,
+                    isTrial = userInfo?.isTrial,
+                    username = userInfo?.username,
+                    activeConnections = userInfo?.activeCons,
+                    maxConnections = userInfo?.maxConnections,
+                )
+
+                val accountInfo = buildString {
+                    append("Status: ${snapshot.status ?: "active"}")
+                    snapshot.expDate?.let { append(" | Expires: $it") }
+                    snapshot.maxConnections?.let { append(" | Max: $it connections") }
+                }
+
+                val sourceId = state.editingSourceId ?: UUID.randomUUID().toString()
+                val source = Source(
+                    id = sourceId,
+                    label = label,
+                    type = SourceType.XTREAM,
+                    credentials = credentials,
+                    xtreamAccount = snapshot,
+                    epgUrl = state.epgUrl.trim().ifEmpty { null },
+                )
+
+                if (state.editingSourceId != null) {
+                    sourceRepository.update(source)
+                } else {
+                    sourceRepository.add(source)
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    isValidating = false,
+                    savedSuccessfully = true,
+                    xtreamAccountInfo = accountInfo,
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isValidating = false,
+                    validationError = "Could not connect to server: ${e.message ?: "unknown error"}",
+                )
             }
         }
     }

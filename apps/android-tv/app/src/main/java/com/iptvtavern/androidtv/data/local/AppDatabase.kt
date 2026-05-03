@@ -19,7 +19,7 @@ import androidx.room.RoomDatabase
         ProfileEntity::class,
         PlaylistEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

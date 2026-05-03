@@ -16,13 +16,23 @@ import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.domain.model.Playlist
+import com.iptvtavern.androidtv.domain.model.Source
+import com.iptvtavern.androidtv.domain.model.SourceType
+import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
+import com.iptvtavern.androidtv.domain.xtream.XtreamCache
+import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import javax.inject.Inject
 
 /**
@@ -67,6 +77,7 @@ class PlayerViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val xtreamCache: XtreamCache,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -146,7 +157,7 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
-            val playlist = sourceRepository.getCachedPlaylist(source.id)
+            val playlist = loadPlaylist(source)
             if (playlist == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -171,6 +182,42 @@ class PlayerViewModel @Inject constructor(
             profileRepository.addRecent(channelId)
 
             playChannel(index)
+        }
+    }
+
+    /**
+     * Load playlist for the given source — uses cached data when available.
+     * For M3U: Room whole-playlist cache.
+     * For Xtream: per-action cache via XtreamCache (responses are cached,
+     * but the Playlist object is rebuilt from cached API responses).
+     */
+    private suspend fun loadPlaylist(source: Source): Playlist? {
+        return try {
+            when (source.type) {
+                SourceType.XTREAM -> {
+                    val creds = source.credentials ?: return null
+                    XtreamClient.loadXtreamPlaylist(creds, source.id, xtreamCache)
+                }
+                SourceType.M3U_URL, SourceType.M3U_FILE -> {
+                    // Try Room cache first
+                    sourceRepository.getCachedPlaylist(source.id)?.let { return it }
+                    val url = source.url ?: return null
+                    withContext(Dispatchers.IO) {
+                        val connection = URL(url).openConnection() as HttpURLConnection
+                        connection.connectTimeout = 15_000
+                        connection.readTimeout = 30_000
+                        source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
+                        try {
+                            val text = connection.inputStream.bufferedReader().use { it.readText() }
+                            parseM3uToPlaylist(text, source.id)
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

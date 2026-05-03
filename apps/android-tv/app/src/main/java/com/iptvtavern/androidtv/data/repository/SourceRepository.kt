@@ -6,8 +6,10 @@ import com.iptvtavern.androidtv.data.local.SourceDao
 import com.iptvtavern.androidtv.data.local.SourceEntity
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -53,24 +55,32 @@ class SourceRepository @Inject constructor(
 
     // ── Playlist cache ──────────────────────────────────────────
 
-    suspend fun getCachedPlaylist(sourceId: String): Playlist? {
-        val entity = playlistDao.getBySourceId(sourceId) ?: return null
-        return try {
+    suspend fun getCachedPlaylist(sourceId: String): Playlist? = withContext(Dispatchers.IO) {
+        val entity = playlistDao.getBySourceId(sourceId) ?: return@withContext null
+        try {
             json.decodeFromString<Playlist>(entity.playlistJson)
         } catch (_: Exception) {
-            // If the cached JSON is corrupted, treat as cache miss
             null
         }
     }
 
     suspend fun cachePlaylist(playlist: Playlist) {
-        playlistDao.insert(
-            PlaylistEntity(
-                sourceId = playlist.sourceId,
-                playlistJson = json.encodeToString(playlist),
-                fetchedAt = playlist.fetchedAt,
+        // Serialize on IO thread to avoid OOM on main thread.
+        // Skip caching entirely for very large playlists (>10k channels)
+        // to prevent 100MB+ JSON blobs that crash the app.
+        val totalChannels = playlist.groups.sumOf { it.channels.size }
+        if (totalChannels > 10_000) return
+
+        withContext(Dispatchers.IO) {
+            val jsonString = json.encodeToString(playlist)
+            playlistDao.insert(
+                PlaylistEntity(
+                    sourceId = playlist.sourceId,
+                    playlistJson = jsonString,
+                    fetchedAt = playlist.fetchedAt,
+                )
             )
-        )
+        }
     }
 
     suspend fun clearPlaylistCache(sourceId: String) {

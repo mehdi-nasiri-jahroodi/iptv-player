@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
+import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
@@ -75,12 +78,13 @@ fun OnboardingScreen(
             onAccept = viewModel::acknowledgeResponsibility,
         )
         OnboardingStep.ADD_SOURCE -> AddSourceStep(
-            sourceUrl = uiState.sourceUrl,
-            sourceLabel = uiState.sourceLabel,
-            isValidating = uiState.isValidating,
-            validationError = uiState.validationError,
+            uiState = uiState,
+            onSourceTypeChange = viewModel::setSourceType,
             onUrlChange = viewModel::updateSourceUrl,
             onLabelChange = viewModel::updateSourceLabel,
+            onXtreamHostChange = viewModel::updateXtreamHost,
+            onXtreamUsernameChange = viewModel::updateXtreamUsername,
+            onXtreamPasswordChange = viewModel::updateXtreamPassword,
             onSubmit = viewModel::validateAndAddSource,
             onSkip = viewModel::skipSource,
         )
@@ -126,12 +130,13 @@ private fun ResponsibilityStep(onAccept: () -> Unit) {
 
 @Composable
 private fun AddSourceStep(
-    sourceUrl: String,
-    sourceLabel: String,
-    isValidating: Boolean,
-    validationError: String?,
+    uiState: OnboardingUiState,
+    onSourceTypeChange: (SourceType) -> Unit,
     onUrlChange: (String) -> Unit,
     onLabelChange: (String) -> Unit,
+    onXtreamHostChange: (String) -> Unit,
+    onXtreamUsernameChange: (String) -> Unit,
+    onXtreamPasswordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onSkip: () -> Unit,
 ) {
@@ -145,10 +150,31 @@ private fun AddSourceStep(
             text = "Add your first source",
             color = colors.foreground,
             fontSize = 22.sp,
-            modifier = Modifier.padding(bottom = 24.dp),
+            modifier = Modifier.padding(bottom = 16.dp),
         )
 
-        // Source label
+        // Source type selector
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 20.dp),
+        ) {
+            FocusableButton(
+                text = "M3U URL",
+                onClick = { onSourceTypeChange(SourceType.M3U_URL) },
+                modifier = if (uiState.sourceType == SourceType.M3U_URL) {
+                    Modifier.background(colors.accent, RoundedCornerShape(8.dp))
+                } else Modifier,
+            )
+            FocusableButton(
+                text = "Xtream Codes",
+                onClick = { onSourceTypeChange(SourceType.XTREAM) },
+                modifier = if (uiState.sourceType == SourceType.XTREAM) {
+                    Modifier.background(colors.accent, RoundedCornerShape(8.dp))
+                } else Modifier,
+            )
+        }
+
+        // Label (shared)
         Text(
             text = "Label",
             color = colors.foregroundMuted,
@@ -156,31 +182,75 @@ private fun AddSourceStep(
             modifier = Modifier.padding(bottom = 4.dp),
         )
         TvTextField(
-            value = sourceLabel,
+            value = uiState.sourceLabel,
             onValueChange = onLabelChange,
-            placeholder = "My Source",
+            placeholder = if (uiState.sourceType == SourceType.XTREAM) "My IPTV" else "My Source",
             modifier = Modifier.padding(bottom = 16.dp),
         )
 
-        // URL input
-        Text(
-            text = "M3U Playlist URL",
-            color = colors.foregroundMuted,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        TvTextField(
-            value = sourceUrl,
-            onValueChange = onUrlChange,
-            placeholder = "https://example.com/playlist.m3u",
-            imeAction = ImeAction.Done,
-            onImeAction = onSubmit,
-        )
+        when (uiState.sourceType) {
+            SourceType.M3U_URL, SourceType.M3U_FILE -> {
+                Text(
+                    text = "M3U Playlist URL",
+                    color = colors.foregroundMuted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                TvTextField(
+                    value = uiState.sourceUrl,
+                    onValueChange = onUrlChange,
+                    placeholder = "https://example.com/playlist.m3u",
+                    imeAction = ImeAction.Done,
+                    onImeAction = onSubmit,
+                )
+            }
+            SourceType.XTREAM -> {
+                Text(
+                    text = "Server URL",
+                    color = colors.foregroundMuted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                TvTextField(
+                    value = uiState.xtreamHost,
+                    onValueChange = onXtreamHostChange,
+                    placeholder = "http://example.com:8080",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+
+                Text(
+                    text = "Username",
+                    color = colors.foregroundMuted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                TvTextField(
+                    value = uiState.xtreamUsername,
+                    onValueChange = onXtreamUsernameChange,
+                    placeholder = "username",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+
+                Text(
+                    text = "Password",
+                    color = colors.foregroundMuted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                TvTextField(
+                    value = uiState.xtreamPassword,
+                    onValueChange = onXtreamPasswordChange,
+                    placeholder = "password",
+                    imeAction = ImeAction.Done,
+                    onImeAction = onSubmit,
+                )
+            }
+        }
 
         // Validation error
-        if (validationError != null) {
+        if (uiState.validationError != null) {
             Text(
-                text = validationError,
+                text = uiState.validationError,
                 color = colors.danger,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(top = 8.dp),
@@ -188,9 +258,9 @@ private fun AddSourceStep(
         }
 
         // Loading indicator
-        if (isValidating) {
+        if (uiState.isValidating) {
             Text(
-                text = "Validating source...",
+                text = if (uiState.sourceType == SourceType.XTREAM) "Authenticating…" else "Validating source…",
                 color = colors.foregroundMuted,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(top = 8.dp),
@@ -273,7 +343,8 @@ private fun WizardFrame(
             modifier = Modifier
                 .widthIn(max = 600.dp)
                 .background(colors.surface, RoundedCornerShape(16.dp))
-                .padding(48.dp),
+                .padding(48.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.Start,
         ) {
             Text(
