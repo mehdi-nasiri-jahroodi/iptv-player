@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.tv.material3.Text
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Main (and only) Activity for the Android TV app.
@@ -30,6 +31,7 @@ import com.iptvtavern.androidtv.ui.theme.LuminaTheme
  * `ComponentActivity` is the modern base class that supports Compose.
  * `setContent {}` is like `ReactDOM.createRoot(el).render(<App />)`.
  */
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

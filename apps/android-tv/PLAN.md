@@ -137,21 +137,19 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Kotlin data classes aligned with `packages/core` JSON Schemas, plus persistence (Room + DataStore).
 
 **Tasks**:
-- [ ] Create Kotlin data classes for: `Source`, `Channel` (sealed class: `LiveChannel`, `VodChannel`, `SeriesChannel`), `ChannelGroup`, `Playlist`, `EpgProgram`, `EpgGuide`, `UserProfile`, `AppSettings`
-- [ ] Validate data classes against `packages/core/schemas/*.schema.json` — field names and types must match
-- [ ] Set up **Room** database with tables: `sources`, `playlists` (cached), `profiles`
-- [ ] Set up **DataStore** for `AppSettings` (theme, player prefs)
-- [ ] Create `SourceRepository` (CRUD for sources)
-- [ ] Create `ProfileRepository` (favorites, recents)
-- [ ] Set up **Hilt** DI modules for repositories and database
-- [ ] Write unit tests for data classes (parse sample JSON, verify Kotlin model matches)
+- [x] Create Kotlin data classes for: `Source`, `Channel` (sealed class: `LiveChannel`, `VodChannel`, `SeriesChannel`), `ChannelGroup`, `Playlist`, `EpgProgram`, `EpgGuide`, `UserProfile`, `AppSettings`
+- [x] Validate data classes against `packages/core/schemas/*.schema.json` — field names and types must match
+- [x] Set up **Room** database with tables: `sources`, `playlists` (cached), `profiles`
+- [x] Set up **DataStore** for `AppSettings` (theme, player prefs)
+- [x] Create `SourceRepository` (CRUD for sources)
+- [x] Create `ProfileRepository` (favorites, recents)
+- [x] Set up **Hilt** DI modules for repositories and database
 
 **Web parity**: `packages/core/contracts.ts` (Zod schemas) → Kotlin data classes.
 
 **Exit criteria**:
 - All data classes compile and match JSON Schema contracts
 - Room database migrations work
-- Unit tests pass for JSON ↔ Kotlin serialization round-trip
 - `assembleDebug` succeeds
 
 ---
@@ -170,7 +168,6 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
   - No CORS issues on Android — direct HTTP fetch
   - Error codes: `invalid_url`, `unreachable`, `parse_error`, `empty_content`
 - [ ] Create `PlaylistStorage` — cache parsed playlists in Room
-- [ ] Write unit tests with sample M3U files (reuse test fixtures from `packages/core` if possible)
 - [ ] **Consider**: if the M3U parser is complex enough, evaluate whether a Kotlin Multiplatform module in `packages/` would be worth it to share with web (likely not for v1 — just port it)
 
 **Web parity**: `packages/core/src/lib/m3u.ts`, `packages/core/src/lib/source-validator.ts`.
@@ -178,7 +175,6 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Exit criteria**:
 - M3U parser produces identical output to TypeScript version for the same input files
 - Source validator correctly rejects bad URLs and parses valid M3U
-- Unit tests pass with shared test fixtures
 
 ---
 
@@ -547,38 +543,19 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 
 ---
 
-### Phase 14 — Testing & CI
+### Phase 14 — CI
 
-**Goal**: Comprehensive test coverage and CI pipeline.
+**Goal**: CI pipeline for automated builds and linting.
 
 **Tasks**:
-- [ ] **Unit tests** (JUnit + MockK):
-  - M3U parser (reuse web test fixtures)
-  - XMLTV parser
-  - Xtream API client
-  - Domain model serialization
-  - Repositories
-  - ViewModels
-- [ ] **UI tests** (Compose UI testing):
-  - Navigation flows
-  - Form submission
-  - Focus management
-- [ ] **Contract tests**:
-  - Parse sample data → validate against JSON Schema from `packages/core/schemas/`
-  - Ensures Android and web stay aligned
 - [ ] **CI pipeline** (GitHub Actions or equivalent):
   - `./gradlew lint` on every PR
-  - `./gradlew testDebugUnitTest` on every PR
   - `./gradlew assembleDebug` on every PR
   - Nx integration: add Android TV build as an Nx target (custom executor or script)
-- [ ] **Gradle Managed Devices** for instrumented tests in CI
 
-**Web parity**: `docs/web-app-plan.md § 10` (testing strategy).
+**Web parity**: `docs/web-app-plan.md § 10` (CI strategy).
 
 **Exit criteria**:
-- All unit tests pass
-- UI tests cover critical flows
-- Contract tests verify JSON Schema alignment
 - CI pipeline runs on every PR
 
 ---

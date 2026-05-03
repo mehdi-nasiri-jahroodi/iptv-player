@@ -2,6 +2,9 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.devtools.ksp")
+    id("com.google.dagger.hilt.android")
 }
 
 android {
@@ -14,6 +17,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // Room schema export for migration tracking
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas")
+        }
     }
 
     buildTypes {
@@ -58,12 +66,29 @@ dependencies {
     // Activity + Lifecycle
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
     // Core AndroidX
     implementation("androidx.core:core-ktx:1.15.0")
 
     // Leanback (for launcher integration)
     implementation("androidx.leanback:leanback:1.0.0")
+
+    // Kotlinx Serialization — JSON parsing aligned with Zod schemas in packages/core
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // Room — structured persistence (sources, playlists, profiles)
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
+    // DataStore — lightweight key-value persistence (AppSettings)
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Hilt — dependency injection
+    implementation("com.google.dagger:hilt-android:2.51.1")
+    ksp("com.google.dagger:hilt-compiler:2.51.1")
 
     // Debug tooling
     debugImplementation("androidx.compose.ui:ui-tooling")

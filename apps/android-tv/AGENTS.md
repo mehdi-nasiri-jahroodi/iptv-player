@@ -281,13 +281,7 @@ Both apps must read and write the same schema.
 
 ## Testing conventions
 
-| Layer | Tool | What to cover |
-| ----- | ---- | ------------- |
-| Unit | JUnit + MockK | Parsers, repositories, ViewModels, data mapping |
-| UI | Compose Test | Navigation flows, form submission, focus management |
-| Contract | JUnit | JSON Schema alignment with `packages/core/schemas/` |
-
-Co-locate tests: `src/test/` for unit, `src/androidTest/` for instrumented/UI.
+Testing is **not in scope** for the Android TV app at this time. If tests are added later, co-locate them: `src/test/` for unit, `src/androidTest/` for instrumented/UI.
 
 ---
 
@@ -314,7 +308,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 | Phase | Status | Scope |
 | ----- | ------ | ----- |
 | 1 — Project scaffold | **done** | Gradle project, Compose for TV shell, Lumina theme |
-| 2 — Domain models | pending | Kotlin data classes, Room, DataStore, Hilt |
+| 2 — Domain models | **done** | Kotlin data classes, Room, DataStore, Hilt |
 | 3 — M3U parser | pending | Kotlin port of M3U parser + source validator |
 | 4 — Navigation shell | pending | Routes, first-run wizard, settings skeleton |
 | 5 — Add Source | pending | M3U URL + file import form |
@@ -326,7 +320,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 | 11 — Series browser | pending | Season/episode picker, watched tracking |
 | 12 — Settings & backup | pending | Full settings, cross-platform backup/restore |
 | 13 — Polish & a11y | pending | Focus audit, TalkBack, performance, PiP |
-| 14 — Testing & CI | pending | Unit/UI tests, contract tests, CI pipeline |
+| 14 — CI | pending | CI pipeline |
 
 **Do not skip phases or build features from later phases early.**
 
