@@ -159,16 +159,16 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Parse M3U playlist text into the domain `Playlist` model. Validate sources before saving.
 
 **Tasks**:
-- [ ] Port M3U parser logic from `packages/core/src/lib/m3u.ts` to Kotlin
+- [x] Port M3U parser logic from `packages/core/src/lib/m3u.ts` to Kotlin
   - Handle `#EXTINF` attributes: `group-title`, `tvg-logo`, `tvg-id`, `tvg-name`
   - Catchup metadata: `catchup`, `catchup-days`, `catchup-source`
   - Live vs VOD heuristic (duration `-1` → live; positive → VOD)
   - Handle `#EXTGRP` fallback for group assignment
-- [ ] Create `SourceValidator` — validate URL reachability, parse sample, return typed error codes
+- [x] Create `SourceValidator` — validate URL reachability, parse sample, return typed error codes
   - No CORS issues on Android — direct HTTP fetch
   - Error codes: `invalid_url`, `unreachable`, `parse_error`, `empty_content`
-- [ ] Create `PlaylistStorage` — cache parsed playlists in Room
-- [ ] **Consider**: if the M3U parser is complex enough, evaluate whether a Kotlin Multiplatform module in `packages/` would be worth it to share with web (likely not for v1 — just port it)
+- [x] Create `PlaylistStorage` — cache parsed playlists in Room
+- [x] **Consider**: if the M3U parser is complex enough, evaluate whether a Kotlin Multiplatform module in `packages/` would be worth it to share with web (likely not for v1 — just port it)
 
 **Web parity**: `packages/core/src/lib/m3u.ts`, `packages/core/src/lib/source-validator.ts`.
 

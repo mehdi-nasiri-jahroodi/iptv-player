@@ -309,7 +309,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 | ----- | ------ | ----- |
 | 1 — Project scaffold | **done** | Gradle project, Compose for TV shell, Lumina theme |
 | 2 — Domain models | **done** | Kotlin data classes, Room, DataStore, Hilt |
-| 3 — M3U parser | pending | Kotlin port of M3U parser + source validator |
+| 3 — M3U parser | **done** | Kotlin port of M3U parser + source validator |
 | 4 — Navigation shell | pending | Routes, first-run wizard, settings skeleton |
 | 5 — Add Source | pending | M3U URL + file import form |
 | 6 — Live TV browser | pending | Home, groups, channel list, favorites, search |
