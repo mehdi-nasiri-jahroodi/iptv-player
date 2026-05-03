@@ -45,6 +45,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -78,11 +79,18 @@ fun PlayerScreen(
 
     BackHandler(onBack = onNavigateBack)
 
+    // Track whether any overlay control (subtitle/audio button, seek button) has focus.
+    // When true, Left/Right should navigate between controls, not seek.
+    var overlayControlFocused by remember { mutableStateOf(false) }
+
     // Auto-hide overlay after 5 seconds
     LaunchedEffect(uiState.showOverlay, uiState.error) {
         if (uiState.showOverlay && uiState.error == null) {
             delay(5000)
             viewModel.hideOverlay()
+        }
+        if (!uiState.showOverlay) {
+            overlayControlFocused = false
         }
     }
 
@@ -106,76 +114,94 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focusRequester)
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.key) {
-                        Key.DirectionUp -> {
-                            if (uiState.showOverlay) {
-                                viewModel.channelUp()
-                            } else {
-                                viewModel.showOverlay()
-                            }
+            .onPreviewKeyEvent { event ->
+                // Preview phase: only consume keys that should NOT reach children.
+                // When overlay controls are focused, let Left/Right/Up/Down pass
+                // through so D-pad navigation works on subtitle/audio buttons.
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+
+                when (event.key) {
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        if (overlayControlFocused) {
+                            // Let the focused control handle Left/Right navigation
+                            false
+                        } else if (uiState.isVod) {
+                            if (event.key == Key.DirectionLeft) viewModel.seekBackward()
+                            else viewModel.seekForward()
+                            viewModel.showOverlay()
                             true
-                        }
-                        Key.DirectionDown -> {
-                            if (uiState.showOverlay) {
-                                viewModel.channelDown()
-                            } else {
-                                viewModel.showOverlay()
-                            }
+                        } else {
+                            viewModel.showOverlay()
                             true
-                        }
-                        Key.DirectionCenter, Key.Enter -> {
-                            if (uiState.error != null) {
-                                viewModel.retry()
-                            } else if (uiState.showOverlay) {
-                                viewModel.togglePlayPause()
-                            } else {
-                                viewModel.showOverlay()
-                            }
-                            true
-                        }
-                        Key.DirectionLeft -> {
-                            if (uiState.isVod) {
-                                viewModel.seekBackward()
-                                viewModel.showOverlay()
-                            } else {
-                                viewModel.showOverlay()
-                            }
-                            true
-                        }
-                        Key.DirectionRight -> {
-                            if (uiState.isVod) {
-                                viewModel.seekForward()
-                                viewModel.showOverlay()
-                            } else {
-                                viewModel.showOverlay()
-                            }
-                            true
-                        }
-                        Key.MediaPlayPause -> {
-                            viewModel.togglePlayPause()
-                            true
-                        }
-                        Key.ChannelUp -> {
-                            viewModel.channelUp()
-                            true
-                        }
-                        Key.ChannelDown -> {
-                            viewModel.channelDown()
-                            true
-                        }
-                        else -> {
-                            // Green button = previous channel
-                            if (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
-                                event.key == Key.G
-                            ) {
-                                viewModel.previousChannel()
-                                true
-                            } else false
                         }
                     }
-                } else false
+                    Key.DirectionUp -> {
+                        if (overlayControlFocused) {
+                            // Let focus move up to other controls
+                            false
+                        } else if (uiState.isVod) {
+                            viewModel.showOverlay()
+                            true
+                        } else if (uiState.showOverlay) {
+                            viewModel.channelUp()
+                            true
+                        } else {
+                            viewModel.showOverlay()
+                            true
+                        }
+                    }
+                    Key.DirectionDown -> {
+                        if (overlayControlFocused) {
+                            // Let focus move down to other controls
+                            false
+                        } else if (uiState.isVod) {
+                            viewModel.showOverlay()
+                            true
+                        } else if (uiState.showOverlay) {
+                            viewModel.channelDown()
+                            true
+                        } else {
+                            viewModel.showOverlay()
+                            true
+                        }
+                    }
+                    Key.DirectionCenter, Key.Enter -> {
+                        if (overlayControlFocused) {
+                            // Let the focused button handle Enter
+                            false
+                        } else if (uiState.error != null) {
+                            viewModel.retry()
+                            true
+                        } else if (uiState.showOverlay) {
+                            viewModel.togglePlayPause()
+                            true
+                        } else {
+                            viewModel.showOverlay()
+                            true
+                        }
+                    }
+                    Key.MediaPlayPause -> {
+                        viewModel.togglePlayPause()
+                        true
+                    }
+                    Key.ChannelUp -> {
+                        viewModel.channelUp()
+                        true
+                    }
+                    Key.ChannelDown -> {
+                        viewModel.channelDown()
+                        true
+                    }
+                    else -> {
+                        // Green button = previous channel
+                        if (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
+                            event.key == Key.G
+                        ) {
+                            viewModel.previousChannel()
+                            true
+                        } else false
+                    }
+                }
             }
             .focusable(),
     ) {
@@ -236,6 +262,7 @@ fun PlayerScreen(
                 onSelectAudioTrack = viewModel::selectAudioTrack,
                 onSelectSubtitleTrack = viewModel::selectSubtitleTrack,
                 onDisableSubtitles = viewModel::disableSubtitles,
+                onControlFocusChanged = { overlayControlFocused = it },
             )
         }
     }
@@ -256,6 +283,7 @@ private fun ControlsOverlay(
     onSelectAudioTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onSelectSubtitleTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onDisableSubtitles: () -> Unit,
+    onControlFocusChanged: (Boolean) -> Unit = {},
 ) {
     val colors = LuminaTheme.colors
 
@@ -371,57 +399,63 @@ private fun ControlsOverlay(
             }
 
             // Playback controls row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier.onFocusChanged { state ->
+                    // hasFocus is true when this Column OR any descendant has focus
+                    onControlFocusChanged(state.hasFocus)
+                },
             ) {
-                FocusableButton(
-                    text = if (uiState.isPlaying) "⏸ Pause" else "▶ Play",
-                    onClick = onPlayPause,
-                )
-                if (uiState.isVod) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     FocusableButton(
-                        text = "⏪ −10s",
-                        onClick = onSeekBackward,
+                        text = if (uiState.isPlaying) "⏸ Pause" else "▶ Play",
+                        onClick = onPlayPause,
                     )
-                    FocusableButton(
-                        text = "⏩ +10s",
-                        onClick = onSeekForward,
-                    )
-                } else {
-                    FocusableButton(
-                        text = "▲ Ch+",
-                        onClick = onChannelUp,
-                    )
-                    FocusableButton(
-                        text = "▼ Ch−",
-                        onClick = onChannelDown,
-                    )
-                }
-            }
-
-            // Track pickers (only if tracks available)
-            if (uiState.audioTracks.size > 1) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Audio",
-                    color = Color(0xAAFFFFFF),
-                    fontSize = 12.sp,
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(uiState.audioTracks) { track ->
-                        TrackButton(
-                            label = track.label,
-                            isSelected = track.isSelected,
-                            onClick = { onSelectAudioTrack(track.groupIndex, track.index) },
+                    if (uiState.isVod) {
+                        FocusableButton(
+                            text = "⏪ −10s",
+                            onClick = onSeekBackward,
+                        )
+                        FocusableButton(
+                            text = "⏩ +10s",
+                            onClick = onSeekForward,
+                        )
+                    } else {
+                        FocusableButton(
+                            text = "▲ Ch+",
+                            onClick = onChannelUp,
+                        )
+                        FocusableButton(
+                            text = "▼ Ch−",
+                            onClick = onChannelDown,
                         )
                     }
                 }
-            }
 
-            if (uiState.subtitleTracks.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
+                // Track pickers (only if tracks available)
+                if (uiState.audioTracks.size > 1) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Audio",
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 12.sp,
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(uiState.audioTracks) { track ->
+                            TrackButton(
+                                label = track.label,
+                                isSelected = track.isSelected,
+                                onClick = { onSelectAudioTrack(track.groupIndex, track.index) },
+                            )
+                        }
+                    }
+                }
+
+                if (uiState.isVod && uiState.subtitleTracks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
                     text = "Subtitles",
                     color = Color(0xAAFFFFFF),
                     fontSize = 12.sp,
@@ -442,7 +476,8 @@ private fun ControlsOverlay(
                         )
                     }
                 }
-            }
+                } // end if subtitleTracks
+            } // end of focus-tracked Column
 
             // Color button hints
             Spacer(modifier = Modifier.height(12.dp))

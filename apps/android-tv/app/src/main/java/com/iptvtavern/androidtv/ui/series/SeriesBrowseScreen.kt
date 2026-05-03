@@ -57,6 +57,7 @@ import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
+import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
@@ -136,6 +137,7 @@ fun SeriesBrowseScreen(
                     seasons = uiState.detailChannel?.seasons.orEmpty(),
                     selectedSeasonIndex = uiState.selectedSeasonIndex,
                     episodes = uiState.episodes,
+                    watchedEpisodeIds = uiState.watchedEpisodeIds,
                     onSelectSeason = viewModel::selectSeason,
                     onPlayEpisode = { episode ->
                         // Navigate to player with the episode stream URL
@@ -172,7 +174,6 @@ fun SeriesBrowseScreen(
                             channel = channel,
                             isSelected = channel.id == uiState.selectedChannel?.id,
                             isFavorite = channel.id in uiState.favorites,
-                            onHighlight = { viewModel.highlightChannel(channel) },
                             onSelect = { viewModel.highlightChannel(channel) },
                             onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                         )
@@ -196,6 +197,7 @@ private fun SeriesDetailHero(
     seasons: List<SeriesSeason>,
     selectedSeasonIndex: Int,
     episodes: List<SeriesEpisode>,
+    watchedEpisodeIds: Set<String>,
     onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (SeriesEpisode) -> Unit,
     onToggleFavorite: () -> Unit,
@@ -402,6 +404,8 @@ private fun SeriesDetailHero(
                 ) {
                     itemsIndexed(episodes, key = { _, ep -> ep.id }) { _, episode ->
                         var isFocused by remember { mutableStateOf(false) }
+                        val isWatched = channel != null &&
+                            "${channel.id}:ep:${episode.id}" in watchedEpisodeIds
                         val durationText = episode.durationSeconds?.let { secs ->
                             val mins = secs / 60
                             if (mins > 0) "${mins}m" else null
@@ -439,6 +443,13 @@ private fun SeriesDetailHero(
                                     color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
                                     fontSize = 12.sp,
                                 )
+                                if (isWatched) {
+                                    Text(
+                                        text = "✓",
+                                        color = if (isFocused) colors.accentForeground else colors.accent,
+                                        fontSize = 12.sp,
+                                    )
+                                }
                                 Text(
                                     text = episode.title,
                                     color = if (isFocused) colors.accentForeground else colors.foreground,
@@ -477,7 +488,7 @@ private fun SeriesToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TvTextField(
+        TvSearchButton(
             value = searchQuery,
             onValueChange = onSearchChanged,
             placeholder = "Search series…",
@@ -500,7 +511,6 @@ private fun SeriesPosterTile(
     channel: Channel.Series,
     isSelected: Boolean,
     isFavorite: Boolean,
-    onHighlight: () -> Unit,
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
@@ -524,7 +534,6 @@ private fun SeriesPosterTile(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
-                if (it.isFocused) onHighlight()
             }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -611,11 +620,10 @@ private fun SeriesGroupsSidebar(
     val colors = LuminaTheme.colors
 
     Column(modifier = modifier.background(colors.surface)) {
-        TvTextField(
+        TvSearchButton(
             value = groupSearchQuery,
             onValueChange = onGroupSearchChanged,
             placeholder = "Filter categories…",
-            imeAction = ImeAction.Done,
             modifier = Modifier.padding(6.dp),
         )
 

@@ -59,6 +59,7 @@ import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.inferStreamQualityHints
+import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
@@ -161,7 +162,7 @@ fun BrowseScreen(
             ) {
                 // Search bar — above mini player so D-pad down goes
                 // straight to the channel table without hitting the keyboard
-                TvTextField(
+                TvSearchButton(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::updateSearch,
                     placeholder = when (kind) {
@@ -354,11 +355,22 @@ private fun MiniPlayerRow(
                     maxLines = 1,
                 )
             }
-            Text(
-                text = "Press Enter for full screen",
-                color = colors.foregroundMuted,
-                fontSize = 11.sp,
-            )
+            // Fullscreen button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .background(Color(0xFF2563EB), CircleShape),
+                )
+                Text(
+                    text = "⛶",
+                    color = colors.foreground,
+                    fontSize = 20.sp,
+                )
+            }
         }
     }
 }
@@ -582,11 +594,10 @@ private fun GroupsSidebar(
 
     Column(modifier = modifier.background(colors.surface)) {
         // Group search input
-        TvTextField(
+        TvSearchButton(
             value = groupSearchQuery,
             onValueChange = onGroupSearchChanged,
             placeholder = "Filter groups…",
-            imeAction = ImeAction.Done,
             modifier = Modifier.padding(6.dp),
         )
 
@@ -756,10 +767,11 @@ private fun BottomGuidelineBar(isReordering: Boolean = false) {
             color = Color(0xFFEAB308), // Yellow
             label = "Favorite",
         )
-        // Blue button = Full screen
-        ButtonHint(
-            color = Color(0xFF2563EB), // Blue
-            label = "Full screen",
+        // Blue button = Full screen (no label needed — obvious from context)
+        Box(
+            modifier = Modifier
+                .size(14.dp)
+                .background(Color(0xFF2563EB), CircleShape),
         )
         // Enter = Play
         ButtonHint(

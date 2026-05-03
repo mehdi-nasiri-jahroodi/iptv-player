@@ -212,27 +212,52 @@ private fun SourceRow(
     }
 }
 
+enum class ButtonVariant { Primary, Secondary }
+enum class ButtonSize { Normal, Small }
+
 @Composable
 fun FocusableButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    variant: ButtonVariant = ButtonVariant.Primary,
+    size: ButtonSize = ButtonSize.Normal,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
 
+    val bgColor = when {
+        isFocused -> colors.accent
+        variant == ButtonVariant.Primary -> colors.accent
+        else -> colors.surface
+    }
+    val borderColor = when {
+        isFocused -> colors.accentForeground
+        variant == ButtonVariant.Primary -> colors.accent
+        else -> colors.border
+    }
+    val textColor = when {
+        isFocused -> colors.accentForeground
+        variant == ButtonVariant.Primary -> colors.accentForeground
+        else -> colors.foreground
+    }
+
+    val hPad = if (size == ButtonSize.Small) 16.dp else 24.dp
+    val vPad = if (size == ButtonSize.Small) 8.dp else 14.dp
+    val fontSize = if (size == ButtonSize.Small) 13.sp else 16.sp
+
     Box(
         modifier = modifier
             .background(
-                color = if (isFocused) colors.accent else colors.surface,
+                color = bgColor,
                 shape = RoundedCornerShape(8.dp),
             )
             .border(
                 width = 2.dp,
-                color = if (isFocused) colors.accent else colors.border,
+                color = borderColor,
                 shape = RoundedCornerShape(8.dp),
             )
-            .padding(horizontal = 24.dp, vertical = 14.dp)
+            .padding(horizontal = hPad, vertical = vPad)
             .onFocusChanged { isFocused = it.isFocused }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
@@ -247,8 +272,8 @@ fun FocusableButton(
     ) {
         Text(
             text = text,
-            color = if (isFocused) colors.accentForeground else colors.foreground,
-            fontSize = 16.sp,
+            color = textColor,
+            fontSize = fontSize,
         )
     }
 }

@@ -167,11 +167,32 @@ fun HomeScreen(
                 )
             }
 
-            // Continue watching rail
-            if (uiState.recentChannels.isNotEmpty()) {
+            // Continue watching rail (items with playback progress)
+            if (uiState.continueWatchingItems.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Continue Watching",
+                    color = colors.foreground,
+                    fontSize = 18.sp,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(end = 32.dp),
+                ) {
+                    items(uiState.continueWatchingItems, key = { "cw_${it.channel.id}" }) { item ->
+                        ContinueWatchingCard(
+                            item = item,
+                            onClick = { onNavigateToPlayer(item.channel.id) },
+                        )
+                    }
+                }
+            }
+
+            // Recent channels rail
+            if (uiState.recentChannels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Recently Watched",
                     color = colors.foreground,
                     fontSize = 18.sp,
                 )
@@ -186,7 +207,9 @@ fun HomeScreen(
                         )
                     }
                 }
-            } else {
+            }
+            
+            if (uiState.continueWatchingItems.isEmpty() && uiState.recentChannels.isEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Continue Watching",
@@ -277,7 +300,99 @@ private fun CatalogTile(
 }
 
 /**
- * A card for a recently watched channel in the Continue Watching rail.
+ * A card showing a VOD/series with a progress bar indicating how far
+ * the user has watched.
+ */
+@Composable
+private fun ContinueWatchingCard(
+    item: ContinueWatchingItem,
+    onClick: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+    val channel = item.channel
+    val posterUrl = when (channel) {
+        is Channel.Vod -> channel.posterUrl ?: channel.logoUrl
+        is Channel.Series -> channel.posterUrl ?: channel.logoUrl
+        else -> channel.logoUrl
+    }
+
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) colors.surfaceRaised else colors.surface)
+            .border(
+                width = if (isFocused) 3.dp else 1.dp,
+                color = if (isFocused) colors.accent else colors.border,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .focusable(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Poster / logo
+        if (posterUrl != null) {
+            AsyncImage(
+                model = posterUrl,
+                contentDescription = channel.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .background(colors.backgroundSubtle),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = channel.name.take(2).uppercase(),
+                    color = colors.foregroundMuted,
+                    fontSize = 20.sp,
+                )
+            }
+        }
+
+        // Progress bar
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(colors.border),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(item.progress)
+                    .height(3.dp)
+                    .background(colors.accent),
+            )
+        }
+
+        Text(
+            text = channel.name,
+            color = colors.foreground,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/**
+ * A card for a recently watched channel in the Recently Watched rail.
  */
 @Composable
 private fun RecentChannelCard(

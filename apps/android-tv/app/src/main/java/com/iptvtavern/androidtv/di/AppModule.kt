@@ -7,6 +7,7 @@ import com.iptvtavern.androidtv.data.local.PlaylistDao
 import com.iptvtavern.androidtv.data.local.ProfileDao
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.local.SourceDao
+import com.iptvtavern.androidtv.data.local.WatchedDao
 import com.iptvtavern.androidtv.data.local.settingsDataStore
 import dagger.Module
 import dagger.Provides
@@ -54,6 +55,9 @@ object AppModule {
 
     @Provides
     fun providePlaylistDao(db: AppDatabase): PlaylistDao = db.playlistDao()
+
+    @Provides
+    fun provideWatchedDao(db: AppDatabase): WatchedDao = db.watchedDao()
 
     @Provides
     @Singleton

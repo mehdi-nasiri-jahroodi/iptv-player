@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +58,11 @@ import com.iptvtavern.androidtv.domain.parser.VodSortDir
 import com.iptvtavern.androidtv.domain.parser.VodSortKey
 import com.iptvtavern.androidtv.domain.parser.formatVodDuration
 import com.iptvtavern.androidtv.domain.parser.getVodPosterBadge
+import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
+import com.iptvtavern.androidtv.ui.settings.ButtonSize
+import com.iptvtavern.androidtv.ui.settings.ButtonVariant
+import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
 /**
@@ -136,6 +141,11 @@ fun VodBrowseScreen(
                     onPlay = {
                         uiState.detailChannel?.let { onNavigateToPlayer(it.id) }
                     },
+                    onPlayTrailer = {
+                        uiState.detailChannel?.trailerUrl?.let { url ->
+                            // TODO: open trailer URL (YouTube intent or in-app player)
+                        }
+                    },
                     onToggleFavorite = {
                         uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
                     },
@@ -169,7 +179,6 @@ fun VodBrowseScreen(
                             channel = channel,
                             isSelected = channel.id == uiState.selectedChannel?.id,
                             isFavorite = channel.id in uiState.favorites,
-                            onHighlight = { viewModel.highlightChannel(channel) },
                             onSelect = { viewModel.highlightChannel(channel) },
                             onPlay = { onNavigateToPlayer(channel.id) },
                             onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
@@ -192,6 +201,7 @@ private fun VodDetailHero(
     isLoading: Boolean,
     isFavorite: Boolean,
     onPlay: () -> Unit,
+    onPlayTrailer: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
     val colors = LuminaTheme.colors
@@ -254,72 +264,101 @@ private fun VodDetailHero(
             // Info column
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column {
+                Text(
+                    text = channel.name,
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                // Meta line: year · rating · duration
+                val metaParts = mutableListOf<String>()
+                channel.year?.let { metaParts.add("$it") }
+                channel.rating?.let { r ->
+                    if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
+                }
+                formatVodDuration(channel.durationSeconds)?.let { metaParts.add(it) }
+                if (metaParts.isNotEmpty()) {
                     Text(
-                        text = channel.name,
-                        color = Color.White,
-                        fontSize = 20.sp,
+                        text = metaParts.joinToString(" · "),
+                        color = Color(0xCCFFFFFF),
+                        fontSize = 13.sp,
+                    )
+                }
+
+                channel.genre?.let { g ->
+                    Text(
+                        text = g,
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 12.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Action buttons: Watch + Trailer
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    FocusableButton(
+                        text = "▶ Watch",
+                        onClick = onPlay,
+                        variant = ButtonVariant.Primary,
+                        size = ButtonSize.Small,
                     )
 
-                    // Meta line: year · rating · duration
-                    val metaParts = mutableListOf<String>()
-                    channel.year?.let { metaParts.add("$it") }
-                    channel.rating?.let { r ->
-                        if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
+                    if (channel.trailerUrl != null) {
+                        FocusableButton(
+                            text = "Trailer",
+                            onClick = onPlayTrailer,
+                            variant = ButtonVariant.Secondary,
+                            size = ButtonSize.Small,
+                        )
                     }
-                    formatVodDuration(channel.durationSeconds)?.let { metaParts.add(it) }
-                    if (metaParts.isNotEmpty()) {
+
+                    if (isFavorite) {
                         Text(
-                            text = metaParts.joinToString(" · "),
-                            color = Color(0xCCFFFFFF),
+                            text = "★ Favorite",
+                            color = colors.danger,
                             fontSize = 13.sp,
                         )
                     }
+                }
 
-                    channel.genre?.let { g ->
-                        Text(
-                            text = g,
-                            color = Color(0xAAFFFFFF),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                        )
-                    }
+                Spacer(modifier = Modifier.height(4.dp))
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                // Plot
+                channel.plot?.let { p ->
+                    Text(
+                        text = p,
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
 
-                    // Plot
-                    channel.plot?.let { p ->
-                        Text(
-                            text = p,
-                            color = Color(0xAAFFFFFF),
-                            fontSize = 12.sp,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-
-                    // Director / Cast
-                    channel.director?.let { d ->
-                        Text(
-                            text = "Director: $d",
-                            color = Color(0x88FFFFFF),
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                        )
-                    }
-                    channel.cast?.let { c ->
-                        Text(
-                            text = "Cast: $c",
-                            color = Color(0x88FFFFFF),
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                // Director / Cast
+                channel.director?.let { d ->
+                    Text(
+                        text = "Director: $d",
+                        color = Color(0x88FFFFFF),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                }
+                channel.cast?.let { c ->
+                    Text(
+                        text = "Cast: $c",
+                        color = Color(0x88FFFFFF),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
 
                 // Loading shimmer indicator
@@ -329,20 +368,6 @@ private fun VodDetailHero(
                         color = Color(0x88FFFFFF),
                         fontSize = 11.sp,
                     )
-                }
-
-                // Favorite indicator
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (isFavorite) {
-                        Text(
-                            text = "★ Favorite",
-                            color = colors.danger,
-                            fontSize = 12.sp,
-                        )
-                    }
                 }
             }
         }
@@ -369,7 +394,7 @@ private fun VodToolbar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Search
-        TvTextField(
+        TvSearchButton(
             value = searchQuery,
             onValueChange = onSearchChanged,
             placeholder = "Search movies…",
@@ -446,7 +471,6 @@ private fun VodPosterTile(
     channel: Channel.Vod,
     isSelected: Boolean,
     isFavorite: Boolean,
-    onHighlight: () -> Unit,
     onSelect: () -> Unit,
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -472,7 +496,6 @@ private fun VodPosterTile(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
-                if (it.isFocused) onHighlight()
             }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -568,11 +591,10 @@ private fun VodGroupsSidebar(
 
     Column(modifier = modifier.background(colors.surface)) {
         // Group search
-        TvTextField(
+        TvSearchButton(
             value = groupSearchQuery,
             onValueChange = onGroupSearchChanged,
             placeholder = "Filter categories…",
-            imeAction = ImeAction.Done,
             modifier = Modifier.padding(6.dp),
         )
 

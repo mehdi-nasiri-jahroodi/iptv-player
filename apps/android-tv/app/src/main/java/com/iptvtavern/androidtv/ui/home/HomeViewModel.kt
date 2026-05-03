@@ -6,6 +6,7 @@ import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
+import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
@@ -43,9 +44,22 @@ data class HomeUiState(
     val vodCount: Int = 0,
     val seriesCount: Int = 0,
     val recentChannels: List<Channel> = emptyList(),
+    /** Items with playback progress (VOD/episodes not yet completed). */
+    val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val error: String? = null,
     /** EPG spotlight: favorite live channels with what's on now. */
     val epgSpotlight: List<EpgSpotlightItem> = emptyList(),
+)
+
+/**
+ * A VOD or series episode with its saved playback progress.
+ */
+data class ContinueWatchingItem(
+    val channel: Channel,
+    val positionMs: Long,
+    val durationMs: Long,
+    /** 0.0–1.0 progress fraction. */
+    val progress: Float,
 )
 
 data class EpgSpotlightItem(
@@ -61,6 +75,7 @@ class HomeViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
     private val epgRepository: EpgRepository,
+    private val watchedRepository: WatchedRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -197,6 +212,31 @@ class HomeViewModel @Inject constructor(
         val allChannels = playlist.groups.flatMap { it.channels }
         val channelMap = allChannels.associateBy { it.id }
         val recents = profile.recents.take(5).mapNotNull { channelMap[it] }
+            .distinctBy { it.id }
+
+        // Build "Continue Watching" from watched progress
+        val sourceId = _uiState.value.activeSource?.id
+        val continueItems = if (sourceId != null) {
+            val watched = watchedRepository.getRecentInProgress(sourceId, 10)
+            watched.mapNotNull { w ->
+                // For series episodes, resolve to the series channel
+                val channel = if (w.parentSeriesId != null) {
+                    channelMap[w.parentSeriesId]
+                } else {
+                    channelMap[w.channelId]
+                }
+                if (channel == null) return@mapNotNull null
+                val progress = if (w.durationMs > 0) {
+                    (w.positionMs.toFloat() / w.durationMs).coerceIn(0f, 1f)
+                } else 0f
+                ContinueWatchingItem(
+                    channel = channel,
+                    positionMs = w.positionMs,
+                    durationMs = w.durationMs,
+                    progress = progress,
+                )
+            }.distinctBy { it.channel.id } // dedupe series that have multiple in-progress episodes
+        } else emptyList()
 
         _uiState.value = _uiState.value.copy(
             isLoading = false,
@@ -204,6 +244,7 @@ class HomeViewModel @Inject constructor(
             vodCount = vod,
             seriesCount = series,
             recentChannels = recents,
+            continueWatchingItems = continueItems,
             error = null,
         )
     }

@@ -293,9 +293,12 @@ class BrowseViewModel @Inject constructor(
     }
 
     private fun filterChannels(channels: List<Channel>, query: String): List<Channel> {
-        if (query.isBlank()) return channels
-        val lower = query.lowercase()
-        return channels.filter { it.name.lowercase().contains(lower) }
+        val filtered = if (query.isBlank()) channels
+        else {
+            val lower = query.lowercase()
+            channels.filter { it.name.lowercase().contains(lower) }
+        }
+        return filtered.distinctBy { it.id }
     }
 
     fun toggleFavorite(channelId: String) {

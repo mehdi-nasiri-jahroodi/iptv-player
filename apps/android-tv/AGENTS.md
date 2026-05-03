@@ -317,7 +317,7 @@ Read [`apps/android-tv/PLAN.md`](PLAN.md) for the full phase breakdown.
 | 8 — Xtream Codes | **done** | Xtream API client, login, catalog fetch |
 | 9 — VOD browser | **done** | Poster grid, detail hero, VOD playback |
 | 10 — EPG | **done** | XMLTV parser, now/next, schedule screen |
-| 11 — Series browser | **in progress** | Season/episode picker, watched tracking |
+| 11 — Series browser | **done** | Season/episode picker, watched tracking |
 | 12 — Settings & backup | pending | Full settings, cross-platform backup/restore |
 | 13 — Polish & a11y | pending | Focus audit, TalkBack, performance, PiP |
 | 14 — CI | pending | CI pipeline |

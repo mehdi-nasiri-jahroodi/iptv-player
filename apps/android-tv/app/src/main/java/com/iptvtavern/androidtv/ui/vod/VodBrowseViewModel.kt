@@ -273,6 +273,7 @@ class VodBrowseViewModel @Inject constructor(
             channels.filter { it.name.lowercase().contains(lower) }
         }
         return sortVodChannels(filtered, state.sortKey, state.sortDir)
+            .distinctBy { it.id }
     }
 
     // ── Detail hero selection ───────────────────────────────────

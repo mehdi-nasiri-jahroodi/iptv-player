@@ -3,6 +3,8 @@ package com.iptvtavern.androidtv.ui.onboarding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +42,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -417,4 +420,174 @@ fun TvTextField(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
     )
+}
+
+/**
+ * Search button for Android TV browse screens.
+ *
+ * Shows as a compact, focusable button. When pressed, opens a dialog
+ * with a text field so the keyboard doesn't pop up just from D-pad
+ * navigation passing through the search area.
+ */
+@Composable
+fun TvSearchButton(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String = "Search…",
+    modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Search,
+) {
+    val colors = LuminaTheme.colors
+    var showDialog by remember { mutableStateOf(false) }
+    var isFocused by remember { mutableStateOf(false) }
+
+    // The button itself — always present, stable in the tree
+    val displayText = if (value.isNotEmpty()) "⌕ $value" else "⌕ $placeholder"
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isFocused) colors.accent else colors.backgroundSubtle)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) colors.accent else colors.border,
+                shape = RoundedCornerShape(6.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    showDialog = true
+                    true
+                } else false
+            }
+            .focusable(),
+    ) {
+        Text(
+            text = displayText,
+            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    // Dialog with actual text input
+    if (showDialog) {
+        SearchInputDialog(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = placeholder,
+            imeAction = imeAction,
+            onDismiss = { showDialog = false },
+        )
+    }
+}
+
+/**
+ * Overlay dialog for search input. Renders as a dark overlay with a
+ * centered text field that auto-focuses and opens the keyboard.
+ */
+@Composable
+private fun SearchInputDialog(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    imeAction: ImeAction,
+    onDismiss: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    val focusRequester = remember { FocusRequester() }
+    // Local copy so we can update on each keystroke, then commit on dismiss
+    var localValue by remember { mutableStateOf(value) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.surface, RoundedCornerShape(12.dp))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = placeholder,
+                color = colors.foregroundMuted,
+                fontSize = 14.sp,
+            )
+
+            BasicTextField(
+                value = localValue,
+                onValueChange = {
+                    localValue = it
+                    onValueChange(it)
+                },
+                textStyle = TextStyle(
+                    color = colors.foreground,
+                    fontSize = 18.sp,
+                ),
+                cursorBrush = SolidColor(colors.accent),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = imeAction),
+                keyboardActions = KeyboardActions(
+                    onSearch = { onDismiss() },
+                    onDone = { onDismiss() },
+                ),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(colors.backgroundSubtle, RoundedCornerShape(8.dp))
+                            .border(2.dp, colors.accent, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        if (localValue.isEmpty()) {
+                            Text(
+                                text = "Type to search…",
+                                color = colors.foregroundMuted,
+                                fontSize = 18.sp,
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+            )
+
+            // Clear button
+            if (localValue.isNotEmpty()) {
+                var clearFocused by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (clearFocused) colors.accent else colors.surfaceRaised)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .onFocusChanged { clearFocused = it.isFocused }
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                            ) {
+                                localValue = ""
+                                onValueChange("")
+                                true
+                            } else false
+                        }
+                        .focusable(),
+                ) {
+                    Text(
+                        text = "Clear",
+                        color = if (clearFocused) colors.accentForeground else colors.foreground,
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+    }
 }

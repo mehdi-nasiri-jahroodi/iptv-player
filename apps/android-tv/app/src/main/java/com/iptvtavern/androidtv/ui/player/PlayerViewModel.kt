@@ -16,6 +16,7 @@ import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
+import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
@@ -94,6 +95,7 @@ class PlayerViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
     private val epgRepository: EpgRepository,
+    private val watchedRepository: WatchedRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -119,6 +121,10 @@ class PlayerViewModel @Inject constructor(
     private var currentChannelId: String? = null
     /** Previous channel index for "jump back" (Green button). */
     private var previousChannelIndex: Int = -1
+    /** Active source ID — needed for persisting watched progress. */
+    private var activeSourceId: String? = null
+    /** If currently playing a series episode, the parent series channel ID. */
+    private var currentSeriesId: String? = null
 
     init {
         // Set up player listener
@@ -175,6 +181,8 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
+            activeSourceId = source.id
+
             val playlist = loadPlaylist(source)
             if (playlist == null) {
                 _uiState.value = _uiState.value.copy(
@@ -205,6 +213,7 @@ class PlayerViewModel @Inject constructor(
 
             // Track as recent
             profileRepository.addRecent(channelId)
+            currentSeriesId = null
 
             playChannel(index)
         }
@@ -295,6 +304,7 @@ class PlayerViewModel @Inject constructor(
             }
 
             profileRepository.addRecent(seriesChannelId)
+            currentSeriesId = seriesChannelId
             playChannel(index)
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
@@ -343,6 +353,9 @@ class PlayerViewModel @Inject constructor(
     private fun playChannel(index: Int) {
         val channel = channelList.getOrNull(index) ?: return
 
+        // Save progress for the item we're leaving (before switching)
+        saveCurrentProgress()
+
         // Track previous channel for "jump back"
         val currentIdx = _uiState.value.channelIndex
         if (currentIdx >= 0 && currentIdx != index) {
@@ -387,9 +400,43 @@ class PlayerViewModel @Inject constructor(
         player.setMediaItem(mediaItem)
         player.prepare()
         player.playWhenReady = true
+
+        // Resume from saved position for VOD/episodes
+        if (isVod) {
+            viewModelScope.launch {
+                val resumePos = watchedRepository.getResumePosition(channel.id)
+                if (resumePos > 0) {
+                    player.seekTo(resumePos)
+                }
+            }
+        }
     }
 
     // ── Channel zapping ──────────────────────────────────────────
+
+    /**
+     * Save playback progress for the currently playing item.
+     * Called when switching channels, pausing, or leaving the player.
+     */
+    private fun saveCurrentProgress() {
+        val id = currentChannelId ?: return
+        val srcId = activeSourceId ?: return
+        val channel = channelList.find { it.id == id } ?: return
+        // Only save progress for VOD / series episodes (not live streams)
+        if (channel !is Channel.Vod) return
+        val pos = player.currentPosition
+        val dur = player.duration.coerceAtLeast(0)
+        if (pos <= 0 && dur <= 0) return
+        viewModelScope.launch {
+            watchedRepository.saveProgress(
+                channelId = id,
+                sourceId = srcId,
+                positionMs = pos,
+                durationMs = dur,
+                parentSeriesId = currentSeriesId,
+            )
+        }
+    }
 
     fun channelUp() {
         val current = _uiState.value.channelIndex
@@ -425,6 +472,10 @@ class PlayerViewModel @Inject constructor(
 
     fun togglePlayPause() {
         player.playWhenReady = !player.playWhenReady
+        // Save progress when pausing
+        if (!player.playWhenReady) {
+            saveCurrentProgress()
+        }
     }
 
     fun retry() {
@@ -612,6 +663,7 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        saveCurrentProgress()
         player.release()
     }
 }

@@ -462,10 +462,11 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
   - Seekable player (same as VOD)
   - On episode finish: prompt "Play next episode?" (if available)
   - Update watched status in recents
-- [ ] **Watched tracking**:
-  - Track watched episode IDs in profile recents
-  - Show watched markers on episode list and poster tiles
-  - "Continue watching" on Home for series with unwatched episodes
+- [x] **Watched tracking**:
+  - Track watched episode IDs in Room (WatchedEntity + WatchedRepository)
+  - Show watched markers (✓) on episode list
+  - "Continue Watching" rail on Home with progress bars for VOD/series
+  - Resume from saved position on re-watch
 
 **Web parity**: `apps/web/app/components/browse-view.tsx` (series mode), `packages/ui/src/lib/SeriesBrowseHero.tsx`, `packages/ui/src/lib/SeriesPosterGrid.tsx`, `apps/web/app/hooks/use-series-episode-stream-url.ts`.
 

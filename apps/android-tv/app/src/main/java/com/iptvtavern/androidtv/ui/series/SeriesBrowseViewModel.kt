@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
+import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
@@ -56,6 +57,8 @@ data class SeriesUiState(
     val selectedSeasonIndex: Int = 0,
     /** Episodes for the selected season. */
     val episodes: List<SeriesEpisode> = emptyList(),
+    /** Set of episode IDs that have been watched (completed). */
+    val watchedEpisodeIds: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -64,6 +67,7 @@ class SeriesBrowseViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
+    private val watchedRepository: WatchedRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SeriesUiState())
@@ -258,12 +262,13 @@ class SeriesBrowseViewModel @Inject constructor(
 
     private fun filterChannels(channels: List<Channel.Series>): List<Channel.Series> {
         val query = _uiState.value.searchQuery
-        return if (query.isBlank()) {
+        val filtered = if (query.isBlank()) {
             channels
         } else {
             val lower = query.lowercase()
             channels.filter { it.name.lowercase().contains(lower) }
         }
+        return filtered.distinctBy { it.id }
     }
 
     // ── Detail hero selection ───────────────────────────────────
@@ -280,7 +285,16 @@ class SeriesBrowseViewModel @Inject constructor(
             detailLoading = false,
             selectedSeasonIndex = 0,
             episodes = channel.seasons.firstOrNull()?.episodes.orEmpty(),
+            watchedEpisodeIds = emptySet(),
         )
+
+        // Fetch watched episode IDs for this series
+        viewModelScope.launch {
+            val watchedIds = watchedRepository.getCompletedEpisodeIds(channel.id).toSet()
+            if (_uiState.value.selectedChannel?.id == channel.id) {
+                _uiState.value = _uiState.value.copy(watchedEpisodeIds = watchedIds)
+            }
+        }
 
         // Fetch Xtream detail for seasons/episodes
         val source = activeSource ?: return

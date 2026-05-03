@@ -18,12 +18,14 @@ import androidx.room.RoomDatabase
         SourceEntity::class,
         ProfileEntity::class,
         PlaylistEntity::class,
+        WatchedEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun sourceDao(): SourceDao
     abstract fun profileDao(): ProfileDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun watchedDao(): WatchedDao
 }
