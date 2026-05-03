@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
@@ -60,6 +61,7 @@ val TAB_ITEMS = listOf(
     TabItem("Live TV", Icons.Filled.LiveTv, Routes.browse("live")),
     TabItem("Movies", Icons.Filled.Movie, Routes.browse("vod")),
     TabItem("Series", Icons.Filled.VideoLibrary, Routes.browse("series")),
+    TabItem("Guide", Icons.Filled.Schedule, Routes.EPG),
     TabItem("Settings", Icons.Filled.Settings, Routes.SETTINGS),
 )
 

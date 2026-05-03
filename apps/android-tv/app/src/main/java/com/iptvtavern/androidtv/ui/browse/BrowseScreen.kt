@@ -57,6 +57,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
+import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.inferStreamQualityHints
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
@@ -207,11 +208,14 @@ fun BrowseScreen(
                     contentPadding = PaddingValues(bottom = 48.dp),
                 ) {
                     itemsIndexed(uiState.channels, key = { _, ch -> ch.id }) { index, channel ->
+                        val tvgId = (channel as? Channel.Live)?.tvgId
+                        val nowNext = tvgId?.let { uiState.nowNextByTvgId[it] }
                         ChannelTableRow(
                             index = index + 1,
                             channel = channel,
                             isFavorite = channel.id in uiState.favorites,
                             isPlaying = channel.id == uiState.playingChannel?.id,
+                            nowNext = nowNext,
                             onSelect = {
                                 viewModel.playInMiniPlayer(channel)
                             },
@@ -377,6 +381,7 @@ private fun ChannelTableRow(
     channel: Channel,
     isFavorite: Boolean,
     isPlaying: Boolean,
+    nowNext: EpgParser.NowNext?,
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGoFullScreen: () -> Unit,
@@ -489,6 +494,17 @@ private fun ChannelTableRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Now/Next EPG info
+            if (nowNext?.current != null) {
+                Text(
+                    text = "▶ ${nowNext.current.title}" +
+                        (nowNext.next?.let { " │ Next: ${it.title}" } ?: ""),
+                    color = colors.accent,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         // Category

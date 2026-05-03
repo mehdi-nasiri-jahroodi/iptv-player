@@ -3,6 +3,7 @@ package com.iptvtavern.androidtv.ui.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
+import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
@@ -13,8 +14,10 @@ import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
+import com.iptvtavern.androidtv.domain.parser.EpgParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +49,8 @@ data class BrowseUiState(
     val groupSearchQuery: String = "",
     /** Groups filtered by groupSearchQuery (used for display). */
     val filteredGroups: List<ChannelGroup> = emptyList(),
+    /** Now/next EPG data keyed by tvgId (for live channels). */
+    val nowNextByTvgId: Map<String, EpgParser.NowNext> = emptyMap(),
 )
 
 @HiltViewModel
@@ -54,6 +59,7 @@ class BrowseViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
+    private val epgRepository: EpgRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BrowseUiState())
@@ -68,6 +74,7 @@ class BrowseViewModel @Inject constructor(
 
     init {
         loadCatalog()
+        startMinuteClock()
     }
 
     private fun loadCatalog() {
@@ -135,6 +142,12 @@ class BrowseViewModel @Inject constructor(
                 favorites = favSet,
                 error = null,
             )
+
+            // Load EPG in background (non-blocking)
+            viewModelScope.launch {
+                epgRepository.loadForSource(source)
+                refreshNowNext()
+            }
         }
     }
 
@@ -207,6 +220,34 @@ class BrowseViewModel @Inject constructor(
 
         result.addAll(orderedGroups)
         return result
+    }
+
+    // ── EPG: now/next + minute clock ────────────────────────────────
+
+    /**
+     * Refresh the now/next map from the current guide.
+     * Builds a map of tvgId → NowNext for all live channels that have tvgId.
+     */
+    private fun refreshNowNext() {
+        val guide = epgRepository.guide ?: return
+        val nowMs = System.currentTimeMillis()
+        val map = mutableMapOf<String, EpgParser.NowNext>()
+        for ((channelId, programs) in guide.programsByChannelId) {
+            map[channelId] = EpgParser.getNowAndNextProgram(programs, nowMs)
+        }
+        _uiState.value = _uiState.value.copy(nowNextByTvgId = map)
+    }
+
+    /**
+     * Tick every 60 seconds to update now/next (like web's useMinuteClock).
+     */
+    private fun startMinuteClock() {
+        viewModelScope.launch {
+            while (true) {
+                delay(60_000)
+                refreshNowNext()
+            }
+        }
     }
 
     fun selectGroup(index: Int) {

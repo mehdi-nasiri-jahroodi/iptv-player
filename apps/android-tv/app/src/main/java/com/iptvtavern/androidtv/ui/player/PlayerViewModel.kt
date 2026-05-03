@@ -13,12 +13,14 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
+import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
+import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
@@ -75,7 +77,14 @@ data class PlayerUiState(
     val positionMs: Long = 0,
     /** Total duration in ms (VOD). */
     val durationMs: Long = 0,
+    /** EPG: currently airing program title. */
+    val epgNowTitle: String? = null,
+    /** EPG: next program title. */
+    val epgNextTitle: String? = null,
 )
+
+/** Matches series episode IDs: "xtream:series:<num>:ep:<episodeId>" */
+private val SERIES_EPISODE_PATTERN = Regex("^(xtream:series:\\d+):ep:(.+)$")
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -84,6 +93,7 @@ class PlayerViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
+    private val epgRepository: EpgRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -174,6 +184,13 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
+            // Check if this is a series episode ID: "xtream:series:<id>:ep:<episodeId>"
+            val epMatch = SERIES_EPISODE_PATTERN.matchEntire(channelId)
+            if (epMatch != null) {
+                handleSeriesEpisode(epMatch, channelId, playlist, source)
+                return@launch
+            }
+
             // Build flat channel list for zapping
             channelList = playlist.groups.flatMap { it.channels }
             val index = channelList.indexOfFirst { it.id == channelId }
@@ -190,6 +207,100 @@ class PlayerViewModel @Inject constructor(
             profileRepository.addRecent(channelId)
 
             playChannel(index)
+        }
+    }
+
+    /**
+     * Handle series episode playback.
+     * The channelId format is "xtream:series:<seriesId>:ep:<episodeId>".
+     * We find the series, fetch its info for episode details, and play the episode.
+     */
+    private suspend fun handleSeriesEpisode(
+        match: MatchResult,
+        channelId: String,
+        playlist: Playlist,
+        source: Source,
+    ) {
+        val seriesChannelId = match.groupValues[1] // "xtream:series:<num>"
+        val episodeId = match.groupValues[2]
+
+        // Find the series channel in the playlist
+        val seriesChannel = playlist.groups
+            .flatMap { it.channels }
+            .filterIsInstance<Channel.Series>()
+            .find { it.id == seriesChannelId }
+
+        if (seriesChannel == null) {
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = "Series not found.",
+            )
+            return
+        }
+
+        // Fetch series info to get episode stream URLs
+        val creds = source.credentials
+        val xtreamId = seriesChannel.xtreamSeriesId
+        if (creds == null || xtreamId == null) {
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = "Series info unavailable.",
+            )
+            return
+        }
+
+        try {
+            val info = XtreamClient.fetchSeriesInfoCached(creds, xtreamId, xtreamCache)
+            val enriched = XtreamClient.mergeSeriesChannelWithXtreamInfo(creds, seriesChannel, info)
+
+            // Find the episode
+            val episode = enriched.seasons
+                .flatMap { it.episodes }
+                .find { it.id == episodeId }
+
+            if (episode == null) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "Episode not found.",
+                )
+                return
+            }
+
+            // Build an episode list for zapping between episodes
+            val allEpisodes = enriched.seasons.flatMap { season ->
+                season.episodes.map { ep ->
+                    Channel.Vod(
+                        id = "${seriesChannelId}:ep:${ep.id}",
+                        name = "${enriched.name} — ${ep.title}",
+                        groupTitle = enriched.groupTitle,
+                        streamUrl = ep.streamUrl,
+                        logoUrl = enriched.logoUrl,
+                        posterUrl = enriched.posterUrl,
+                        durationSeconds = ep.durationSeconds,
+                        plot = ep.plot,
+                        containerExtension = ep.containerExtension,
+                        subtitles = ep.subtitles,
+                    )
+                }
+            }
+
+            channelList = allEpisodes
+            val index = channelList.indexOfFirst { it.id == channelId }
+            if (index == -1) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = "Episode not found in list.",
+                )
+                return
+            }
+
+            profileRepository.addRecent(seriesChannelId)
+            playChannel(index)
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = "Failed to load series info: ${e.message}",
+            )
         }
     }
 
@@ -255,7 +366,22 @@ class PlayerViewModel @Inject constructor(
             isVod = isVod,
             positionMs = 0,
             durationMs = 0,
+            epgNowTitle = null,
+            epgNextTitle = null,
         )
+
+        // Look up EPG now/next for live channels
+        if (channel is Channel.Live && channel.tvgId != null) {
+            val guide = epgRepository.guide
+            if (guide != null) {
+                val programs = guide.programsByChannelId[channel.tvgId]
+                val nowNext = EpgParser.getNowAndNextProgram(programs)
+                _uiState.value = _uiState.value.copy(
+                    epgNowTitle = nowNext.current?.title,
+                    epgNextTitle = nowNext.next?.title,
+                )
+            }
+        }
 
         val mediaItem = MediaItem.fromUri(channel.streamUrl)
         player.setMediaItem(mediaItem)

@@ -6,6 +6,7 @@ import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
+import com.iptvtavern.androidtv.domain.model.SubtitleTrack
 import com.iptvtavern.androidtv.domain.model.XtreamCredentials
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -160,6 +161,95 @@ object XtreamClient {
             fetchTextRaw(url)
         }
         json.decodeFromString(text)
+    }
+
+    /**
+     * Fetch series info with caching. Uses XtreamCache's 24h TTL for `get_series_info`.
+     */
+    suspend fun fetchSeriesInfoCached(
+        credentials: XtreamCredentials,
+        seriesId: Int,
+        cache: XtreamCache?,
+    ): XtreamSeriesInfo = withContext(Dispatchers.IO) {
+        val url = buildPlayerApiUrl(credentials, "get_series_info", mapOf("series_id" to "$seriesId"))
+        val text = if (cache != null) {
+            cache.fetchCached(url, credentials)
+        } else {
+            fetchTextRaw(url)
+        }
+        json.decodeFromString(text)
+    }
+
+    /**
+     * Merge a base Series channel with detailed info from `get_series_info`.
+     * Builds full season/episode structure with stream URLs.
+     * Port of web's `mergeSeriesChannelWithXtreamInfo` in xtream.ts.
+     */
+    fun mergeSeriesChannelWithXtreamInfo(
+        credentials: XtreamCredentials,
+        base: Channel.Series,
+        detail: XtreamSeriesInfo,
+    ): Channel.Series {
+        val info = detail.info
+
+        // Build seasons with episodes from the episodes map
+        val seasons = (detail.episodes ?: emptyMap()).entries
+            .sortedBy { it.key.toIntOrNull() ?: 0 }
+            .map { (seasonKey, episodes) ->
+                val seasonNum = seasonKey.toIntOrNull() ?: 0
+                // Find matching season metadata
+                val seasonMeta = detail.seasons?.find {
+                    jsonElementToInt(it.seasonNumber) == seasonNum
+                }
+                SeriesSeason(
+                    seasonNumber = seasonNum,
+                    name = seasonMeta?.name,
+                    episodes = episodes.mapNotNull { ep ->
+                        val epNum = jsonElementToInt(ep.episodeNum) ?: return@mapNotNull null
+                        val ext = ep.containerExtension ?: "ts"
+                        val streamUrl = buildSeriesEpisodeUrl(credentials, ep.id, ext)
+                        // Collect subtitles from both root-level and info-level
+                        val subtitles = buildList {
+                            ep.subtitles?.forEach { sub ->
+                                val url = sub.url?.takeIf { it.isNotBlank() } ?: return@forEach
+                                add(SubtitleTrack(url = url, language = sub.language, label = sub.label))
+                            }
+                            ep.info?.subtitles?.forEach { sub ->
+                                val url = sub.url?.takeIf { it.isNotBlank() } ?: return@forEach
+                                add(SubtitleTrack(url = url, language = sub.language, label = sub.label))
+                            }
+                        }.takeIf { it.isNotEmpty() }
+                        SeriesEpisode(
+                            id = ep.id,
+                            episodeNumber = epNum,
+                            title = ep.title,
+                            streamUrl = streamUrl,
+                            containerExtension = ext,
+                            durationSeconds = jsonElementToInt(ep.info?.durationSecs),
+                            plot = ep.info?.plot?.takeIf { it.isNotBlank() },
+                            xtreamEpisodeId = ep.id,
+                            subtitles = subtitles,
+                        )
+                    },
+                )
+            }
+
+        val yearFromDate = info?.releaseDate?.take(4)?.toIntOrNull()
+        val backdropUrl = info?.backdropPath?.firstOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { asUrl(it) }
+        val rating = info?.rating?.toDoubleOrNull()
+
+        return base.copy(
+            plot = info?.plot?.takeIf { it.isNotBlank() } ?: base.plot,
+            cast = info?.cast?.takeIf { it.isNotBlank() } ?: base.cast,
+            director = info?.director?.takeIf { it.isNotBlank() } ?: base.director,
+            genre = info?.genre?.takeIf { it.isNotBlank() } ?: base.genre,
+            rating = rating ?: base.rating,
+            releaseYear = yearFromDate ?: base.releaseYear,
+            backdropUrl = backdropUrl ?: base.backdropUrl,
+            seasons = seasons.ifEmpty { base.seasons },
+        )
     }
 
     // ── Wire → Domain mappers ────────────────────────────────────

@@ -28,12 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -197,6 +199,27 @@ fun HomeScreen(
                     fontSize = 14.sp,
                 )
             }
+
+            // EPG Spotlight — what's on now (favorite channels)
+            if (uiState.epgSpotlight.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Now on Your Favorites",
+                    color = colors.foreground,
+                    fontSize = 18.sp,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(end = 32.dp),
+                ) {
+                    items(uiState.epgSpotlight, key = { it.channel.id }) { item ->
+                        EpgSpotlightCard(
+                            item = item,
+                            onClick = { onNavigateToPlayer(item.channel.id) },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -318,5 +341,63 @@ private fun RecentChannelCard(
             maxLines = 1,
             modifier = Modifier.padding(8.dp),
         )
+    }
+}
+
+@Composable
+private fun EpgSpotlightCard(
+    item: EpgSpotlightItem,
+    onClick: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .width(220.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) colors.surfaceRaised else colors.surface)
+            .border(
+                width = if (isFocused) 3.dp else 0.dp,
+                color = if (isFocused) colors.accent else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .focusable()
+            .padding(12.dp),
+    ) {
+        Text(
+            text = item.channel.name,
+            color = colors.foreground,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (item.nowTitle != null) {
+            Text(
+                text = "▶ ${item.nowTitle}",
+                color = colors.accent,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (item.nextTitle != null) {
+            Text(
+                text = "Next: ${item.nextTitle}",
+                color = colors.foregroundMuted,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

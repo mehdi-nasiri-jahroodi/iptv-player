@@ -293,6 +293,16 @@ private fun ControlsOverlay(
                     color = Color(0xAAFFFFFF),
                     fontSize = 14.sp,
                 )
+                // EPG now/next
+                if (uiState.epgNowTitle != null) {
+                    Text(
+                        text = "▶ ${uiState.epgNowTitle}" +
+                            (uiState.epgNextTitle?.let { " │ Next: $it" } ?: ""),
+                        color = Color(0xFF60A5FA),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                    )
+                }
             }
 
             // Badge: LIVE or VOD duration

@@ -138,9 +138,17 @@ data class XtreamSeries(
 )
 
 @Serializable
+data class XtreamSubtitle(
+    val url: String? = null,
+    val language: String? = null,
+    val label: String? = null,
+)
+
+@Serializable
 data class XtreamEpisodeInfo(
     @SerialName("duration_secs") val durationSecs: JsonElement? = null,
     val plot: String? = null,
+    val subtitles: List<XtreamSubtitle>? = null,
 )
 
 @Serializable
@@ -150,6 +158,7 @@ data class XtreamEpisode(
     val title: String = "",
     @SerialName("container_extension") val containerExtension: String? = null,
     val info: XtreamEpisodeInfo? = null,
+    val subtitles: List<XtreamSubtitle>? = null,
 )
 
 @Serializable

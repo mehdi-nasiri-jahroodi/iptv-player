@@ -3,12 +3,14 @@ package com.iptvtavern.androidtv.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
+import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
+import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.parser.validateSource
 import com.iptvtavern.androidtv.domain.parser.SourceValidationResult
@@ -42,6 +44,14 @@ data class HomeUiState(
     val seriesCount: Int = 0,
     val recentChannels: List<Channel> = emptyList(),
     val error: String? = null,
+    /** EPG spotlight: favorite live channels with what's on now. */
+    val epgSpotlight: List<EpgSpotlightItem> = emptyList(),
+)
+
+data class EpgSpotlightItem(
+    val channel: Channel.Live,
+    val nowTitle: String?,
+    val nextTitle: String?,
 )
 
 @HiltViewModel
@@ -50,6 +60,7 @@ class HomeViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
+    private val epgRepository: EpgRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -112,16 +123,21 @@ class HomeViewModel @Inject constructor(
         // Fetch and parse
         try {
             val playlist = fetchAndParsePlaylist(source)
-            if (playlist != null) {
-                // Only cache M3U playlists in Room — Xtream uses per-action cache
-                if (source.type != SourceType.XTREAM) {
-                    try {
-                        sourceRepository.cachePlaylist(playlist)
-                    } catch (_: Exception) {
-                        // Cache write can fail for very large playlists
+                if (playlist != null) {
+                    // Only cache M3U playlists in Room — Xtream uses per-action cache
+                    if (source.type != SourceType.XTREAM) {
+                        try {
+                            sourceRepository.cachePlaylist(playlist)
+                        } catch (_: Exception) {
+                            // Cache write can fail for very large playlists
+                        }
                     }
-                }
-                applyPlaylist(playlist)
+                    applyPlaylist(playlist)
+
+                    // Load EPG spotlight in background
+                    viewModelScope.launch {
+                        loadEpgSpotlight(source)
+                    }
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -208,5 +224,35 @@ class HomeViewModel @Inject constructor(
             }
             loadCatalog(source)
         }
+    }
+
+    /**
+     * Load EPG data and build a spotlight of favorite live channels
+     * showing what's currently on.
+     */
+    private suspend fun loadEpgSpotlight(source: Source) {
+        epgRepository.loadForSource(source)
+        val guide = epgRepository.guide ?: return
+        val playlist = currentPlaylist ?: return
+        val profile = profileRepository.getDefaultProfile()
+        val favSet = profile.favorites.toSet()
+
+        val liveChannels = playlist.groups.flatMap { it.channels }
+            .filterIsInstance<Channel.Live>()
+            .filter { it.id in favSet && it.tvgId != null }
+            .take(8) // limit spotlight items
+
+        val items = liveChannels.mapNotNull { ch ->
+            val programs = guide.programsByChannelId[ch.tvgId] ?: return@mapNotNull null
+            val nowNext = EpgParser.getNowAndNextProgram(programs)
+            if (nowNext.current == null && nowNext.next == null) return@mapNotNull null
+            EpgSpotlightItem(
+                channel = ch,
+                nowTitle = nowNext.current?.title,
+                nextTitle = nowNext.next?.title,
+            )
+        }
+
+        _uiState.value = _uiState.value.copy(epgSpotlight = items)
     }
 }

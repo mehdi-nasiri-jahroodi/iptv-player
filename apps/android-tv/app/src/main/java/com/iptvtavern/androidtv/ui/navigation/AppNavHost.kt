@@ -8,11 +8,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.iptvtavern.androidtv.ui.addsource.AddSourceScreen
 import com.iptvtavern.androidtv.ui.browse.BrowseScreen
+import com.iptvtavern.androidtv.ui.epg.EpgScreen
 import com.iptvtavern.androidtv.ui.home.HomeScreen
 import com.iptvtavern.androidtv.ui.onboarding.OnboardingScreen
 import com.iptvtavern.androidtv.ui.player.PlayerScreen
 import com.iptvtavern.androidtv.ui.settings.SettingsScreen
 import com.iptvtavern.androidtv.ui.vod.VodBrowseScreen
+import com.iptvtavern.androidtv.ui.series.SeriesBrowseScreen
 
 /**
  * App-level NavHost — the "router" for the Android TV app.
@@ -52,6 +54,11 @@ fun AppNavHost(
                         navController.navigate(Routes.play(channelId))
                     },
                 )
+                "series" -> SeriesBrowseScreen(
+                    onNavigateToPlayer = { channelId ->
+                        navController.navigate(Routes.play(channelId))
+                    },
+                )
                 else -> BrowseScreen(
                     kind = kind,
                     onNavigateToPlayer = { channelId ->
@@ -68,6 +75,10 @@ fun AppNavHost(
             PlayerScreen(
                 onNavigateBack = { navController.popBackStack() },
             )
+        }
+
+        composable(Routes.EPG) {
+            EpgScreen()
         }
 
         composable(Routes.SETTINGS) {

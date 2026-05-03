@@ -367,28 +367,28 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Browse and play VOD content with poster grid, detail hero, and metadata enrichment.
 
 **Tasks**:
-- [ ] Build **VOD Browse** screen (`/browse/vod`):
+- [x] Build **VOD Browse** screen (`/browse/vod`):
   - **Left sidebar**: category groups
   - **Main area**: poster grid (2:3 aspect ratio tiles)
   - Tile shows: poster image, title, year/rating badge
   - Selecting a tile updates the **detail hero** at top
-- [ ] Build **VOD detail hero**:
+- [x] Build **VOD detail hero**:
   - Backdrop image, poster, title
   - Metadata: year, rating, duration, genre, plot (scrollable), cast, director
   - **Play** button (primary action, auto-focused)
   - **Trailer** button (open in external browser or in-app if feasible)
   - **Favorite** toggle
-- [ ] **Xtream enrichment**: on focus, fetch `get_vod_info` for the selected movie
+- [x] **Xtream enrichment**: on focus, fetch `get_vod_info` for the selected movie
   - Port `mergeVodChannelWithXtreamInfo` logic
   - Show loading shimmer while fetching
-- [ ] **VOD playback**:
+- [x] **VOD playback**:
   - Seekable player (scrubber visible, unlike live)
   - Duration display
   - Resume from last position (persist in recents)
-- [ ] **Sorting**: sort by title, year, rating, duration, date added
+- [x] **Sorting**: sort by title, year, rating, duration, date added
   - Port `vod-sort.ts` logic to Kotlin
   - **Action**: consider moving sort logic to `packages/core` if it's pure enough
-- [ ] **VOD duration formatting**: port `formatVodDuration` from `packages/ui`
+- [x] **VOD duration formatting**: port `formatVodDuration` from `packages/ui`
   - **Action**: move to `packages/core` so both apps share it
 
 **Web parity**: `apps/web/app/components/browse-view.tsx` (vod mode), `packages/ui/src/lib/VodBrowseHero.tsx`, `packages/ui/src/lib/VodPosterGrid.tsx`.
@@ -408,21 +408,21 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Parse XMLTV EPG data, show now/next on live channels, and provide a schedule view.
 
 **Tasks**:
-- [ ] Port XMLTV parser from `packages/core/src/lib/epg.ts` to Kotlin:
+- [x] Port XMLTV parser from `packages/core/src/lib/epg.ts` to Kotlin:
   - `parseXmltvToGuide`, `parseXmltvDatetimeToIso`
   - `getNowAndNextProgram`, `flatProgramsInWindow`
   - Handle timezone conversion
-- [ ] **EPG URL** on source: fetch and parse XMLTV on source load
-- [ ] **Now/Next on live channels**:
+- [x] **EPG URL** on source: fetch and parse XMLTV on source load
+- [x] **Now/Next on live channels**:
   - Show current + next program name and time on channel rows
   - Update every minute (like web's `useMinuteClock`)
-- [ ] **EPG Schedule screen** (`/epg`):
+- [x] **EPG Schedule screen** (`/epg`):
   - Today + tomorrow program list per channel
   - "On air" highlighting
   - Auto-scroll to current time
   - D-pad: Up/Down between channels, Left/Right to scroll time
-- [ ] **Channel info overlay** (player): wire now/next EPG data
-- [ ] **Home screen**: EPG spotlight for active source (now playing on favorite channels)
+- [x] **Channel info overlay** (player): wire now/next EPG data
+- [x] **Home screen**: EPG spotlight for active source (now playing on favorite channels)
 
 **Web parity**: `packages/core/src/lib/epg.ts`, `apps/web/app/pages/epg.tsx`, `apps/web/app/store/guide-store.ts`.
 
@@ -440,11 +440,11 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 **Goal**: Browse TV series with season/episode picker, episode playback, and watched tracking.
 
 **Tasks**:
-- [ ] Build **Series Browse** screen (`/browse/series`):
+- [x] Build **Series Browse** screen (`/browse/series`):
   - **Left sidebar**: category groups
   - **Main area**: poster grid (2:3 tiles with season/episode count badge)
   - Watched strip indicator on tiles (shows percentage of episodes watched)
-- [ ] Build **Series detail hero**:
+- [x] Build **Series detail hero**:
   - Backdrop, poster, metadata (genre, year, rating, plot, cast)
   - **Season tabs** (horizontal strip, D-pad Left/Right)
   - **Episode list** (vertical, scrollable):
@@ -452,13 +452,13 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
     - **Play** button per episode
     - Watched indicator (checkmark or progress bar)
   - **Favorite** toggle for the series
-- [ ] **Xtream enrichment**: on focus, fetch `get_series_info`
+- [x] **Xtream enrichment**: on focus, fetch `get_series_info`
   - Port `mergeSeriesChannelWithXtreamInfo` logic
   - Populate seasons and episodes dynamically
-- [ ] **Episode stream URL resolution**:
+- [x] **Episode stream URL resolution**:
   - Port `useSeriesEpisodeStreamUrl` logic to Kotlin
   - Build stream URL from series info + container extension
-- [ ] **Series playback**:
+- [x] **Series playback**:
   - Seekable player (same as VOD)
   - On episode finish: prompt "Play next episode?" (if available)
   - Update watched status in recents

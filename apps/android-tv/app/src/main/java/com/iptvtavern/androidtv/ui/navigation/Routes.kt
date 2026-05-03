@@ -14,6 +14,7 @@ object Routes {
     const val ADD_SOURCE = "add-source"
     const val EDIT_SOURCE = "edit-source/{sourceId}"
     const val ONBOARDING = "onboarding"
+    const val EPG = "epg"
 
     /** Build a browse route for a specific kind (live, vod, series). */
     fun browse(kind: String) = "browse/$kind"
