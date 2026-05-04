@@ -159,15 +159,9 @@ class SeriesBrowseViewModel @Inject constructor(
             )
         }
 
-        // All series
-        result.add(
-            ChannelGroup(
-                id = "__all__",
-                name = "All Series",
-                kind = GroupKind.series,
-                channels = allSeriesChannels,
-            )
-        )
+        // "All Series" virtual group intentionally omitted — flattening
+        // every series into one list is slow on low-RAM TV devices and
+        // not useful when groups already organize the catalog.
 
         result.addAll(groups)
         return result

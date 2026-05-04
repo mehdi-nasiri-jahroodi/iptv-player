@@ -85,7 +85,7 @@ class SettingsDataStore(private val dataStore: DataStore<Preferences>) {
     // ── Group order (per-source) ──────────────────────────────────
     // Key format: "group_order_<sourceId>"
     // Value: comma-separated group IDs in the user's preferred order.
-    // Virtual groups (__favorites__, __all__) are excluded — they are
+    // Virtual groups (__favorites__) are excluded — they are
     // always pinned at the top by BrowseViewModel.
 
     /** Read persisted group order for a source. Returns null if none saved. */

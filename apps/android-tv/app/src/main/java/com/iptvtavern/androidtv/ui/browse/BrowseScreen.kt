@@ -645,14 +645,22 @@ private fun GroupsSidebar(
                         .then(
                             if (isReordering && isSelected && !isVirtual) {
                                 Modifier.border(2.dp, Color(0xFFDC2626), RoundedCornerShape(6.dp))
+                            } else if (isSelected && !isFocused) {
+                                // Loaded-group marker: shows which group's
+                                // content is currently displayed on the right
+                                // side, even when focus has moved elsewhere
+                                // in the sidebar.
+                                Modifier.border(2.dp, colors.accent, RoundedCornerShape(6.dp))
                             } else Modifier
                         )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
                         .onFocusChanged {
                             isFocused = it.isFocused
-                            if (it.isFocused && index != selectedIndex) {
-                                onGroupSelected(index)
-                            }
+                            // Lazy load: do NOT auto-select on focus.
+                            // The right-side channel list only updates when
+                            // the user presses OK/Enter. This prevents the
+                            // table from constantly rebuilding while the
+                            // user is just browsing the sidebar with D-pad.
                         }
                         .onKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown) {

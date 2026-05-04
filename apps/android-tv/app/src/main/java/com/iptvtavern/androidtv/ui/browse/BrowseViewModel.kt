@@ -170,15 +170,10 @@ class BrowseViewModel @Inject constructor(
             )
         }
 
-        // "All" virtual group — always second
-        result.add(
-            ChannelGroup(
-                id = "__all__",
-                name = "All Channels",
-                kind = GroupKind.mixed,
-                channels = allChannels,
-            )
-        )
+        // "All Channels" virtual group is intentionally omitted — it
+        // forces a flatten of every channel into a single huge list,
+        // which is slow to render and not useful when groups already
+        // organize the catalog.
 
         // Apply custom order if available, otherwise use playlist order
         val orderedGroups = customGroupOrder?.let { order ->
@@ -341,8 +336,8 @@ class BrowseViewModel @Inject constructor(
 
     /**
      * Move the currently selected group up or down.
-     * Only real groups can be moved — virtual groups (__favorites__, __all__)
-     * are pinned and cannot be reordered.
+     * Only real groups can be moved — virtual groups (__favorites__) are
+     * pinned and cannot be reordered.
      *
      * @param direction -1 = move up, +1 = move down
      */

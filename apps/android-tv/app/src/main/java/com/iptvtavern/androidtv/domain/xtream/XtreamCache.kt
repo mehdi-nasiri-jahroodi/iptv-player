@@ -29,11 +29,13 @@ import javax.inject.Singleton
  *    the same endpoint share one network call.
  * 4. `invalidateSource()` clears all cache entries for a given account.
  *
- * ## TTLs (matching web)
- * - Categories: 1 hour
- * - Stream listings: 10 minutes
- * - Info (vod_info, series_info): 24 hours
- * - Auth probe / EPG: never cached
+ * ## TTLs (Android TV)
+ * All cached responses live for 30 days. The Home screen has a manual
+ * Refresh button that calls `invalidateSource()` to force fresh fetches.
+ * This trades data freshness for fast cold starts — appropriate for a
+ * lean-back player where channel lists rarely change.
+ *
+ * Web app uses shorter TTLs because it has no equivalent refresh affordance.
  */
 @Singleton
 class XtreamCache @Inject constructor(
@@ -42,16 +44,21 @@ class XtreamCache @Inject constructor(
     companion object {
         private const val CACHE_DIR_NAME = "xtream_cache"
 
-        // TTLs in millis — match web's DEFAULT_XTREAM_CACHE_TTLS
+        // TTLs in millis — Android TV uses long TTLs because the user
+        // has a manual Refresh button on the Home screen. Channel lists
+        // change rarely (weekly at most for most providers), so caching
+        // for 30 days makes cold starts near-instant. Press Refresh to
+        // force a fresh fetch when the provider adds/removes channels.
+        private const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
         private val ACTION_TTLS = mapOf(
-            "get_live_categories" to 3_600_000L,     // 1 hour
-            "get_vod_categories" to 3_600_000L,
-            "get_series_categories" to 3_600_000L,
-            "get_live_streams" to 600_000L,          // 10 minutes
-            "get_vod_streams" to 600_000L,
-            "get_series" to 600_000L,
-            "get_vod_info" to 86_400_000L,           // 24 hours
-            "get_series_info" to 86_400_000L,
+            "get_live_categories" to THIRTY_DAYS_MS,
+            "get_vod_categories" to THIRTY_DAYS_MS,
+            "get_series_categories" to THIRTY_DAYS_MS,
+            "get_live_streams" to THIRTY_DAYS_MS,
+            "get_vod_streams" to THIRTY_DAYS_MS,
+            "get_series" to THIRTY_DAYS_MS,
+            "get_vod_info" to THIRTY_DAYS_MS,
+            "get_series_info" to THIRTY_DAYS_MS,
         )
     }
 
@@ -69,7 +76,16 @@ class XtreamCache @Inject constructor(
     private val mutex = Mutex()
 
     private val cacheDir: File
-        get() = File(appContext.cacheDir, CACHE_DIR_NAME).also { it.mkdirs() }
+        get() = File(appContext.filesDir, CACHE_DIR_NAME).also { it.mkdirs() }
+
+    // NOTE: We deliberately use `filesDir` and NOT `cacheDir`.
+    // - `cacheDir` (/data/data/<pkg>/cache) can be wiped by the OS at any
+    //   time under storage pressure, and is also wiped by some launchers'
+    //   "Clear cache" affordance — making "fast cold start" unreliable.
+    // - `filesDir` (/data/data/<pkg>/files) survives until uninstall or
+    //   explicit "Clear data". Since the Home screen exposes a manual
+    //   Refresh button, the user is always in control of cache freshness,
+    //   so we want maximum persistence.
 
     /**
      * Fetch a URL with caching. If a fresh cache entry exists, return it.

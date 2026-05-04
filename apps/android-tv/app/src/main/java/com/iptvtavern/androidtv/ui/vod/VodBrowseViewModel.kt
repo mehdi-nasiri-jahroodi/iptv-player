@@ -153,15 +153,9 @@ class VodBrowseViewModel @Inject constructor(
             )
         }
 
-        // All movies
-        result.add(
-            ChannelGroup(
-                id = "__all__",
-                name = "All Movies",
-                kind = GroupKind.vod,
-                channels = allVodChannels,
-            )
-        )
+        // "All Movies" virtual group intentionally omitted — flattening
+        // every VOD entry into one list is slow on low-RAM TV devices and
+        // not useful when groups already organize the catalog.
 
         result.addAll(groups)
         return result

@@ -618,12 +618,16 @@ private fun VodGroupsSidebar(
                                 else -> colors.surface
                             }
                         )
+                        .then(
+                            if (isSelected && !isFocused) {
+                                // Loaded-group marker — see BrowseScreen for details.
+                                Modifier.border(2.dp, colors.accent, RoundedCornerShape(6.dp))
+                            } else Modifier
+                        )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
                         .onFocusChanged {
                             isFocused = it.isFocused
-                            if (it.isFocused && index != selectedIndex) {
-                                onGroupSelected(index)
-                            }
+                            // Lazy load: only update grid on OK/Enter.
                         }
                         .onKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown &&
