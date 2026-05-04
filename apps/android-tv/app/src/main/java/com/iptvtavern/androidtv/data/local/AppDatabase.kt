@@ -19,8 +19,10 @@ import androidx.room.RoomDatabase
         ProfileEntity::class,
         PlaylistEntity::class,
         WatchedEntity::class,
+        ChannelEntity::class,
+        ChannelGroupEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,4 +30,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun watchedDao(): WatchedDao
+    abstract fun channelDao(): ChannelDao
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.EpgRepository
+import com.iptvtavern.androidtv.data.repository.PlaylistManager
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
@@ -56,6 +57,7 @@ data class BrowseUiState(
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
+    private val playlistManager: PlaylistManager,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
@@ -94,15 +96,13 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Get playlist (cached or fetch)
-            // Xtream sources use per-action cache (XtreamCache), not whole-playlist Room cache
-            val playlist = if (source.type != SourceType.XTREAM) {
-                sourceRepository.getCachedPlaylist(source.id) ?: fetchPlaylist(source)
-            } else {
-                fetchPlaylist(source)
-            }
+            // Single shared fetch: PlaylistManager handles in-memory cache,
+            // Room cache, network fetch, and dedups concurrent callers across
+            // every ViewModel. No more duplicate Xtream fetches when switching
+            // tabs.
+            val rawPlaylist = playlistManager.getPlaylist()
 
-            if (playlist == null) {
+            if (rawPlaylist == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load channels.",
@@ -110,14 +110,14 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Cache M3U playlists in Room; Xtream uses per-action cache
-            if (source.type != SourceType.XTREAM && sourceRepository.getCachedPlaylist(source.id) == null) {
-                try {
-                    sourceRepository.cachePlaylist(playlist)
-                } catch (_: Exception) {
-                    // Cache write can fail for very large playlists
+            // Live tab: keep only Live channels. Drop empty groups so the
+            // sidebar isn't polluted with VOD/Series-only categories.
+            val liveGroups = rawPlaylist.groups
+                .mapNotNull { group ->
+                    val live = group.channels.filterIsInstance<Channel.Live>()
+                    if (live.isEmpty()) null else group.copy(channels = live)
                 }
-            }
+            val playlist = rawPlaylist.copy(groups = liveGroups)
 
             // Load favorites
             val profile = profileRepository.getDefaultProfile()
@@ -148,34 +148,6 @@ class BrowseViewModel @Inject constructor(
                 epgRepository.loadForSource(source)
                 refreshNowNext()
             }
-        }
-    }
-
-    private suspend fun fetchPlaylist(source: com.iptvtavern.androidtv.domain.model.Source): Playlist? {
-        return try {
-            when (source.type) {
-                SourceType.XTREAM -> {
-                    val creds = source.credentials ?: return null
-                    XtreamClient.loadXtreamPlaylist(creds, source.id, xtreamCache)
-                }
-                SourceType.M3U_URL, SourceType.M3U_FILE -> {
-                    val url = source.url ?: return null
-                    withContext(Dispatchers.IO) {
-                        val connection = URL(url).openConnection() as HttpURLConnection
-                        connection.connectTimeout = 15_000
-                        connection.readTimeout = 30_000
-                        source.userAgent?.let { connection.setRequestProperty("User-Agent", it) }
-                        try {
-                            val text = connection.inputStream.bufferedReader().use { it.readText() }
-                            parseM3uToPlaylist(text, source.id)
-                        } finally {
-                            connection.disconnect()
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            null
         }
     }
 

@@ -43,6 +43,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
+import com.iptvtavern.androidtv.ui.settings.ButtonVariant
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
 /**
@@ -67,7 +68,17 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(32.dp),
+            .padding(32.dp)
+            .onKeyEvent { event ->
+                // Green button = refresh catalog
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
+                     event.key == Key.G)
+                ) {
+                    viewModel.refreshCatalog()
+                    true
+                } else false
+            },
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Header with source indicator
@@ -82,17 +93,27 @@ fun HomeScreen(
                 fontSize = 28.sp,
             )
 
-            // Active source badge
-            if (uiState.activeSource != null) {
-                Text(
-                    text = uiState.activeSource!!.label,
-                    color = colors.accent,
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .background(colors.surface, RoundedCornerShape(8.dp))
-                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
+            // Active source badge + refresh button
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (uiState.activeSource != null) {
+                    FocusableButton(
+                        text = "↻ Refresh",
+                        onClick = viewModel::refreshCatalog,
+                        variant = ButtonVariant.Secondary,
+                    )
+                    Text(
+                        text = uiState.activeSource!!.label,
+                        color = colors.accent,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .background(colors.surface, RoundedCornerShape(8.dp))
+                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
 

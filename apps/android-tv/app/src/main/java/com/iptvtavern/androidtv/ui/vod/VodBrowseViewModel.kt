@@ -3,6 +3,7 @@ package com.iptvtavern.androidtv.ui.vod
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
+import com.iptvtavern.androidtv.data.repository.PlaylistManager
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
@@ -59,6 +60,7 @@ data class VodUiState(
 @HiltViewModel
 class VodBrowseViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
+    private val playlistManager: PlaylistManager,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
     private val xtreamCache: XtreamCache,
@@ -94,7 +96,7 @@ class VodBrowseViewModel @Inject constructor(
 
             activeSource = source
 
-            val playlist = fetchPlaylist(source)
+            val playlist = playlistManager.getPlaylist()
             if (playlist == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -129,37 +131,6 @@ class VodBrowseViewModel @Inject constructor(
                 favorites = favSet,
                 error = null,
             )
-        }
-    }
-
-    private suspend fun fetchPlaylist(source: Source): Playlist? {
-        return try {
-            when (source.type) {
-                SourceType.XTREAM -> {
-                    val creds = source.credentials ?: return null
-                    XtreamClient.loadXtreamPlaylist(creds, source.id, xtreamCache)
-                }
-                SourceType.M3U_URL, SourceType.M3U_FILE -> {
-                    sourceRepository.getCachedPlaylist(source.id)
-                        ?: run {
-                            val url = source.url ?: return null
-                            withContext(Dispatchers.IO) {
-                                val conn = URL(url).openConnection() as HttpURLConnection
-                                conn.connectTimeout = 15_000
-                                conn.readTimeout = 30_000
-                                source.userAgent?.let { conn.setRequestProperty("User-Agent", it) }
-                                try {
-                                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                                    parseM3uToPlaylist(text, source.id)
-                                } finally {
-                                    conn.disconnect()
-                                }
-                            }
-                        }
-                }
-            }
-        } catch (_: Exception) {
-            null
         }
     }
 

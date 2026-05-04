@@ -5,6 +5,7 @@ import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.Playlist
+import java.io.BufferedReader
 import java.time.Instant
 
 /**
@@ -143,6 +144,70 @@ fun parseM3uToPlaylist(
 
         groups.getOrPut(channel.groupTitle) { mutableListOf() }.add(channel)
         currentExtInf = null
+    }
+
+    val channelGroups = groups.map { (name, channels) ->
+        ChannelGroup(
+            id = name.lowercase().replace(Regex("""\s+"""), "-"),
+            name = name,
+            kind = GroupKind.live,
+            channels = channels,
+        )
+    }
+
+    return Playlist(
+        sourceId = sourceId,
+        groups = channelGroups,
+        fetchedAt = fetchedAt,
+    )
+}
+
+/**
+ * Streaming M3U parser — reads line-by-line from a [BufferedReader] without
+ * loading the entire file into memory. Essential for large catalogs (85k+
+ * channels / 50-100MB files) on memory-constrained devices like Chromecast.
+ *
+ * Produces the same result as [parseM3uToPlaylist] but with O(result) memory
+ * instead of O(input + result).
+ */
+fun parseM3uFromStream(
+    reader: BufferedReader,
+    sourceId: String,
+    fetchedAt: String = Instant.now().toString(),
+): Playlist {
+    val groups = LinkedHashMap<String, MutableList<Channel.Live>>()
+    var currentExtInf: ExtInfMeta? = null
+    var channelIndex = 0
+
+    reader.useLines { lines ->
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+
+            if (line.startsWith("#EXTINF:")) {
+                currentExtInf = parseExtInf(line)
+                continue
+            }
+            if (line.startsWith("#")) continue
+
+            val meta = currentExtInf ?: continue
+
+            val channel = Channel.Live(
+                id = "$sourceId:$channelIndex",
+                name = meta.name,
+                groupTitle = meta.groupTitle,
+                streamUrl = line,
+                logoUrl = meta.logoUrl,
+                tvgId = meta.tvgId,
+                catchupDays = meta.catchupDays,
+                catchupMode = meta.catchupMode,
+                catchupSource = meta.catchupSource,
+            )
+            channelIndex++
+
+            groups.getOrPut(channel.groupTitle) { mutableListOf() }.add(channel)
+            currentExtInf = null
+        }
     }
 
     val channelGroups = groups.map { (name, channels) ->

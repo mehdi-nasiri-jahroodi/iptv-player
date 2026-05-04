@@ -3,6 +3,7 @@ package com.iptvtavern.androidtv.di
 import android.content.Context
 import androidx.room.Room
 import com.iptvtavern.androidtv.data.local.AppDatabase
+import com.iptvtavern.androidtv.data.local.ChannelDao
 import com.iptvtavern.androidtv.data.local.PlaylistDao
 import com.iptvtavern.androidtv.data.local.ProfileDao
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
@@ -55,6 +56,9 @@ object AppModule {
 
     @Provides
     fun providePlaylistDao(db: AppDatabase): PlaylistDao = db.playlistDao()
+
+    @Provides
+    fun provideChannelDao(db: AppDatabase): ChannelDao = db.channelDao()
 
     @Provides
     fun provideWatchedDao(db: AppDatabase): WatchedDao = db.watchedDao()

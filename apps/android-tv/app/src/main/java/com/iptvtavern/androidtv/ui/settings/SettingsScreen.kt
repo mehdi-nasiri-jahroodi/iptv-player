@@ -515,18 +515,22 @@ fun FocusableButton(
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
 
+    // Focused state must look distinct from unfocused Primary.
+    // Unfocused Primary: accent bg, accent border (blends in)
+    // Focused (any variant): accentForeground bg, accent border, dark text — inverted look
+    // Unfocused Secondary: surface bg, border border, foreground text
     val bgColor = when {
-        isFocused -> colors.accent
+        isFocused -> colors.accentForeground          // bright/white — stands out
         variant == ButtonVariant.Primary -> colors.accent
         else -> colors.surface
     }
     val borderColor = when {
-        isFocused -> colors.accentForeground
+        isFocused -> colors.accent                    // accent ring around bright bg
         variant == ButtonVariant.Primary -> colors.accent
         else -> colors.border
     }
     val textColor = when {
-        isFocused -> colors.accentForeground
+        isFocused -> colors.accent                    // accent text on bright bg
         variant == ButtonVariant.Primary -> colors.accentForeground
         else -> colors.foreground
     }
@@ -542,7 +546,7 @@ fun FocusableButton(
                 shape = RoundedCornerShape(8.dp),
             )
             .border(
-                width = 2.dp,
+                width = if (isFocused) 3.dp else 2.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp),
             )
