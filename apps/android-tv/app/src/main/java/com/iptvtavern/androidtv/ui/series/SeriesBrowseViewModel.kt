@@ -102,20 +102,14 @@ class SeriesBrowseViewModel @Inject constructor(
 
             activeSource = source
 
-            val playlist = playlistManager.getPlaylist()
-            if (playlist == null) {
+            // Per-kind read: only loads `series.json` from disk on cold start.
+            val seriesGroups = playlistManager.getSeriesGroups()
+            if (seriesGroups == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load series.",
                 )
                 return@launch
-            }
-
-            // Extract only series groups and channels
-            val seriesGroups = playlist.groups.filter { group ->
-                group.channels.any { it is Channel.Series }
-            }.map { group ->
-                group.copy(channels = group.channels.filterIsInstance<Channel.Series>())
             }
 
             allSeriesChannels = seriesGroups.flatMap { it.channels }.filterIsInstance<Channel.Series>()

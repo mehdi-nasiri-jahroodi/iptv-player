@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.iptvtavern.androidtv.ui.common.PlaylistLoadOverlay
+import com.iptvtavern.androidtv.ui.common.rememberStalledFlag
 import com.iptvtavern.androidtv.ui.navigation.AppNavHost
 import com.iptvtavern.androidtv.ui.navigation.Routes
 import com.iptvtavern.androidtv.ui.navigation.TAB_ITEMS
@@ -59,6 +61,7 @@ fun AppRoot(
     viewModel: AppRootViewModel = hiltViewModel(),
 ) {
     val hasCompletedSetup by viewModel.hasCompletedSetup.collectAsState()
+    val overlayState by viewModel.overlayState.collectAsState()
     val colors = LuminaTheme.colors
 
     // Show a blank screen while we check the database
@@ -86,28 +89,48 @@ fun AppRoot(
         currentRoute != Routes.ADD_SOURCE &&
         currentRoute != Routes.EDIT_SOURCE
 
-    if (showTabs) {
-        TopTabNavigation(
-            selectedIndex = selectedTabIndex,
-            onItemSelected = { index, route ->
-                selectedTabIndex = index
-                navController.navigate(route) {
-                    popUpTo(Routes.HOME) {
-                        inclusive = route == Routes.HOME
+    // Wrap the entire navigation tree in a Box so the overlay can render
+    // on top regardless of which screen is active. The overlay itself
+    // handles its own visibility (animated fade in/out from
+    // [PlaylistLoadOverlay]).
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (showTabs) {
+            TopTabNavigation(
+                selectedIndex = selectedTabIndex,
+                onItemSelected = { index, route ->
+                    selectedTabIndex = index
+                    navController.navigate(route) {
+                        popUpTo(Routes.HOME) {
+                            inclusive = route == Routes.HOME
+                        }
+                        launchSingleTop = true
                     }
-                    launchSingleTop = true
-                }
-            },
-        ) {
+                },
+            ) {
+                AppNavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                )
+            }
+        } else {
             AppNavHost(
                 navController = navController,
                 startDestination = startDestination,
             )
         }
-    } else {
-        AppNavHost(
-            navController = navController,
-            startDestination = startDestination,
+
+        // Indeterminate fallback if no progress event arrives for a while
+        // (e.g. a single endpoint takes 20+ seconds on a 60k catalog).
+        val stalled = rememberStalledFlag(
+            percent = overlayState.percent,
+            label = overlayState.label,
+            active = overlayState.visible,
+        )
+        PlaylistLoadOverlay(
+            visible = overlayState.visible,
+            percent = overlayState.percent,
+            label = overlayState.label,
+            indeterminate = stalled,
         )
     }
 }

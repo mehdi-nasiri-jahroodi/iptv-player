@@ -96,20 +96,15 @@ class VodBrowseViewModel @Inject constructor(
 
             activeSource = source
 
-            val playlist = playlistManager.getPlaylist()
-            if (playlist == null) {
+            // Per-kind read: only loads `vod.json` from disk on cold start.
+            // Skips parsing live + series entries that we'd filter out anyway.
+            val vodGroups = playlistManager.getVodGroups()
+            if (vodGroups == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load movies.",
                 )
                 return@launch
-            }
-
-            // Extract only VOD groups and channels
-            val vodGroups = playlist.groups.filter { group ->
-                group.channels.any { it is Channel.Vod }
-            }.map { group ->
-                group.copy(channels = group.channels.filterIsInstance<Channel.Vod>())
             }
 
             allVodChannels = vodGroups.flatMap { it.channels }.filterIsInstance<Channel.Vod>()

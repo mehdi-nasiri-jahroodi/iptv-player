@@ -96,13 +96,13 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Single shared fetch: PlaylistManager handles in-memory cache,
-            // Room cache, network fetch, and dedups concurrent callers across
-            // every ViewModel. No more duplicate Xtream fetches when switching
-            // tabs.
-            val rawPlaylist = playlistManager.getPlaylist()
+            // Per-kind read: only deserializes the `live.json` slice from
+            // the on-disk cache. Skips parsing the 60k-90k movies+series
+            // entries we'd otherwise filter out anyway. Big win on cold
+            // start: ~9k items vs ~85k.
+            val liveGroups = playlistManager.getLiveGroups()
 
-            if (rawPlaylist == null) {
+            if (liveGroups == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load channels.",
@@ -110,28 +110,23 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Live tab: keep only Live channels. Drop empty groups so the
-            // sidebar isn't polluted with VOD/Series-only categories.
-            val liveGroups = rawPlaylist.groups
-                .mapNotNull { group ->
-                    val live = group.channels.filterIsInstance<Channel.Live>()
-                    if (live.isEmpty()) null else group.copy(channels = live)
-                }
-            val playlist = rawPlaylist.copy(groups = liveGroups)
+            // Drop empty groups so the sidebar isn't polluted with
+            // VOD/Series-only categories that contain no live channels.
+            val playlistGroups = liveGroups.filter { it.channels.isNotEmpty() }
 
             // Load favorites
             val profile = profileRepository.getDefaultProfile()
             val favSet = profile.favorites.toSet()
 
-            allGroups = playlist.groups
-            allChannels = playlist.groups.flatMap { it.channels }
+            allGroups = playlistGroups
+            allChannels = playlistGroups.flatMap { it.channels }
             currentSourceId = source.id
 
             // Load persisted custom group order for this source
             customGroupOrder = settingsDataStore.getGroupOrder(source.id)
 
             // Build groups list with a "Favorites" virtual group at top
-            val displayGroups = buildDisplayGroups(playlist.groups, favSet)
+            val displayGroups = buildDisplayGroups(playlistGroups, favSet)
 
             _uiState.value = _uiState.value.copy(
                 isLoading = false,

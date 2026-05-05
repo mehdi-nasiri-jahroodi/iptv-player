@@ -2,6 +2,8 @@ package com.iptvtavern.androidtv
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.iptvtavern.androidtv.data.repository.PlaylistLoadEvent
+import com.iptvtavern.androidtv.data.repository.PlaylistManager
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,26 +14,56 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Root-level ViewModel that determines if onboarding is needed.
+ * State for the global "loading your catalog" overlay.
  *
- * Checks if any sources exist in the database. If yes, setup is complete
- * and we go straight to Home. If no, we start onboarding.
- *
- * The `null` initial state means "still loading" — the UI shows a blank
- * screen while we query the database (typically < 100ms).
+ * Lives at the app root because the overlay covers everything regardless
+ * of which screen the user is currently on.
+ */
+data class CatalogLoadOverlayState(
+    val visible: Boolean = false,
+    val percent: Int = 0,
+    val label: String = "",
+)
+
+/**
+ * Root-level ViewModel that determines if onboarding is needed and
+ * also funnels [PlaylistManager.loadEvents] into UI state for the
+ * blocking overlay.
  */
 @HiltViewModel
 class AppRootViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
+    private val playlistManager: PlaylistManager,
 ) : ViewModel() {
 
     private val _hasCompletedSetup = MutableStateFlow<Boolean?>(null)
     val hasCompletedSetup: StateFlow<Boolean?> = _hasCompletedSetup.asStateFlow()
 
+    private val _overlayState = MutableStateFlow(CatalogLoadOverlayState())
+    val overlayState: StateFlow<CatalogLoadOverlayState> = _overlayState.asStateFlow()
+
     init {
         viewModelScope.launch {
             val sources = sourceRepository.sources.first()
             _hasCompletedSetup.value = sources.isNotEmpty()
+        }
+
+        // Subscribe once at the app root and translate progress events
+        // into overlay state. Cache hits / success / error all dismiss
+        // the overlay; only Progress events show it.
+        viewModelScope.launch {
+            playlistManager.loadEvents.collect { event ->
+                _overlayState.value = when (event) {
+                    is PlaylistLoadEvent.Progress -> CatalogLoadOverlayState(
+                        visible = true,
+                        percent = event.percent,
+                        label = event.label,
+                    )
+                    PlaylistLoadEvent.CacheHit,
+                    PlaylistLoadEvent.Success,
+                    is PlaylistLoadEvent.Error -> _overlayState.value.copy(visible = false)
+                }
+            }
         }
     }
 }

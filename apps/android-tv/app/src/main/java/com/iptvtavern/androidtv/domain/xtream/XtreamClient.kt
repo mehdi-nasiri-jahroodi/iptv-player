@@ -378,41 +378,53 @@ object XtreamClient {
      * @param cache Optional XtreamCache for per-action response caching with TTLs.
      *              When provided, API responses are cached in Room and reused
      *              within their TTL window — preventing provider rate-limit bans.
+     * @param onStepDone Optional callback invoked each time a discrete load
+     *              step completes. Step indices match `PlaylistLoadSteps.ALL`:
+     *              0 live cats, 1 live streams, 2 vod cats, 3 vod streams,
+     *              4 series cats, 5 series, 6 parsing, 7 grouping.
+     *              Step 8 (saving to cache) happens in PlaylistManager after
+     *              this function returns. Callback is invoked from coroutine
+     *              context — keep it cheap and thread-safe.
      */
     suspend fun loadXtreamPlaylist(
         credentials: XtreamCredentials,
         sourceId: String,
         cache: XtreamCache? = null,
+        onStepDone: ((stepIndex: Int) -> Unit)? = null,
     ): Playlist = withContext(Dispatchers.IO) {
         // Helper: fetch text through cache or directly
         suspend fun cachedFetch(url: String): String {
             return cache?.fetchCached(url, credentials) ?: fetchText(url)
         }
 
-        // Fetch all 6 endpoints in parallel
+        // The 6 endpoints run in parallel for speed (network-bound), but each
+        // reports its own completion to the progress callback as it finishes.
+        // Out-of-order completions are fine — the percentage is computed from
+        // weighted step sums, so the bar still moves monotonically as long as
+        // each step fires at most once.
         val liveCatsDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_live_categories"))
-            json.decodeFromString<List<XtreamCategory>>(text)
+            json.decodeFromString<List<XtreamCategory>>(text).also { onStepDone?.invoke(0) }
         }
         val liveStreamsDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_live_streams"))
-            json.decodeFromString<List<XtreamLiveStream>>(text)
+            json.decodeFromString<List<XtreamLiveStream>>(text).also { onStepDone?.invoke(1) }
         }
         val vodCatsDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_vod_categories"))
-            json.decodeFromString<List<XtreamCategory>>(text)
+            json.decodeFromString<List<XtreamCategory>>(text).also { onStepDone?.invoke(2) }
         }
         val vodStreamsDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_vod_streams"))
-            json.decodeFromString<List<XtreamVodStream>>(text)
+            json.decodeFromString<List<XtreamVodStream>>(text).also { onStepDone?.invoke(3) }
         }
         val seriesCatsDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_series_categories"))
-            json.decodeFromString<List<XtreamCategory>>(text)
+            json.decodeFromString<List<XtreamCategory>>(text).also { onStepDone?.invoke(4) }
         }
         val seriesListDeferred = async {
             val text = cachedFetch(buildPlayerApiUrl(credentials, "get_series"))
-            json.decodeFromString<List<XtreamSeries>>(text)
+            json.decodeFromString<List<XtreamSeries>>(text).also { onStepDone?.invoke(5) }
         }
 
         val liveCategories = liveCatsDeferred.await()
@@ -422,6 +434,7 @@ object XtreamClient {
         val seriesCategories = seriesCatsDeferred.await()
         val seriesList = seriesListDeferred.await()
 
+        // Step 6 — parse domain models from raw DTOs
         val liveCatMap = categoryMap(liveCategories)
         val vodCatMap = categoryMap(vodCategories)
         val seriesCatMap = categoryMap(seriesCategories)
@@ -429,11 +442,14 @@ object XtreamClient {
         val liveChannels = liveStreams.mapNotNull { toLiveChannel(credentials, it, liveCatMap) }
         val vodChannels = vodStreams.mapNotNull { toVodChannel(credentials, it, vodCatMap) }
         val seriesChannels = seriesList.mapNotNull { toSeriesChannel(it, seriesCatMap) }
+        onStepDone?.invoke(6)
 
+        // Step 7 — organize into groups by category
         val groups = mutableListOf<ChannelGroup>()
         groups.addAll(buildGroups("live", GroupKind.live, liveCategories, liveChannels, sourceId))
         groups.addAll(buildGroups("vod", GroupKind.vod, vodCategories, vodChannels, sourceId))
         groups.addAll(buildGroups("series", GroupKind.series, seriesCategories, seriesChannels, sourceId))
+        onStepDone?.invoke(7)
 
         Playlist(
             sourceId = sourceId,
