@@ -82,26 +82,35 @@ fun PlayerScreen(
     // When true, Left/Right should navigate between controls, not seek.
     var overlayControlFocused by remember { mutableStateOf(false) }
 
+    // Whether the overlay should receive focus (VOD only, triggered by Down press).
+    // Left/Right seek shows overlay WITHOUT focus; Down shows WITH focus.
+    var overlayWantsFocus by remember { mutableStateOf(false) }
+
     BackHandler(onBack = {
         if (uiState.showOverlay) {
-            // First Back press dismisses the overlay, not the screen.
+            // Single Back press always dismisses the overlay — no need to
+            // unfocus first. This fixes the "triple-back" problem.
             overlayControlFocused = false
+            overlayWantsFocus = false
             viewModel.hideOverlay()
         } else {
             onNavigateBack()
         }
     })
 
-    // Auto-hide overlay after 5 seconds — but stay visible while the
-    // user is actively navigating track buttons (overlayControlFocused).
-    // When the user unfocuses controls (Back from a button), hide immediately.
-    LaunchedEffect(uiState.showOverlay, uiState.error, overlayControlFocused) {
-        if (uiState.showOverlay && uiState.error == null && !overlayControlFocused) {
+    // Auto-hide overlay after 5 seconds — runs even when controls are
+    // focused so the user never has to manually unfocus before the timer
+    // starts. Resets on every showOverlay toggle.
+    LaunchedEffect(uiState.showOverlay, uiState.error) {
+        if (uiState.showOverlay && uiState.error == null) {
             delay(5000)
+            overlayControlFocused = false
+            overlayWantsFocus = false
             viewModel.hideOverlay()
         }
         if (!uiState.showOverlay) {
             overlayControlFocused = false
+            overlayWantsFocus = false
         }
     }
 
@@ -120,14 +129,16 @@ fun PlayerScreen(
         focusRequester.requestFocus()
     }
 
-    // When overlay appears, move focus to the Play/Pause button so the
-    // user sees a focus indicator and can D-pad to subtitle/audio tracks.
-    // When overlay hides, return focus to the root Box for key capture.
-    LaunchedEffect(uiState.showOverlay) {
-        if (uiState.showOverlay && uiState.error == null) {
+    // For VOD: focus the Play/Pause button only when the user pressed
+    // Down (overlayWantsFocus). Left/Right seek shows the overlay but
+    // keeps focus on the root so the timer auto-hides it cleanly.
+    // For Live: never focus the controls — the overlay is display-only.
+    // When overlay hides, always return focus to the root Box.
+    LaunchedEffect(uiState.showOverlay, overlayWantsFocus) {
+        if (uiState.showOverlay && uiState.error == null && overlayWantsFocus && uiState.isVod) {
             delay(150) // let AnimatedVisibility compose the controls
             try { playPauseFocusRequester.requestFocus() } catch (_: Throwable) {}
-        } else {
+        } else if (!uiState.showOverlay) {
             try { focusRequester.requestFocus() } catch (_: Throwable) {}
         }
     }
@@ -149,9 +160,12 @@ fun PlayerScreen(
                             // Let the focused control handle Left/Right navigation
                             false
                         } else if (uiState.isVod) {
+                            // Seek without focusing the controller — overlay
+                            // appears but focus stays on root so auto-hide works.
                             if (event.key == Key.DirectionLeft) viewModel.seekBackward()
                             else viewModel.seekForward()
                             viewModel.showOverlay()
+                            // Do NOT set overlayWantsFocus — keep focus on root
                             true
                         } else {
                             viewModel.showOverlay()
@@ -163,18 +177,13 @@ fun PlayerScreen(
                             // Let focus move up to other controls
                             false
                         } else if (uiState.isVod) {
-                            if (uiState.showOverlay) {
-                                // Overlay already visible — let Down/Up pass
-                                // through so focus reaches audio/subtitle pickers.
-                                false
-                            } else {
-                                viewModel.showOverlay()
-                                true
-                            }
-                        } else if (uiState.showOverlay) {
-                            viewModel.channelUp()
+                            // Up in VOD: same as Left/Right — show overlay
+                            // without focusing controls.
+                            viewModel.showOverlay()
                             true
                         } else {
+                            // Live: Up always = channel up
+                            viewModel.channelUp()
                             viewModel.showOverlay()
                             true
                         }
@@ -184,18 +193,14 @@ fun PlayerScreen(
                             // Let focus move down to other controls
                             false
                         } else if (uiState.isVod) {
-                            if (uiState.showOverlay) {
-                                // Overlay already visible — let Down pass
-                                // through so focus reaches audio/subtitle pickers.
-                                false
-                            } else {
-                                viewModel.showOverlay()
-                                true
-                            }
-                        } else if (uiState.showOverlay) {
-                            viewModel.channelDown()
+                            // Down in VOD: show overlay WITH focus so the user
+                            // can navigate to subtitle/audio track pickers.
+                            viewModel.showOverlay()
+                            overlayWantsFocus = true
                             true
                         } else {
+                            // Live: Down always = channel down
+                            viewModel.channelDown()
                             viewModel.showOverlay()
                             true
                         }
@@ -207,12 +212,10 @@ fun PlayerScreen(
                         } else if (uiState.error != null) {
                             viewModel.retry()
                             true
-                        } else if (uiState.showOverlay) {
-                            // Toggle play/pause on Enter when overlay is visible
-                            // and no control button has focus.
-                            viewModel.togglePlayPause()
-                            true
                         } else {
+                            // OK/Enter always toggles play/pause (live & VOD).
+                            // Also show overlay briefly so user gets feedback.
+                            viewModel.togglePlayPause()
                             viewModel.showOverlay()
                             true
                         }

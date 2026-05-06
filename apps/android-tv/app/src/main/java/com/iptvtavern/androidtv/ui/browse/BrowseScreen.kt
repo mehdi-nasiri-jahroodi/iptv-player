@@ -763,13 +763,12 @@ private fun GroupsSidebar(
                 modifier = Modifier.weight(1f),
             )
 
-            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
             val sortLabel = when (groupSortKey) {
                 GroupSortKey.DEFAULT -> "Default"
-                GroupSortKey.NAME -> "A-Z"
-                GroupSortKey.SIZE -> "Size"
+                GroupSortKey.NAME -> if (groupSortDir == GroupSortDir.ASC) "A-Z ↑" else "A-Z ↓"
+                GroupSortKey.SIZE -> if (groupSortDir == GroupSortDir.ASC) "Size ↑" else "Size ↓"
             }
-            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
@@ -783,28 +782,37 @@ private fun GroupsSidebar(
                     .padding(horizontal = 8.dp, vertical = 8.dp)
                     .onFocusChanged { sortFocused = it.isFocused }
                     .onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key.DirectionCenter, Key.Enter -> {
-                                    val keys = GroupSortKey.entries
-                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
-                                    onGroupSortKeyChanged(next)
-                                    true
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                        ) {
+                            when {
+                                groupSortKey == GroupSortKey.DEFAULT -> {
+                                    onGroupSortKeyChanged(GroupSortKey.NAME)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
                                 }
-                                Key.DirectionLeft, Key.DirectionRight -> {
-                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
-                                    onGroupSortDirChanged(next)
-                                    true
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
                                 }
-                                else -> false
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
+                                    onGroupSortKeyChanged(GroupSortKey.SIZE)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
+                                groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
+                                }
+                                else -> {
+                                    onGroupSortKeyChanged(GroupSortKey.DEFAULT)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
                             }
+                            true
                         } else false
                     }
                     .focusable(),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "$dirArrow $sortLabel",
+                    text = sortLabel,
                     color = if (sortFocused) colors.foreground else colors.foregroundMuted,
                     fontSize = 12.sp,
                     maxLines = 1,

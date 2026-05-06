@@ -1,5 +1,9 @@
 package com.iptvtavern.androidtv.ui.vod
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -26,9 +30,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,13 +70,11 @@ import com.iptvtavern.androidtv.domain.parser.getVodPosterBadge
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
-import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -104,27 +104,38 @@ fun VodBrowseScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
-    val heroWatchFocusRequester = remember { FocusRequester() }
     val sidebarFocusRequester = remember { FocusRequester() }
     val navBarFocusRequester = LocalNavBarFocusRequester.current
 
-    // Track the last focused poster index so Down from hero returns
-    // to the poster the user was on, not the first one.
+    // Track the last focused poster index so we can restore focus after modal close.
     var lastFocusedPosterIndex by remember { mutableStateOf(0) }
     val posterFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
 
-    // On first render (after loading screen disappears), steer focus to
-    // the first poster so it doesn't briefly land on the toolbar/header.
-    // We keep showing the loading screen until the grid has items laid out
-    // and we've successfully requested focus.
+    // Detail modal state
+    var showDetailModal by remember { mutableStateOf(false) }
+    val modalWatchFocusRequester = remember { FocusRequester() }
+
+    // Dismiss detail modal and return focus to the poster
+    fun dismissModal() {
+        showDetailModal = false
+        scope.launch {
+            delay(100)
+            try { posterFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    // BackHandler: close modal first, then default back behavior
+    BackHandler(enabled = showDetailModal) {
+        dismissModal()
+    }
+
+    // On first render, steer focus to the first poster.
     var initialFocusDone by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.channels.isNotEmpty()) {
         if (uiState.channels.isNotEmpty() && !initialFocusDone) {
-            // Small delay for grid to compose its first items
             delay(100)
             initialFocusDone = true
-            // Another small delay for recomposition to show UI, then grab focus
             delay(50)
             try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
         }
@@ -143,6 +154,14 @@ fun VodBrowseScreen(
             gridState.scrollToItem(0)
             delay(100)
             try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    // Focus the Watch button when modal appears
+    LaunchedEffect(showDetailModal) {
+        if (showDetailModal) {
+            delay(150)
+            try { modalWatchFocusRequester.requestFocus() } catch (_: Throwable) {}
         }
     }
 
@@ -191,46 +210,13 @@ fun VodBrowseScreen(
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
-            // Right area — hero + toolbar + grid
+            // Right area — toolbar + grid (no hero)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
-                // Detail hero
-                Box(
-                    modifier = Modifier.onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft
-                        ) {
-                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                            true
-                        } else false
-                    },
-                ) {
-                VodDetailHero(
-                    channel = uiState.detailChannel,
-                    isLoading = uiState.detailLoading,
-                    isFavorite = uiState.detailChannel?.id?.let { it in uiState.favorites } == true,
-                    onPlay = {
-                        uiState.detailChannel?.let { onNavigateToPlayer(it.id) }
-                    },
-                    onPlayTrailer = {
-                        uiState.detailChannel?.trailerUrl?.let { url ->
-                            // TODO: open trailer URL (YouTube intent or in-app player)
-                        }
-                    },
-                    onToggleFavorite = {
-                        uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
-                    },
-                    watchButtonFocusRequester = heroWatchFocusRequester,
-                    onNavigateDownFromHero = { posterFocusRequester.requestFocus() },
-                )
-                } // end hero Box
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 // Toolbar: search + sort
                 VodToolbar(
                     searchQuery = uiState.searchQuery,
@@ -244,21 +230,10 @@ fun VodBrowseScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Poster grid
-                Box(modifier = Modifier
-                    .weight(1f)
-                    .onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft
-                        ) {
-                            // Left from grid left edge → sidebar
-                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                            true
-                        } else false
-                    },
-                ) {
+                // Poster grid — now gets full vertical space
+                Box(modifier = Modifier.weight(1f)) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 140.dp),
+                        columns = GridCells.Adaptive(minSize = 120.dp),
                         state = gridState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -272,10 +247,7 @@ fun VodBrowseScreen(
                                 onSelect = {
                                     viewModel.highlightChannel(channel)
                                     lastFocusedPosterIndex = index
-                                    scope.launch {
-                                        delay(100)
-                                        try { heroWatchFocusRequester.requestFocus() } catch (_: Throwable) {}
-                                    }
+                                    showDetailModal = true
                                 },
                                 onPlay = { onNavigateToPlayer(channel.id) },
                                 onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
@@ -304,8 +276,7 @@ fun VodBrowseScreen(
         VodBottomBar()
     }
 
-    // Opaque overlay that hides the initial focus jump — removed once
-    // focus has been steered to the first grid item.
+    // Opaque overlay that hides the initial focus jump
     if (!initialFocusDone && uiState.channels.isNotEmpty()) {
         Box(
             modifier = Modifier.fillMaxSize().background(colors.background),
@@ -314,128 +285,181 @@ fun VodBrowseScreen(
             Text("Loading movies…", color = colors.foregroundMuted, fontSize = 18.sp)
         }
     }
+
+    // Detail modal overlay
+    AnimatedVisibility(
+        visible = showDetailModal && uiState.detailChannel != null,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        VodDetailModal(
+            channel = uiState.detailChannel,
+            isLoading = uiState.detailLoading,
+            isFavorite = uiState.detailChannel?.id?.let { it in uiState.favorites } == true,
+            onPlay = {
+                uiState.detailChannel?.let { onNavigateToPlayer(it.id) }
+            },
+            onPlayTrailer = {
+                uiState.detailChannel?.trailerUrl?.let { url ->
+                    // TODO: open trailer URL
+                }
+            },
+            onToggleFavorite = {
+                uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
+            },
+            onDismiss = ::dismissModal,
+            watchButtonFocusRequester = modalWatchFocusRequester,
+        )
+    }
     } // end outer Box
 }
 
-// ── Detail Hero ─────────────────────────────────────────────────
+// ── Detail Modal ────────────────────────────────────────────────
 
+/**
+ * Full-screen modal overlay with movie details.
+ * Shown when user presses OK on a poster tile.
+ * Back button dismisses and returns focus to the grid.
+ */
 @Composable
-private fun VodDetailHero(
+private fun VodDetailModal(
     channel: Channel.Vod?,
     isLoading: Boolean,
     isFavorite: Boolean,
     onPlay: () -> Unit,
     onPlayTrailer: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onDismiss: () -> Unit,
     watchButtonFocusRequester: FocusRequester = remember { FocusRequester() },
-    onNavigateDownFromHero: () -> Unit = {},
 ) {
     val colors = LuminaTheme.colors
-
-    if (channel == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(colors.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Select a movie", color = colors.foregroundMuted, fontSize = 16.sp)
-        }
-        return
-    }
+    if (channel == null) return
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp)
-            .clip(RoundedCornerShape(8.dp)),
+            .fillMaxSize()
+            .background(Color(0xEE000000)),
+        contentAlignment = Alignment.Center,
     ) {
-        // Backdrop image
-        AsyncImage(
-            model = channel.backdropUrl ?: channel.posterUrl ?: channel.logoUrl,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-        )
-
-        // Gradient overlay
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(Color(0xEE000000), Color(0x44000000)),
-                    )
-                ),
-        )
-
         Row(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .fillMaxHeight(0.75f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.surface)
+                .padding(24.dp),
         ) {
-            // Poster thumbnail
+            // Left: poster
             AsyncImage(
                 model = channel.posterUrl ?: channel.logoUrl,
                 contentDescription = channel.name,
                 modifier = Modifier
                     .fillMaxHeight()
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(6.dp)),
+                    .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.Crop,
             )
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(24.dp))
 
-            // Info column
+            // Right: info + actions
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = channel.name,
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                // Meta line: year · rating · duration
-                val metaParts = mutableListOf<String>()
-                channel.year?.let { metaParts.add("$it") }
-                channel.rating?.let { r ->
-                    if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
-                }
-                formatVodDuration(channel.durationSeconds)?.let { metaParts.add(it) }
-                if (metaParts.isNotEmpty()) {
+                Column {
                     Text(
-                        text = metaParts.joinToString(" · "),
-                        color = Color(0xCCFFFFFF),
-                        fontSize = 13.sp,
+                        text = channel.name,
+                        color = colors.foreground,
+                        fontSize = 24.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Meta line: year · rating · duration
+                    val metaParts = mutableListOf<String>()
+                    channel.year?.let { metaParts.add("$it") }
+                    channel.rating?.let { r ->
+                        if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
+                    }
+                    formatVodDuration(channel.durationSeconds)?.let { metaParts.add(it) }
+                    if (metaParts.isNotEmpty()) {
+                        Text(
+                            text = metaParts.joinToString(" · "),
+                            color = colors.foregroundMuted,
+                            fontSize = 14.sp,
+                        )
+                    }
+
+                    channel.genre?.let { g ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = g,
+                            color = colors.foregroundMuted,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Plot
+                    channel.plot?.let { p ->
+                        Text(
+                            text = p,
+                            color = colors.foregroundMuted,
+                            fontSize = 14.sp,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Director / Cast
+                    channel.director?.let { d ->
+                        Text(
+                            text = "Director: $d",
+                            color = colors.foregroundMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                        )
+                    }
+                    channel.cast?.let { c ->
+                        Text(
+                            text = "Cast: $c",
+                            color = colors.foregroundMuted,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    if (isFavorite) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "★ Favorite",
+                            color = colors.danger,
+                            fontSize = 13.sp,
+                        )
+                    }
+
+                    if (isLoading) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Loading details…",
+                            color = colors.foregroundMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
                 }
 
-                channel.genre?.let { g ->
-                    Text(
-                        text = g,
-                        color = Color(0xAAFFFFFF),
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Action buttons: Watch + Trailer
+                // Action buttons at bottom
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.onPreviewKeyEvent { event ->
-                        // Down from any hero button → return to last focused poster
-                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                            onNavigateDownFromHero()
-                            true
-                        } else false
-                    },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     FocusableButton(
                         text = "▶ Watch",
@@ -454,53 +478,18 @@ private fun VodDetailHero(
                         )
                     }
 
-                    if (isFavorite) {
-                        Text(
-                            text = "★ Favorite",
-                            color = colors.danger,
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Plot
-                channel.plot?.let { p ->
-                    Text(
-                        text = p,
-                        color = Color(0xAAFFFFFF),
-                        fontSize = 11.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                    FocusableButton(
+                        text = if (isFavorite) "★ Unfavorite" else "☆ Favorite",
+                        onClick = onToggleFavorite,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
                     )
-                }
 
-                // Director / Cast
-                channel.director?.let { d ->
-                    Text(
-                        text = "Director: $d",
-                        color = Color(0x88FFFFFF),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                    )
-                }
-                channel.cast?.let { c ->
-                    Text(
-                        text = "Cast: $c",
-                        color = Color(0x88FFFFFF),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                // Loading shimmer indicator
-                if (isLoading) {
-                    Text(
-                        text = "Loading details…",
-                        color = Color(0x88FFFFFF),
-                        fontSize = 11.sp,
+                    FocusableButton(
+                        text = "Close",
+                        onClick = onDismiss,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
                     )
                 }
             }
@@ -756,13 +745,12 @@ private fun VodGroupsSidebar(
                 modifier = Modifier.weight(1f),
             )
 
-            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
             val sortLabel = when (groupSortKey) {
                 GroupSortKey.DEFAULT -> "Default"
-                GroupSortKey.NAME -> "A-Z"
-                GroupSortKey.SIZE -> "Size"
+                GroupSortKey.NAME -> if (groupSortDir == GroupSortDir.ASC) "A-Z ↑" else "A-Z ↓"
+                GroupSortKey.SIZE -> if (groupSortDir == GroupSortDir.ASC) "Size ↑" else "Size ↓"
             }
-            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
@@ -776,28 +764,38 @@ private fun VodGroupsSidebar(
                     .padding(horizontal = 8.dp, vertical = 8.dp)
                     .onFocusChanged { sortFocused = it.isFocused }
                     .onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key.DirectionCenter, Key.Enter -> {
-                                    val keys = GroupSortKey.entries
-                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
-                                    onGroupSortKeyChanged(next)
-                                    true
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                        ) {
+                            // Cycle: DEFAULT → NAME/ASC → NAME/DESC → SIZE/ASC → SIZE/DESC → DEFAULT
+                            when {
+                                groupSortKey == GroupSortKey.DEFAULT -> {
+                                    onGroupSortKeyChanged(GroupSortKey.NAME)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
                                 }
-                                Key.DirectionLeft, Key.DirectionRight -> {
-                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
-                                    onGroupSortDirChanged(next)
-                                    true
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
                                 }
-                                else -> false
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
+                                    onGroupSortKeyChanged(GroupSortKey.SIZE)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
+                                groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
+                                }
+                                else -> {
+                                    onGroupSortKeyChanged(GroupSortKey.DEFAULT)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
                             }
+                            true
                         } else false
                     }
                     .focusable(),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "$dirArrow $sortLabel",
+                    text = sortLabel,
                     color = if (sortFocused) colors.foreground else colors.foregroundMuted,
                     fontSize = 12.sp,
                     maxLines = 1,

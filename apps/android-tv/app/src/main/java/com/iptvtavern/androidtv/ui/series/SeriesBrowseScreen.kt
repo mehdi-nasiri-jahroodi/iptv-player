@@ -1,5 +1,9 @@
 package com.iptvtavern.androidtv.ui.series
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -66,7 +70,9 @@ import com.iptvtavern.androidtv.domain.model.SeriesSeason
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
-import com.iptvtavern.androidtv.ui.onboarding.TvTextField
+import com.iptvtavern.androidtv.ui.settings.ButtonSize
+import com.iptvtavern.androidtv.ui.settings.ButtonVariant
+import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,14 +104,29 @@ fun SeriesBrowseScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
-    val heroFocusRequester = remember { FocusRequester() }
     val sidebarFocusRequester = remember { FocusRequester() }
     val navBarFocusRequester = LocalNavBarFocusRequester.current
     var lastFocusedPosterIndex by remember { mutableStateOf(0) }
     val posterFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
 
-    // On first render, steer focus to first poster (not toolbar/header).
+    // Detail modal state
+    var showDetailModal by remember { mutableStateOf(false) }
+    val modalFocusRequester = remember { FocusRequester() }
+
+    fun dismissModal() {
+        showDetailModal = false
+        scope.launch {
+            delay(100)
+            try { posterFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    BackHandler(enabled = showDetailModal) {
+        dismissModal()
+    }
+
+    // On first render, steer focus to first poster.
     var initialFocusDone by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.channels.isNotEmpty()) {
         if (uiState.channels.isNotEmpty() && !initialFocusDone) {
@@ -128,6 +149,14 @@ fun SeriesBrowseScreen(
             gridState.scrollToItem(0)
             delay(100)
             try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    // Focus the first season tab when modal appears
+    LaunchedEffect(showDetailModal) {
+        if (showDetailModal) {
+            delay(150)
+            try { modalFocusRequester.requestFocus() } catch (_: Throwable) {}
         }
     }
 
@@ -176,49 +205,13 @@ fun SeriesBrowseScreen(
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
-            // Right area — hero + season/episodes + search + grid
+            // Right area — search + grid (no hero)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
-                // Detail hero with season tabs + episodes
-                Box(
-                    modifier = Modifier.onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft
-                        ) {
-                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                            true
-                        } else false
-                    },
-                ) {
-                SeriesDetailHero(
-                    channel = uiState.detailChannel,
-                    isLoading = uiState.detailLoading,
-                    isFavorite = uiState.detailChannel?.id?.let { it in uiState.favorites } == true,
-                    seasons = uiState.detailChannel?.seasons.orEmpty(),
-                    selectedSeasonIndex = uiState.selectedSeasonIndex,
-                    episodes = uiState.episodes,
-                    watchedEpisodeIds = uiState.watchedEpisodeIds,
-                    onSelectSeason = viewModel::selectSeason,
-                    onPlayEpisode = { episode ->
-                        // Navigate to player with the episode stream URL
-                        // We encode a special ID: series:<seriesId>:ep:<episodeId>
-                        val seriesId = uiState.detailChannel?.id ?: return@SeriesDetailHero
-                        onNavigateToPlayer("${seriesId}:ep:${episode.id}")
-                    },
-                    onToggleFavorite = {
-                        uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
-                    },
-                    heroFocusRequester = heroFocusRequester,
-                    onNavigateDownFromHero = { posterFocusRequester.requestFocus() },
-                )
-                } // end hero Box
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 // Search toolbar
                 SeriesToolbar(
                     searchQuery = uiState.searchQuery,
@@ -228,21 +221,10 @@ fun SeriesBrowseScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Poster grid
-                Box(modifier = Modifier
-                    .weight(1f)
-                    .onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft
-                        ) {
-                            // Left from grid left edge → sidebar
-                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                            true
-                        } else false
-                    },
-                ) {
+                // Poster grid — full vertical space
+                Box(modifier = Modifier.weight(1f)) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 140.dp),
+                        columns = GridCells.Adaptive(minSize = 120.dp),
                         state = gridState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -256,10 +238,7 @@ fun SeriesBrowseScreen(
                                 onSelect = {
                                     viewModel.highlightChannel(channel)
                                     lastFocusedPosterIndex = index
-                                    scope.launch {
-                                        delay(100)
-                                        try { heroFocusRequester.requestFocus() } catch (_: Throwable) {}
-                                    }
+                                    showDetailModal = true
                                 },
                                 onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                                 onFocused = { lastFocusedPosterIndex = index },
@@ -296,13 +275,45 @@ fun SeriesBrowseScreen(
             Text("Loading series…", color = colors.foregroundMuted, fontSize = 18.sp)
         }
     }
+
+    // Detail modal overlay
+    AnimatedVisibility(
+        visible = showDetailModal && uiState.detailChannel != null,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        SeriesDetailModal(
+            channel = uiState.detailChannel,
+            isLoading = uiState.detailLoading,
+            isFavorite = uiState.detailChannel?.id?.let { it in uiState.favorites } == true,
+            seasons = uiState.detailChannel?.seasons.orEmpty(),
+            selectedSeasonIndex = uiState.selectedSeasonIndex,
+            episodes = uiState.episodes,
+            watchedEpisodeIds = uiState.watchedEpisodeIds,
+            onSelectSeason = viewModel::selectSeason,
+            onPlayEpisode = { episode ->
+                val seriesId = uiState.detailChannel?.id ?: return@SeriesDetailModal
+                onNavigateToPlayer("${seriesId}:ep:${episode.id}")
+            },
+            onToggleFavorite = {
+                uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
+            },
+            onDismiss = ::dismissModal,
+            modalFocusRequester = modalFocusRequester,
+        )
+    }
     } // end outer Box
 }
 
-// ── Detail Hero with Season Tabs + Episode List ─────────────────
+// ── Detail Modal with Season Tabs + Episode List ────────────────
 
+/**
+ * Full-screen modal overlay with series details, season tabs, and episode list.
+ * Shown when user presses OK on a poster tile.
+ * Back button dismisses and returns focus to the grid.
+ */
 @Composable
-private fun SeriesDetailHero(
+private fun SeriesDetailModal(
     channel: Channel.Series?,
     isLoading: Boolean,
     isFavorite: Boolean,
@@ -313,279 +324,251 @@ private fun SeriesDetailHero(
     onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (SeriesEpisode) -> Unit,
     onToggleFavorite: () -> Unit,
-    heroFocusRequester: FocusRequester = remember { FocusRequester() },
-    onNavigateDownFromHero: () -> Unit = {},
+    onDismiss: () -> Unit,
+    modalFocusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val colors = LuminaTheme.colors
+    if (channel == null) return
 
-    if (channel == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(280.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(colors.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Select a series", color = colors.foregroundMuted, fontSize = 16.sp)
-        }
-        return
-    }
-
-    Column(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp)),
+            .fillMaxSize()
+            .background(Color(0xEE000000)),
+        contentAlignment = Alignment.Center,
     ) {
-        // Top: backdrop + series info
-        Box(
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(160.dp),
+                .fillMaxWidth(0.85f)
+                .fillMaxHeight(0.85f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.surface)
+                .padding(24.dp),
         ) {
-            // Backdrop image
+            // Left: poster
             AsyncImage(
-                model = channel.backdropUrl ?: channel.posterUrl ?: channel.logoUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                model = channel.posterUrl ?: channel.logoUrl,
+                contentDescription = channel.name,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.Crop,
             )
 
-            // Gradient overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color(0xEE000000), Color(0x44000000)),
-                        )
-                    ),
-            )
+            Spacer(modifier = Modifier.width(24.dp))
 
-            Row(
-                modifier = Modifier.fillMaxSize().padding(12.dp),
+            // Right: info + seasons + episodes
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             ) {
-                // Poster thumbnail
-                AsyncImage(
-                    model = channel.posterUrl ?: channel.logoUrl,
-                    contentDescription = channel.name,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(6.dp)),
-                    contentScale = ContentScale.Crop,
+                // Title + meta
+                Text(
+                    text = channel.name,
+                    color = colors.foreground,
+                    fontSize = 24.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                val metaParts = mutableListOf<String>()
+                channel.releaseYear?.let { metaParts.add("$it") }
+                channel.rating?.let { r ->
+                    if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
+                }
+                if (seasons.isNotEmpty()) {
+                    metaParts.add("${seasons.size} season${if (seasons.size != 1) "s" else ""}")
+                }
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString(" · "),
+                        color = colors.foregroundMuted,
+                        fontSize = 14.sp,
+                    )
+                }
 
-                // Info column
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text(
-                            text = channel.name,
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                channel.genre?.let { g ->
+                    Text(text = g, color = colors.foregroundMuted, fontSize = 13.sp, maxLines = 1)
+                }
 
-                        // Meta line: year · rating · seasons count
-                        val metaParts = mutableListOf<String>()
-                        channel.releaseYear?.let { metaParts.add("$it") }
-                        channel.rating?.let { r ->
-                            if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
-                        }
-                        if (seasons.isNotEmpty()) {
-                            metaParts.add("${seasons.size} season${if (seasons.size != 1) "s" else ""}")
-                        }
-                        if (metaParts.isNotEmpty()) {
-                            Text(
-                                text = metaParts.joinToString(" · "),
-                                color = Color(0xCCFFFFFF),
-                                fontSize = 13.sp,
-                            )
-                        }
+                Spacer(modifier = Modifier.height(8.dp))
 
-                        channel.genre?.let { g ->
-                            Text(
-                                text = g,
-                                color = Color(0xAAFFFFFF),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                            )
-                        }
+                channel.plot?.let { p ->
+                    Text(
+                        text = p,
+                        color = colors.foregroundMuted,
+                        fontSize = 13.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                if (isFavorite) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "★ Favorite", color = colors.danger, fontSize = 13.sp)
+                }
 
-                        // Plot
-                        channel.plot?.let { p ->
-                            Text(
-                                text = p,
-                                color = Color(0xAAFFFFFF),
-                                fontSize = 12.sp,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                if (isLoading) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "Loading details…", color = colors.foregroundMuted, fontSize = 12.sp)
+                }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Season tabs
+                if (seasons.isNotEmpty()) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (isLoading) {
-                            Text(
-                                text = "Loading details…",
-                                color = Color(0x88FFFFFF),
-                                fontSize = 11.sp,
-                            )
-                        }
-                        if (isFavorite) {
-                            Text(
-                                text = "★ Favorite",
-                                color = colors.danger,
-                                fontSize = 12.sp,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Season tabs (only show if we have seasons)
-        if (seasons.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.surface)
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                seasons.forEachIndexed { index, season ->
-                    var isFocused by remember { mutableStateOf(false) }
-                    val isSelected = index == selectedSeasonIndex
-                    val label = season.name ?: "Season ${season.seasonNumber}"
-
-                    Box(
                         modifier = Modifier
-                            .then(
-                                // Attach focus requester to first season tab so
-                                // Enter on a poster can jump focus here.
-                                if (index == 0) Modifier.focusRequester(heroFocusRequester) else Modifier
-                            )
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                when {
-                                    isFocused -> colors.accent
-                                    isSelected -> colors.surfaceRaised
-                                    else -> Color.Transparent
-                                }
-                            )
-                            .border(
-                                width = if (isSelected && !isFocused) 1.dp else 0.dp,
-                                color = if (isSelected && !isFocused) colors.border else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp),
-                            )
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .onFocusChanged {
-                                isFocused = it.isFocused
-                                if (it.isFocused) onSelectSeason(index)
-                            }
-                            .focusable(),
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(
-                            text = label,
-                            color = when {
-                                isFocused -> colors.accentForeground
-                                isSelected -> colors.foreground
-                                else -> colors.foregroundMuted
-                            },
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
-            }
+                        seasons.forEachIndexed { index, season ->
+                            var isFocused by remember { mutableStateOf(false) }
+                            val isSelected = index == selectedSeasonIndex
+                            val label = season.name ?: "Season ${season.seasonNumber}"
 
-            // Episode list for the selected season
-            if (episodes.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .background(colors.surface)
-                        .padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    itemsIndexed(episodes, key = { _, ep -> ep.id }) { _, episode ->
-                        var isFocused by remember { mutableStateOf(false) }
-                        val isWatched = channel != null &&
-                            "${channel.id}:ep:${episode.id}" in watchedEpisodeIds
-                        val durationText = episode.durationSeconds?.let { secs ->
-                            val mins = secs / 60
-                            if (mins > 0) "${mins}m" else null
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isFocused) colors.accent else Color.Transparent)
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .onFocusChanged { isFocused = it.isFocused }
-                                .onKeyEvent { event ->
-                                    if (event.type == KeyEventType.KeyDown &&
-                                        (event.key == Key.DirectionCenter ||
-                                            event.key == Key.Enter ||
-                                            event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
-                                            event.key == Key.B)
-                                    ) {
-                                        onPlayEpisode(episode)
-                                        true
-                                    } else false
-                                }
-                                .focusable(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            Box(
+                                modifier = Modifier
+                                    .then(
+                                        if (index == 0) Modifier.focusRequester(modalFocusRequester) else Modifier
+                                    )
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        when {
+                                            isFocused -> colors.accent
+                                            isSelected -> colors.surfaceRaised
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .border(
+                                        width = if (isSelected && !isFocused) 1.dp else 0.dp,
+                                        color = if (isSelected && !isFocused) colors.border else Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp),
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .onFocusChanged {
+                                        isFocused = it.isFocused
+                                        if (it.isFocused) onSelectSeason(index)
+                                    }
+                                    .focusable(),
                             ) {
                                 Text(
-                                    text = "E${episode.episodeNumber}",
-                                    color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
-                                    fontSize = 12.sp,
-                                )
-                                if (isWatched) {
-                                    Text(
-                                        text = "✓",
-                                        color = if (isFocused) colors.accentForeground else colors.accent,
-                                        fontSize = 12.sp,
-                                    )
-                                }
-                                Text(
-                                    text = episode.title,
-                                    color = if (isFocused) colors.accentForeground else colors.foreground,
+                                    text = label,
+                                    color = when {
+                                        isFocused -> colors.accentForeground
+                                        isSelected -> colors.foreground
+                                        else -> colors.foregroundMuted
+                                    },
                                     fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            durationText?.let {
-                                Text(
-                                    text = it,
-                                    color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
-                                    fontSize = 12.sp,
                                 )
                             }
                         }
                     }
+
+                    // Episode list
+                    if (episodes.isNotEmpty()) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp),
+                        ) {
+                            itemsIndexed(episodes, key = { _, ep -> ep.id }) { _, episode ->
+                                var isFocused by remember { mutableStateOf(false) }
+                                val isWatched = "${channel.id}:ep:${episode.id}" in watchedEpisodeIds
+                                val durationText = episode.durationSeconds?.let { secs ->
+                                    val mins = secs / 60
+                                    if (mins > 0) "${mins}m" else null
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isFocused) colors.accent else Color.Transparent)
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .onFocusChanged { isFocused = it.isFocused }
+                                        .onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown &&
+                                                (event.key == Key.DirectionCenter ||
+                                                    event.key == Key.Enter ||
+                                                    event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
+                                                    event.key == Key.B)
+                                            ) {
+                                                onPlayEpisode(episode)
+                                                true
+                                            } else false
+                                        }
+                                        .focusable(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = "E${episode.episodeNumber}",
+                                            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+                                            fontSize = 12.sp,
+                                        )
+                                        if (isWatched) {
+                                            Text(
+                                                text = "✓",
+                                                color = if (isFocused) colors.accentForeground else colors.accent,
+                                                fontSize = 12.sp,
+                                            )
+                                        }
+                                        Text(
+                                            text = episode.title,
+                                            color = if (isFocused) colors.accentForeground else colors.foreground,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    durationText?.let {
+                                        Text(
+                                            text = it,
+                                            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(if (seasons.isEmpty() || episodes.isEmpty()) 1f else 0.01f))
+
+                // Bottom actions
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    // If no season tabs, put focus requester on the favorite button
+                    val favModifier = if (seasons.isEmpty()) Modifier.focusRequester(modalFocusRequester) else Modifier
+
+                    FocusableButton(
+                        text = if (isFavorite) "★ Unfavorite" else "☆ Favorite",
+                        onClick = onToggleFavorite,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
+                        modifier = favModifier,
+                    )
+
+                    FocusableButton(
+                        text = "Close",
+                        onClick = onDismiss,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
+                    )
                 }
             }
         }
@@ -769,13 +752,12 @@ private fun SeriesGroupsSidebar(
                 modifier = Modifier.weight(1f),
             )
 
-            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
             val sortLabel = when (groupSortKey) {
                 GroupSortKey.DEFAULT -> "Default"
-                GroupSortKey.NAME -> "A-Z"
-                GroupSortKey.SIZE -> "Size"
+                GroupSortKey.NAME -> if (groupSortDir == GroupSortDir.ASC) "A-Z ↑" else "A-Z ↓"
+                GroupSortKey.SIZE -> if (groupSortDir == GroupSortDir.ASC) "Size ↑" else "Size ↓"
             }
-            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
@@ -789,28 +771,37 @@ private fun SeriesGroupsSidebar(
                     .padding(horizontal = 8.dp, vertical = 8.dp)
                     .onFocusChanged { sortFocused = it.isFocused }
                     .onKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key.DirectionCenter, Key.Enter -> {
-                                    val keys = GroupSortKey.entries
-                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
-                                    onGroupSortKeyChanged(next)
-                                    true
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                        ) {
+                            when {
+                                groupSortKey == GroupSortKey.DEFAULT -> {
+                                    onGroupSortKeyChanged(GroupSortKey.NAME)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
                                 }
-                                Key.DirectionLeft, Key.DirectionRight -> {
-                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
-                                    onGroupSortDirChanged(next)
-                                    true
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
                                 }
-                                else -> false
+                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
+                                    onGroupSortKeyChanged(GroupSortKey.SIZE)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
+                                groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
+                                    onGroupSortDirChanged(GroupSortDir.DESC)
+                                }
+                                else -> {
+                                    onGroupSortKeyChanged(GroupSortKey.DEFAULT)
+                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                                }
                             }
+                            true
                         } else false
                     }
                     .focusable(),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "$dirArrow $sortLabel",
+                    text = sortLabel,
                     color = if (sortFocused) colors.foreground else colors.foregroundMuted,
                     fontSize = 12.sp,
                     maxLines = 1,

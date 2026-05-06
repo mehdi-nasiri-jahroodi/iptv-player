@@ -43,6 +43,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
+import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
@@ -103,15 +104,16 @@ fun HomeScreen(
                         text = "↻ Refresh",
                         onClick = viewModel::refreshCatalog,
                         variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
                     )
                     Text(
                         text = uiState.activeSource!!.label,
                         color = colors.accent,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .background(colors.surface, RoundedCornerShape(8.dp))
                             .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
             }
