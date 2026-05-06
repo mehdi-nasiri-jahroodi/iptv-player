@@ -10,12 +10,15 @@ import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import com.iptvtavern.androidtv.domain.parser.EpgParser
+import com.iptvtavern.androidtv.ui.common.sortGroups
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -52,6 +55,11 @@ data class BrowseUiState(
     val filteredGroups: List<ChannelGroup> = emptyList(),
     /** Now/next EPG data keyed by tvgId (for live channels). */
     val nowNextByTvgId: Map<String, EpgParser.NowNext> = emptyMap(),
+    /** Brief loading flag while the channel list is being rebuilt after a group switch. */
+    val isFilteringGroup: Boolean = false,
+    /** Sort order for the groups sidebar. */
+    val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
+    val groupSortDir: GroupSortDir = GroupSortDir.ASC,
 )
 
 @HiltViewModel
@@ -216,14 +224,24 @@ class BrowseViewModel @Inject constructor(
         val groups = _uiState.value.filteredGroups
         if (index !in groups.indices) return
 
-        val group = groups[index]
-        val query = _uiState.value.searchQuery
-        val filtered = filterChannels(group.channels, query)
-
+        // Show spinner immediately, filter off main thread.
         _uiState.value = _uiState.value.copy(
             selectedGroupIndex = index,
-            channels = filtered,
+            isFilteringGroup = true,
         )
+        viewModelScope.launch {
+            val group = groups[index]
+            val query = _uiState.value.searchQuery
+            val filtered = withContext(Dispatchers.Default) {
+                filterChannels(group.channels, query)
+            }
+            // Minimum visible spinner time so the animation is perceptible.
+            delay(150)
+            _uiState.value = _uiState.value.copy(
+                channels = filtered,
+                isFilteringGroup = false,
+            )
+        }
     }
 
     fun updateSearch(query: String) {
@@ -237,7 +255,25 @@ class BrowseViewModel @Inject constructor(
     }
 
     fun updateGroupSearch(query: String) {
-        val allDisplayGroups = _uiState.value.groups
+        _uiState.value = _uiState.value.copy(groupSearchQuery = query)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortKey(key: GroupSortKey) {
+        _uiState.value = _uiState.value.copy(groupSortKey = key)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortDir(dir: GroupSortDir) {
+        _uiState.value = _uiState.value.copy(groupSortDir = dir)
+        recomputeFilteredGroups()
+    }
+
+    private fun recomputeFilteredGroups() {
+        val state = _uiState.value
+        val allDisplayGroups = state.groups
+        val query = state.groupSearchQuery
+
         val filtered = if (query.isBlank()) {
             allDisplayGroups
         } else {
@@ -246,11 +282,13 @@ class BrowseViewModel @Inject constructor(
                 it.id.startsWith("__") || it.name.lowercase().contains(lower)
             }
         }
-        _uiState.value = _uiState.value.copy(
-            groupSearchQuery = query,
-            filteredGroups = filtered,
+
+        val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
+
+        _uiState.value = state.copy(
+            filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = filtered.firstOrNull()?.channels.orEmpty(),
+            channels = sorted.firstOrNull()?.channels.orEmpty(),
         )
     }
 

@@ -272,7 +272,7 @@ private fun AddSourceStep(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             FocusableButton(
                 text = "Add & Continue",
                 onClick = onSubmit,

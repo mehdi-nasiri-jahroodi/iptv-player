@@ -20,16 +20,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +47,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
@@ -54,16 +59,23 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.parser.VodSortDir
 import com.iptvtavern.androidtv.domain.parser.VodSortKey
 import com.iptvtavern.androidtv.domain.parser.formatVodDuration
 import com.iptvtavern.androidtv.domain.parser.getVodPosterBadge
+import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * VOD Browse screen — poster grid with detail hero.
@@ -90,7 +102,49 @@ fun VodBrowseScreen(
 ) {
     val colors = LuminaTheme.colors
     val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
+    val heroWatchFocusRequester = remember { FocusRequester() }
+    val sidebarFocusRequester = remember { FocusRequester() }
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
+
+    // Track the last focused poster index so Down from hero returns
+    // to the poster the user was on, not the first one.
+    var lastFocusedPosterIndex by remember { mutableStateOf(0) }
+    val posterFocusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+
+    // On first render (after loading screen disappears), steer focus to
+    // the first poster so it doesn't briefly land on the toolbar/header.
+    // We keep showing the loading screen until the grid has items laid out
+    // and we've successfully requested focus.
+    var initialFocusDone by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.channels.isNotEmpty()) {
+        if (uiState.channels.isNotEmpty() && !initialFocusDone) {
+            // Small delay for grid to compose its first items
+            delay(100)
+            initialFocusDone = true
+            // Another small delay for recomposition to show UI, then grab focus
+            delay(50)
+            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    var hasStartedFiltering by remember { mutableStateOf(false) }
+    if (uiState.isFilteringGroup) {
+        hasStartedFiltering = true
+        lastFocusedPosterIndex = 0
+    }
+
+    // After group filtering finishes, scroll to top and focus first item.
+    LaunchedEffect(uiState.isFilteringGroup) {
+        if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
+            hasStartedFiltering = false
+            gridState.scrollToItem(0)
+            delay(100)
+            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
 
     if (uiState.isLoading) {
         Box(
@@ -111,6 +165,7 @@ fun VodBrowseScreen(
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier.fillMaxSize().background(colors.background),
     ) {
@@ -122,7 +177,17 @@ fun VodBrowseScreen(
                 onGroupSelected = viewModel::selectGroup,
                 groupSearchQuery = uiState.groupSearchQuery,
                 onGroupSearchChanged = viewModel::updateGroupSearch,
-                onJumpToGrid = { gridFocusRequester.requestFocus() },
+                groupSortKey = uiState.groupSortKey,
+                onGroupSortKeyChanged = viewModel::setGroupSortKey,
+                groupSortDir = uiState.groupSortDir,
+                onGroupSortDirChanged = viewModel::setGroupSortDir,
+                onJumpToGrid = {
+                    scope.launch {
+                        delay(100)
+                        try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+                    }
+                },
+                selectedGroupFocusRequester = sidebarFocusRequester,
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
@@ -134,6 +199,16 @@ fun VodBrowseScreen(
                     .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
                 // Detail hero
+                Box(
+                    modifier = Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft
+                        ) {
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
+                ) {
                 VodDetailHero(
                     channel = uiState.detailChannel,
                     isLoading = uiState.detailLoading,
@@ -149,7 +224,10 @@ fun VodBrowseScreen(
                     onToggleFavorite = {
                         uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
                     },
+                    watchButtonFocusRequester = heroWatchFocusRequester,
+                    onNavigateDownFromHero = { posterFocusRequester.requestFocus() },
                 )
+                } // end hero Box
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -167,22 +245,56 @@ fun VodBrowseScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Poster grid
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 140.dp),
-                    modifier = Modifier.focusRequester(gridFocusRequester),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 48.dp),
+                Box(modifier = Modifier
+                    .weight(1f)
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft
+                        ) {
+                            // Left from grid left edge → sidebar
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
                 ) {
-                    items(uiState.channels, key = { it.id }) { channel ->
-                        VodPosterTile(
-                            channel = channel,
-                            isSelected = channel.id == uiState.selectedChannel?.id,
-                            isFavorite = channel.id in uiState.favorites,
-                            onSelect = { viewModel.highlightChannel(channel) },
-                            onPlay = { onNavigateToPlayer(channel.id) },
-                            onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
-                        )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 140.dp),
+                        state = gridState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 48.dp),
+                    ) {
+                        itemsIndexed(uiState.channels, key = { _, ch -> ch.id }) { index, channel ->
+                            VodPosterTile(
+                                channel = channel,
+                                isSelected = channel.id == uiState.selectedChannel?.id,
+                                isFavorite = channel.id in uiState.favorites,
+                                onSelect = {
+                                    viewModel.highlightChannel(channel)
+                                    lastFocusedPosterIndex = index
+                                    scope.launch {
+                                        delay(100)
+                                        try { heroWatchFocusRequester.requestFocus() } catch (_: Throwable) {}
+                                    }
+                                },
+                                onPlay = { onNavigateToPlayer(channel.id) },
+                                onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
+                                onFocused = { lastFocusedPosterIndex = index },
+                                modifier = when {
+                                    index == 0 && lastFocusedPosterIndex == 0 ->
+                                        Modifier
+                                            .focusRequester(gridFocusRequester)
+                                            .focusRequester(posterFocusRequester)
+                                    index == 0 -> Modifier.focusRequester(gridFocusRequester)
+                                    index == lastFocusedPosterIndex -> Modifier.focusRequester(posterFocusRequester)
+                                    else -> Modifier
+                                },
+                            )
+                        }
+                    }
+
+                    if (uiState.isFilteringGroup) {
+                        LoadingOverlay()
                     }
                 }
             }
@@ -191,6 +303,18 @@ fun VodBrowseScreen(
         // Bottom guideline bar
         VodBottomBar()
     }
+
+    // Opaque overlay that hides the initial focus jump — removed once
+    // focus has been steered to the first grid item.
+    if (!initialFocusDone && uiState.channels.isNotEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(colors.background),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Loading movies…", color = colors.foregroundMuted, fontSize = 18.sp)
+        }
+    }
+    } // end outer Box
 }
 
 // ── Detail Hero ─────────────────────────────────────────────────
@@ -203,6 +327,8 @@ private fun VodDetailHero(
     onPlay: () -> Unit,
     onPlayTrailer: () -> Unit,
     onToggleFavorite: () -> Unit,
+    watchButtonFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateDownFromHero: () -> Unit = {},
 ) {
     val colors = LuminaTheme.colors
 
@@ -303,12 +429,20 @@ private fun VodDetailHero(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.onPreviewKeyEvent { event ->
+                        // Down from any hero button → return to last focused poster
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                            onNavigateDownFromHero()
+                            true
+                        } else false
+                    },
                 ) {
                     FocusableButton(
                         text = "▶ Watch",
                         onClick = onPlay,
                         variant = ButtonVariant.Primary,
                         size = ButtonSize.Small,
+                        modifier = Modifier.focusRequester(watchButtonFocusRequester),
                     )
 
                     if (channel.trailerUrl != null) {
@@ -436,12 +570,14 @@ private fun VodToolbar(
                                 onSortKeyChanged(next)
                                 true
                             }
-                            Key.DirectionUp, Key.DirectionDown -> {
+                            Key.DirectionLeft, Key.DirectionRight -> {
                                 // Toggle direction
                                 val next = if (sortDir == VodSortDir.ASC) VodSortDir.DESC else VodSortDir.ASC
                                 onSortDirChanged(next)
                                 true
                             }
+                            // Up/Down NOT intercepted — let focus move to
+                            // hero/header (Up) or grid (Down) naturally.
                             else -> false
                         }
                     } else false
@@ -474,6 +610,8 @@ private fun VodPosterTile(
     onSelect: () -> Unit,
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -486,7 +624,7 @@ private fun VodPosterTile(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(2f / 3f)
             .clip(RoundedCornerShape(8.dp))
             .border(
@@ -496,6 +634,7 @@ private fun VodPosterTile(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
+                if (it.isFocused) onFocused()
             }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -584,19 +723,87 @@ private fun VodGroupsSidebar(
     onGroupSelected: (Int) -> Unit,
     groupSearchQuery: String,
     onGroupSearchChanged: (String) -> Unit,
+    groupSortKey: GroupSortKey,
+    onGroupSortKeyChanged: (GroupSortKey) -> Unit,
+    groupSortDir: GroupSortDir,
+    onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToGrid: () -> Unit,
+    selectedGroupFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
 
-    Column(modifier = modifier.background(colors.surface)) {
-        // Group search
-        TvSearchButton(
-            value = groupSearchQuery,
-            onValueChange = onGroupSearchChanged,
-            placeholder = "Filter categories…",
+    Column(modifier = modifier
+        .background(colors.surface)
+        .onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                true
+            } else false
+        },
+    ) {
+        // Group search + sort
+        Row(
             modifier = Modifier.padding(6.dp),
-        )
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvSearchButton(
+                value = groupSearchQuery,
+                onValueChange = onGroupSearchChanged,
+                placeholder = "Filter categories…",
+                modifier = Modifier.weight(1f),
+            )
+
+            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            val sortLabel = when (groupSortKey) {
+                GroupSortKey.DEFAULT -> "Default"
+                GroupSortKey.NAME -> "A-Z"
+                GroupSortKey.SIZE -> "Size"
+            }
+            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
+            var sortFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .border(
+                        width = if (sortFocused) 2.dp else 1.dp,
+                        color = if (sortFocused) colors.accent else colors.border,
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .onFocusChanged { sortFocused = it.isFocused }
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionCenter, Key.Enter -> {
+                                    val keys = GroupSortKey.entries
+                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
+                                    onGroupSortKeyChanged(next)
+                                    true
+                                }
+                                Key.DirectionLeft, Key.DirectionRight -> {
+                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
+                                    onGroupSortDirChanged(next)
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "$dirArrow $sortLabel",
+                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f).padding(6.dp),
@@ -625,17 +832,28 @@ private fun VodGroupsSidebar(
                             } else Modifier
                         )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .then(
+                            if (isSelected) Modifier.focusRequester(selectedGroupFocusRequester)
+                            else Modifier
+                        )
                         .onFocusChanged {
                             isFocused = it.isFocused
                             // Lazy load: only update grid on OK/Enter.
                         }
                         .onKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown &&
-                                (event.key == Key.DirectionCenter || event.key == Key.Enter)
-                            ) {
-                                onGroupSelected(index)
-                                onJumpToGrid()
-                                true
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        onGroupSelected(index)
+                                        onJumpToGrid()
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        onJumpToGrid()
+                                        true
+                                    }
+                                    else -> false
+                                }
                             } else false
                         }
                         .focusable(),

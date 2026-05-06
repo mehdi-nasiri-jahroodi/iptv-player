@@ -9,6 +9,9 @@ import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
+import com.iptvtavern.androidtv.ui.common.sortGroups
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
@@ -55,6 +59,9 @@ data class VodUiState(
     /** Sorting state. */
     val sortKey: VodSortKey = VodSortKey.DEFAULT,
     val sortDir: VodSortDir = VodSortDir.ASC,
+    val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
+    val groupSortDir: GroupSortDir = GroupSortDir.ASC,
+    val isFilteringGroup: Boolean = false,
 )
 
 @HiltViewModel
@@ -161,16 +168,27 @@ class VodBrowseViewModel @Inject constructor(
     fun selectGroup(index: Int) {
         val groups = _uiState.value.filteredGroups
         if (index !in groups.indices) return
-        val group = groups[index]
-        val vodChannels = group.channels.filterIsInstance<Channel.Vod>()
-        val filtered = filterAndSort(vodChannels)
 
         _uiState.value = _uiState.value.copy(
             selectedGroupIndex = index,
-            channels = filtered,
-            selectedChannel = null,
-            detailChannel = null,
+            isFilteringGroup = true,
         )
+        viewModelScope.launch {
+            val group = groups[index]
+            val vodChannels = withContext(Dispatchers.Default) {
+                group.channels.filterIsInstance<Channel.Vod>()
+            }
+            val filtered = withContext(Dispatchers.Default) {
+                filterAndSort(vodChannels)
+            }
+            delay(150)
+            _uiState.value = _uiState.value.copy(
+                channels = filtered,
+                selectedChannel = null,
+                detailChannel = null,
+                isFilteringGroup = false,
+            )
+        }
     }
 
     // ── Search ──────────────────────────────────────────────────
@@ -181,7 +199,26 @@ class VodBrowseViewModel @Inject constructor(
     }
 
     fun updateGroupSearch(query: String) {
-        val allDisplayGroups = _uiState.value.groups
+        _uiState.value = _uiState.value.copy(groupSearchQuery = query)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortKey(key: GroupSortKey) {
+        _uiState.value = _uiState.value.copy(groupSortKey = key)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortDir(dir: GroupSortDir) {
+        _uiState.value = _uiState.value.copy(groupSortDir = dir)
+        recomputeFilteredGroups()
+    }
+
+    private fun recomputeFilteredGroups() {
+        val state = _uiState.value
+        val allDisplayGroups = state.groups
+        val query = state.groupSearchQuery
+
+        // Filter
         val filtered = if (query.isBlank()) {
             allDisplayGroups
         } else {
@@ -190,11 +227,14 @@ class VodBrowseViewModel @Inject constructor(
                 it.id.startsWith("__") || it.name.lowercase().contains(lower)
             }
         }
-        _uiState.value = _uiState.value.copy(
-            groupSearchQuery = query,
-            filteredGroups = filtered,
+
+        // Sort (keep virtual groups like Favorites at top)
+        val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
+
+        _uiState.value = state.copy(
+            filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = filtered.firstOrNull()
+            channels = sorted.firstOrNull()
                 ?.channels
                 ?.filterIsInstance<Channel.Vod>()
                 ?.let { filterAndSort(it) }

@@ -76,16 +76,27 @@ fun PlayerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
-
-    BackHandler(onBack = onNavigateBack)
+    val playPauseFocusRequester = remember { FocusRequester() }
 
     // Track whether any overlay control (subtitle/audio button, seek button) has focus.
     // When true, Left/Right should navigate between controls, not seek.
     var overlayControlFocused by remember { mutableStateOf(false) }
 
-    // Auto-hide overlay after 5 seconds
-    LaunchedEffect(uiState.showOverlay, uiState.error) {
-        if (uiState.showOverlay && uiState.error == null) {
+    BackHandler(onBack = {
+        if (uiState.showOverlay) {
+            // First Back press dismisses the overlay, not the screen.
+            overlayControlFocused = false
+            viewModel.hideOverlay()
+        } else {
+            onNavigateBack()
+        }
+    })
+
+    // Auto-hide overlay after 5 seconds — but stay visible while the
+    // user is actively navigating track buttons (overlayControlFocused).
+    // When the user unfocuses controls (Back from a button), hide immediately.
+    LaunchedEffect(uiState.showOverlay, uiState.error, overlayControlFocused) {
+        if (uiState.showOverlay && uiState.error == null && !overlayControlFocused) {
             delay(5000)
             viewModel.hideOverlay()
         }
@@ -107,6 +118,18 @@ fun PlayerScreen(
     // Request focus on the root so key events are captured
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+
+    // When overlay appears, move focus to the Play/Pause button so the
+    // user sees a focus indicator and can D-pad to subtitle/audio tracks.
+    // When overlay hides, return focus to the root Box for key capture.
+    LaunchedEffect(uiState.showOverlay) {
+        if (uiState.showOverlay && uiState.error == null) {
+            delay(150) // let AnimatedVisibility compose the controls
+            try { playPauseFocusRequester.requestFocus() } catch (_: Throwable) {}
+        } else {
+            try { focusRequester.requestFocus() } catch (_: Throwable) {}
+        }
     }
 
     Box(
@@ -140,8 +163,14 @@ fun PlayerScreen(
                             // Let focus move up to other controls
                             false
                         } else if (uiState.isVod) {
-                            viewModel.showOverlay()
-                            true
+                            if (uiState.showOverlay) {
+                                // Overlay already visible — let Down/Up pass
+                                // through so focus reaches audio/subtitle pickers.
+                                false
+                            } else {
+                                viewModel.showOverlay()
+                                true
+                            }
                         } else if (uiState.showOverlay) {
                             viewModel.channelUp()
                             true
@@ -155,8 +184,14 @@ fun PlayerScreen(
                             // Let focus move down to other controls
                             false
                         } else if (uiState.isVod) {
-                            viewModel.showOverlay()
-                            true
+                            if (uiState.showOverlay) {
+                                // Overlay already visible — let Down pass
+                                // through so focus reaches audio/subtitle pickers.
+                                false
+                            } else {
+                                viewModel.showOverlay()
+                                true
+                            }
                         } else if (uiState.showOverlay) {
                             viewModel.channelDown()
                             true
@@ -173,6 +208,8 @@ fun PlayerScreen(
                             viewModel.retry()
                             true
                         } else if (uiState.showOverlay) {
+                            // Toggle play/pause on Enter when overlay is visible
+                            // and no control button has focus.
                             viewModel.togglePlayPause()
                             true
                         } else {
@@ -263,6 +300,7 @@ fun PlayerScreen(
                 onSelectSubtitleTrack = viewModel::selectSubtitleTrack,
                 onDisableSubtitles = viewModel::disableSubtitles,
                 onControlFocusChanged = { overlayControlFocused = it },
+                playPauseFocusRequester = playPauseFocusRequester,
             )
         }
     }
@@ -284,6 +322,7 @@ private fun ControlsOverlay(
     onSelectSubtitleTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onDisableSubtitles: () -> Unit,
     onControlFocusChanged: (Boolean) -> Unit = {},
+    playPauseFocusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val colors = LuminaTheme.colors
 
@@ -412,6 +451,7 @@ private fun ControlsOverlay(
                     FocusableButton(
                         text = if (uiState.isPlaying) "⏸ Pause" else "▶ Play",
                         onClick = onPlayPause,
+                        modifier = Modifier.focusRequester(playPauseFocusRequester),
                     )
                     if (uiState.isVod) {
                         FocusableButton(

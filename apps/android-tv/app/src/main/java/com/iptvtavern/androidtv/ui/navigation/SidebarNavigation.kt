@@ -1,6 +1,7 @@
 package com.iptvtavern.androidtv.ui.navigation
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -31,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,10 +42,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import com.iptvtavern.androidtv.R
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 
 /**
@@ -76,6 +81,7 @@ val SIDEBAR_ITEMS = listOf(
 fun SidebarNavigation(
     selectedIndex: Int,
     onItemSelected: (index: Int, route: String) -> Unit,
+    navRailFocusRequester: FocusRequester = remember { FocusRequester() },
     content: @Composable () -> Unit,
 ) {
     val colors = LuminaTheme.colors
@@ -91,12 +97,13 @@ fun SidebarNavigation(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // App title at top
-            Text(
-                text = "TV",
-                color = colors.accent,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(bottom = 16.dp),
+            // App logo at top
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher_foreground),
+                contentDescription = "Lumina IPTV",
+                modifier = Modifier
+                    .size(40.dp)
+                    .padding(bottom = 8.dp),
             )
 
             SIDEBAR_ITEMS.forEachIndexed { index, item ->
@@ -104,6 +111,9 @@ fun SidebarNavigation(
                     item = item,
                     isSelected = index == selectedIndex,
                     onSelect = { onItemSelected(index, item.route) },
+                    modifier = if (index == selectedIndex) {
+                        Modifier.focusRequester(navRailFocusRequester)
+                    } else Modifier,
                 )
             }
 
@@ -127,6 +137,7 @@ private fun SidebarNavItem(
     item: SidebarItem,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -149,7 +160,8 @@ private fun SidebarNavItem(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
+            .then(Modifier
             .scale(scale)
             .border(2.dp, borderColor, RoundedCornerShape(8.dp))
             .padding(8.dp)
@@ -162,7 +174,7 @@ private fun SidebarNavItem(
                     true
                 } else false
             }
-            .focusable(),
+            .focusable()),
     ) {
         Icon(
             imageVector = item.icon,

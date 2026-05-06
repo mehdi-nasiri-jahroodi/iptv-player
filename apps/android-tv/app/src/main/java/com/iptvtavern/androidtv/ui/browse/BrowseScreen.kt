@@ -3,6 +3,7 @@ package com.iptvtavern.androidtv.ui.browse
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,14 +21,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +45,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -57,11 +62,17 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.inferStreamQualityHints
+import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Browse screen — shows channels by group with inline mini player.
@@ -90,9 +101,62 @@ fun BrowseScreen(
 ) {
     val colors = LuminaTheme.colors
     val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
 
-    // FocusRequester for the channel table — sidebar OK press jumps here
+    // FocusRequester for the channel table — sidebar OK press jumps here.
+    // Attached to the first item in the LazyColumn so focus lands on an
+    // actual channel row, not the search bar above it.
     val channelTableFocusRequester = remember { FocusRequester() }
+    val miniPlayerFocusRequester = remember { FocusRequester() }
+    val sidebarFocusRequester = remember { FocusRequester() }
+    val channelFocusRequester = remember { FocusRequester() }
+    var lastFocusedChannelIndex by remember { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+
+    // Track navigation to fullscreen player so we can restore focus on return.
+    var wentToPlayer by remember { mutableStateOf(false) }
+    LaunchedEffect(wentToPlayer) {
+        if (wentToPlayer && uiState.playingChannel != null) {
+            wentToPlayer = false
+            // Point lastFocusedChannelIndex to the playing channel so
+            // channelFocusRequester is attached to the correct row.
+            val playingIndex = uiState.channels.indexOfFirst { it.id == uiState.playingChannel?.id }
+            if (playingIndex >= 0) {
+                lastFocusedChannelIndex = playingIndex
+            }
+            delay(150)
+            try { channelFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    // On first render, steer focus to first channel row (not toolbar/header).
+    var initialFocusDone by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.channels.isNotEmpty()) {
+        if (uiState.channels.isNotEmpty() && !initialFocusDone) {
+            delay(100)
+            initialFocusDone = true
+            delay(50)
+            try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    // Track whether we've started a group filter — prevents the
+    // LaunchedEffect from stealing focus on initial composition.
+    var hasStartedFiltering by remember { mutableStateOf(false) }
+    if (uiState.isFilteringGroup) {
+        hasStartedFiltering = true
+        lastFocusedChannelIndex = 0
+    }
+
+    // After group filtering finishes, scroll to top and focus first channel row.
+    LaunchedEffect(uiState.isFilteringGroup) {
+        if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
+            hasStartedFiltering = false
+            listState.scrollToItem(0)
+            delay(100)
+            try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
 
     if (uiState.isLoading) {
         Box(
@@ -126,6 +190,7 @@ fun BrowseScreen(
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -147,7 +212,17 @@ fun BrowseScreen(
                 onMoveGroup = viewModel::moveGroup,
                 groupSearchQuery = uiState.groupSearchQuery,
                 onGroupSearchChanged = viewModel::updateGroupSearch,
-                onJumpToChannelTable = { channelTableFocusRequester.requestFocus() },
+                groupSortKey = uiState.groupSortKey,
+                onGroupSortKeyChanged = viewModel::setGroupSortKey,
+                groupSortDir = uiState.groupSortDir,
+                onGroupSortDirChanged = viewModel::setGroupSortDir,
+                onJumpToChannelTable = {
+                    scope.launch {
+                        delay(100)
+                        try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+                    }
+                },
+                selectedGroupFocusRequester = sidebarFocusRequester,
                 modifier = Modifier
                     .width(200.dp)
                     .fillMaxHeight(),
@@ -158,7 +233,15 @@ fun BrowseScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(start = 8.dp, end = 16.dp, top = 8.dp),
+                    .padding(start = 8.dp, end = 16.dp, top = 8.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft
+                        ) {
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
             ) {
                 // Search bar — above mini player so D-pad down goes
                 // straight to the channel table without hitting the keyboard
@@ -181,9 +264,13 @@ fun BrowseScreen(
                         channel = uiState.playingChannel!!,
                         onGoFullScreen = {
                             val id = uiState.playingChannel!!.id
-                            viewModel.stopMiniPlayer()
+                            wentToPlayer = true
                             onNavigateToPlayer(id)
                         },
+                        onNavigateDown = {
+                            try { channelFocusRequester.requestFocus() } catch (_: Throwable) {}
+                        },
+                        modifier = Modifier.focusRequester(miniPlayerFocusRequester),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -203,29 +290,55 @@ fun BrowseScreen(
                 }
 
                 // Channel table
-                LazyColumn(
-                    modifier = Modifier.focusRequester(channelTableFocusRequester),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(bottom = 48.dp),
-                ) {
-                    itemsIndexed(uiState.channels, key = { _, ch -> ch.id }) { index, channel ->
-                        val tvgId = (channel as? Channel.Live)?.tvgId
-                        val nowNext = tvgId?.let { uiState.nowNextByTvgId[it] }
+                Box(modifier = Modifier.weight(1f)) {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = PaddingValues(bottom = 48.dp),
+                    ) {
+                        itemsIndexed(uiState.channels, key = { _, ch -> ch.id }) { index, channel ->
+                            val tvgId = (channel as? Channel.Live)?.tvgId
+                            val nowNext = tvgId?.let { uiState.nowNextByTvgId[it] }
                         ChannelTableRow(
                             index = index + 1,
                             channel = channel,
                             isFavorite = channel.id in uiState.favorites,
                             isPlaying = channel.id == uiState.playingChannel?.id,
                             nowNext = nowNext,
-                            onSelect = {
-                                viewModel.playInMiniPlayer(channel)
-                            },
+                        onSelect = {
+                            viewModel.playInMiniPlayer(channel)
+                            // Point to the next channel so Down from
+                            // mini-player shows a visible focus change.
+                            lastFocusedChannelIndex = (index + 1).coerceAtMost(uiState.channels.lastIndex)
+                            scope.launch {
+                                delay(100)
+                                try { miniPlayerFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            }
+                        },
                             onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                             onGoFullScreen = {
-                                viewModel.stopMiniPlayer()
+                                wentToPlayer = true
                                 onNavigateToPlayer(channel.id)
                             },
-                        )
+                            onNavigateLeft = {
+                                try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            },
+                            onFocused = { lastFocusedChannelIndex = index },
+                            modifier = when {
+                                index == 0 && lastFocusedChannelIndex == 0 ->
+                                    Modifier
+                                        .focusRequester(channelTableFocusRequester)
+                                        .focusRequester(channelFocusRequester)
+                                index == 0 -> Modifier.focusRequester(channelTableFocusRequester)
+                                index == lastFocusedChannelIndex -> Modifier.focusRequester(channelFocusRequester)
+                                else -> Modifier
+                            },
+                            )
+                        }
+                    }
+
+                    if (uiState.isFilteringGroup) {
+                        LoadingOverlay()
                     }
                 }
             }
@@ -234,6 +347,17 @@ fun BrowseScreen(
         // Bottom guideline bar
         BottomGuidelineBar(isReordering = uiState.isReorderingGroups)
     }
+
+    // Opaque overlay to hide initial focus jump
+    if (!initialFocusDone && uiState.channels.isNotEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(colors.background),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Loading channels…", color = colors.foregroundMuted, fontSize = 18.sp)
+        }
+    }
+    } // end outer Box
 }
 
 // ── Mini Player ─────────────────────────────────────────────────────
@@ -248,6 +372,8 @@ fun BrowseScreen(
 private fun MiniPlayerRow(
     channel: Channel,
     onGoFullScreen: () -> Unit,
+    onNavigateDown: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     val context = LocalContext.current
@@ -268,7 +394,7 @@ private fun MiniPlayerRow(
     }
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(160.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -280,11 +406,18 @@ private fun MiniPlayerRow(
             )
             .onFocusChanged { isFocused = it.isFocused }
             .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
-                ) {
-                    onGoFullScreen()
-                    true
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionCenter, Key.Enter -> {
+                            onGoFullScreen()
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            onNavigateDown()
+                            true
+                        }
+                        else -> false
+                    }
                 } else false
             }
             .focusable(),
@@ -397,6 +530,9 @@ private fun ChannelTableRow(
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGoFullScreen: () -> Unit,
+    onNavigateLeft: () -> Unit = {},
+    onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -415,7 +551,7 @@ private fun ChannelTableRow(
     }
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(bgColor)
@@ -425,10 +561,17 @@ private fun ChannelTableRow(
                 shape = RoundedCornerShape(6.dp),
             )
             .padding(horizontal = 10.dp, vertical = 6.dp)
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when {
+                        event.key == Key.DirectionLeft -> {
+                            onNavigateLeft()
+                            true
+                        }
                         event.key == Key.DirectionCenter || event.key == Key.Enter -> {
                             onSelect()
                             true
@@ -587,19 +730,87 @@ private fun GroupsSidebar(
     onMoveGroup: (direction: Int) -> Unit,
     groupSearchQuery: String,
     onGroupSearchChanged: (String) -> Unit,
+    groupSortKey: GroupSortKey,
+    onGroupSortKeyChanged: (GroupSortKey) -> Unit,
+    groupSortDir: GroupSortDir,
+    onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToChannelTable: () -> Unit,
+    selectedGroupFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
 
-    Column(modifier = modifier.background(colors.surface)) {
-        // Group search input
-        TvSearchButton(
-            value = groupSearchQuery,
-            onValueChange = onGroupSearchChanged,
-            placeholder = "Filter groups…",
+    Column(modifier = modifier
+        .background(colors.surface)
+        .onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                true
+            } else false
+        },
+    ) {
+        // Group search + sort
+        Row(
             modifier = Modifier.padding(6.dp),
-        )
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvSearchButton(
+                value = groupSearchQuery,
+                onValueChange = onGroupSearchChanged,
+                placeholder = "Filter groups…",
+                modifier = Modifier.weight(1f),
+            )
+
+            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            val sortLabel = when (groupSortKey) {
+                GroupSortKey.DEFAULT -> "Default"
+                GroupSortKey.NAME -> "A-Z"
+                GroupSortKey.SIZE -> "Size"
+            }
+            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
+            var sortFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .border(
+                        width = if (sortFocused) 2.dp else 1.dp,
+                        color = if (sortFocused) colors.accent else colors.border,
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .onFocusChanged { sortFocused = it.isFocused }
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionCenter, Key.Enter -> {
+                                    val keys = GroupSortKey.entries
+                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
+                                    onGroupSortKeyChanged(next)
+                                    true
+                                }
+                                Key.DirectionLeft, Key.DirectionRight -> {
+                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
+                                    onGroupSortDirChanged(next)
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "$dirArrow $sortLabel",
+                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
 
         // Reorder mode indicator
         if (isReordering) {
@@ -654,6 +865,10 @@ private fun GroupsSidebar(
                             } else Modifier
                         )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .then(
+                            if (isSelected) Modifier.focusRequester(selectedGroupFocusRequester)
+                            else Modifier
+                        )
                         .onFocusChanged {
                             isFocused = it.isFocused
                             // Lazy load: do NOT auto-select on focus.

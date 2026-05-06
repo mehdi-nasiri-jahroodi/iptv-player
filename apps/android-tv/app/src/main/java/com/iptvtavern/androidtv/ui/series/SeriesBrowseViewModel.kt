@@ -10,6 +10,8 @@ import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupKind
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
@@ -18,6 +20,7 @@ import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
+import com.iptvtavern.androidtv.ui.common.sortGroups
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
@@ -60,8 +64,10 @@ data class SeriesUiState(
     val episodes: List<SeriesEpisode> = emptyList(),
     /** Set of episode IDs that have been watched (completed). */
     val watchedEpisodeIds: Set<String> = emptySet(),
+    val isFilteringGroup: Boolean = false,
+    val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
+    val groupSortDir: GroupSortDir = GroupSortDir.ASC,
 )
-
 @HiltViewModel
 class SeriesBrowseViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
@@ -166,18 +172,29 @@ class SeriesBrowseViewModel @Inject constructor(
     fun selectGroup(index: Int) {
         val groups = _uiState.value.filteredGroups
         if (index !in groups.indices) return
-        val group = groups[index]
-        val seriesChannels = group.channels.filterIsInstance<Channel.Series>()
-        val filtered = filterChannels(seriesChannels)
 
         _uiState.value = _uiState.value.copy(
             selectedGroupIndex = index,
-            channels = filtered,
-            selectedChannel = null,
-            detailChannel = null,
-            selectedSeasonIndex = 0,
-            episodes = emptyList(),
+            isFilteringGroup = true,
         )
+        viewModelScope.launch {
+            val group = groups[index]
+            val seriesChannels = withContext(Dispatchers.Default) {
+                group.channels.filterIsInstance<Channel.Series>()
+            }
+            val filtered = withContext(Dispatchers.Default) {
+                filterChannels(seriesChannels)
+            }
+            delay(150)
+            _uiState.value = _uiState.value.copy(
+                channels = filtered,
+                selectedChannel = null,
+                detailChannel = null,
+                selectedSeasonIndex = 0,
+                episodes = emptyList(),
+                isFilteringGroup = false,
+            )
+        }
     }
 
     // ── Search ──────────────────────────────────────────────────
@@ -188,7 +205,25 @@ class SeriesBrowseViewModel @Inject constructor(
     }
 
     fun updateGroupSearch(query: String) {
-        val allDisplayGroups = _uiState.value.groups
+        _uiState.value = _uiState.value.copy(groupSearchQuery = query)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortKey(key: GroupSortKey) {
+        _uiState.value = _uiState.value.copy(groupSortKey = key)
+        recomputeFilteredGroups()
+    }
+
+    fun setGroupSortDir(dir: GroupSortDir) {
+        _uiState.value = _uiState.value.copy(groupSortDir = dir)
+        recomputeFilteredGroups()
+    }
+
+    private fun recomputeFilteredGroups() {
+        val state = _uiState.value
+        val allDisplayGroups = state.groups
+        val query = state.groupSearchQuery
+
         val filtered = if (query.isBlank()) {
             allDisplayGroups
         } else {
@@ -197,11 +232,13 @@ class SeriesBrowseViewModel @Inject constructor(
                 it.id.startsWith("__") || it.name.lowercase().contains(lower)
             }
         }
-        _uiState.value = _uiState.value.copy(
-            groupSearchQuery = query,
-            filteredGroups = filtered,
+
+        val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
+
+        _uiState.value = state.copy(
+            filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = filtered.firstOrNull()
+            channels = sorted.firstOrNull()
                 ?.channels
                 ?.filterIsInstance<Channel.Series>()
                 ?.let { filterChannels(it) }

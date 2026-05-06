@@ -22,6 +22,19 @@ data class ChannelGroup(
 )
 
 /**
+ * Sort options for the groups sidebar.
+ */
+enum class GroupSortKey {
+    DEFAULT,  // Provider order (as received)
+    NAME,     // Alphabetical A-Z
+    SIZE,     // Channel count (largest first)
+}
+
+enum class GroupSortDir {
+    ASC, DESC
+}
+
+/**
  * Playlist — a parsed snapshot of a source's channels, grouped by category.
  *
  * `fetchedAt` is an ISO-8601 datetime string (same as Zod's `z.string().datetime()`).

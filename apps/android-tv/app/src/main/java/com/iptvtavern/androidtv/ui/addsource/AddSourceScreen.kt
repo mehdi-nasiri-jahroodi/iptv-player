@@ -135,7 +135,7 @@ fun AddSourceScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Actions
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FocusableButton(
                     text = if (isEditing) "Save" else "Add Source",
                     onClick = viewModel::validateAndSave,

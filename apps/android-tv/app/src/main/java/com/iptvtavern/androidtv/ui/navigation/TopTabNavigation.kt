@@ -20,13 +20,17 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -66,6 +70,13 @@ val TAB_ITEMS = listOf(
     TabItem("Settings", Icons.Filled.Settings, Routes.SETTINGS),
 )
 
+/**
+ * CompositionLocal providing a FocusRequester that targets the currently
+ * selected tab in the top navigation bar. Children (like group sidebars)
+ * can use this to jump focus to the tab bar on Left press.
+ */
+val LocalNavBarFocusRequester = compositionLocalOf { FocusRequester() }
+
 @Composable
 fun TopTabNavigation(
     selectedIndex: Int,
@@ -73,6 +84,7 @@ fun TopTabNavigation(
     content: @Composable () -> Unit,
 ) {
     val colors = LuminaTheme.colors
+    val navBarFocusRequester = remember { FocusRequester() }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Tab bar
@@ -98,6 +110,9 @@ fun TopTabNavigation(
                     item = item,
                     isSelected = index == selectedIndex,
                     onSelect = { onItemSelected(index, item.route) },
+                    modifier = if (index == selectedIndex) {
+                        Modifier.focusRequester(navBarFocusRequester)
+                    } else Modifier,
                 )
             }
 
@@ -120,7 +135,9 @@ fun TopTabNavigation(
                 .fillMaxWidth()
                 .background(colors.background),
         ) {
-            content()
+            CompositionLocalProvider(LocalNavBarFocusRequester provides navBarFocusRequester) {
+                content()
+            }
         }
     }
 }
@@ -130,6 +147,7 @@ private fun TabNavItem(
     item: TabItem,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -151,7 +169,8 @@ private fun TabNavItem(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
+        modifier = modifier
+            .then(Modifier
             .background(bgColor, RoundedCornerShape(8.dp))
             .then(
                 if (isFocused) Modifier.border(2.dp, colors.accent, RoundedCornerShape(8.dp))
@@ -167,7 +186,7 @@ private fun TabNavItem(
                     true
                 } else false
             }
-            .focusable(),
+            .focusable()),
     ) {
         Icon(
             imageVector = item.icon,

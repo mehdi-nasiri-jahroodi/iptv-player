@@ -21,16 +21,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +47,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
@@ -55,11 +59,17 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
+import com.iptvtavern.androidtv.domain.model.GroupSortKey
+import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
+import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Series Browse screen — poster grid + detail hero with season tabs & episode list.
@@ -86,7 +96,40 @@ fun SeriesBrowseScreen(
 ) {
     val colors = LuminaTheme.colors
     val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
+    val heroFocusRequester = remember { FocusRequester() }
+    val sidebarFocusRequester = remember { FocusRequester() }
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
+    var lastFocusedPosterIndex by remember { mutableStateOf(0) }
+    val posterFocusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+
+    // On first render, steer focus to first poster (not toolbar/header).
+    var initialFocusDone by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.channels.isNotEmpty()) {
+        if (uiState.channels.isNotEmpty() && !initialFocusDone) {
+            delay(100)
+            initialFocusDone = true
+            delay(50)
+            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    var hasStartedFiltering by remember { mutableStateOf(false) }
+    if (uiState.isFilteringGroup) {
+        hasStartedFiltering = true
+        lastFocusedPosterIndex = 0
+    }
+
+    LaunchedEffect(uiState.isFilteringGroup) {
+        if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
+            hasStartedFiltering = false
+            gridState.scrollToItem(0)
+            delay(100)
+            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
 
     if (uiState.isLoading) {
         Box(
@@ -107,6 +150,7 @@ fun SeriesBrowseScreen(
         return
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier.fillMaxSize().background(colors.background),
     ) {
@@ -118,7 +162,17 @@ fun SeriesBrowseScreen(
                 onGroupSelected = viewModel::selectGroup,
                 groupSearchQuery = uiState.groupSearchQuery,
                 onGroupSearchChanged = viewModel::updateGroupSearch,
-                onJumpToGrid = { gridFocusRequester.requestFocus() },
+                groupSortKey = uiState.groupSortKey,
+                onGroupSortKeyChanged = viewModel::setGroupSortKey,
+                groupSortDir = uiState.groupSortDir,
+                onGroupSortDirChanged = viewModel::setGroupSortDir,
+                onJumpToGrid = {
+                    scope.launch {
+                        delay(100)
+                        try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+                    }
+                },
+                selectedGroupFocusRequester = sidebarFocusRequester,
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
@@ -130,6 +184,16 @@ fun SeriesBrowseScreen(
                     .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
                 // Detail hero with season tabs + episodes
+                Box(
+                    modifier = Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft
+                        ) {
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
+                ) {
                 SeriesDetailHero(
                     channel = uiState.detailChannel,
                     isLoading = uiState.detailLoading,
@@ -148,7 +212,10 @@ fun SeriesBrowseScreen(
                     onToggleFavorite = {
                         uiState.detailChannel?.let { viewModel.toggleFavorite(it.id) }
                     },
+                    heroFocusRequester = heroFocusRequester,
+                    onNavigateDownFromHero = { posterFocusRequester.requestFocus() },
                 )
+                } // end hero Box
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -162,21 +229,55 @@ fun SeriesBrowseScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Poster grid
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 140.dp),
-                    modifier = Modifier.focusRequester(gridFocusRequester),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 48.dp),
+                Box(modifier = Modifier
+                    .weight(1f)
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionLeft
+                        ) {
+                            // Left from grid left edge → sidebar
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
                 ) {
-                    items(uiState.channels, key = { it.id }) { channel ->
-                        SeriesPosterTile(
-                            channel = channel,
-                            isSelected = channel.id == uiState.selectedChannel?.id,
-                            isFavorite = channel.id in uiState.favorites,
-                            onSelect = { viewModel.highlightChannel(channel) },
-                            onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
-                        )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 140.dp),
+                        state = gridState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 48.dp),
+                    ) {
+                        itemsIndexed(uiState.channels, key = { _, ch -> ch.id }) { index, channel ->
+                            SeriesPosterTile(
+                                channel = channel,
+                                isSelected = channel.id == uiState.selectedChannel?.id,
+                                isFavorite = channel.id in uiState.favorites,
+                                onSelect = {
+                                    viewModel.highlightChannel(channel)
+                                    lastFocusedPosterIndex = index
+                                    scope.launch {
+                                        delay(100)
+                                        try { heroFocusRequester.requestFocus() } catch (_: Throwable) {}
+                                    }
+                                },
+                                onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
+                                onFocused = { lastFocusedPosterIndex = index },
+                                modifier = when {
+                                    index == 0 && lastFocusedPosterIndex == 0 ->
+                                        Modifier
+                                            .focusRequester(gridFocusRequester)
+                                            .focusRequester(posterFocusRequester)
+                                    index == 0 -> Modifier.focusRequester(gridFocusRequester)
+                                    index == lastFocusedPosterIndex -> Modifier.focusRequester(posterFocusRequester)
+                                    else -> Modifier
+                                },
+                            )
+                        }
+                    }
+
+                    if (uiState.isFilteringGroup) {
+                        LoadingOverlay()
                     }
                 }
             }
@@ -185,6 +286,17 @@ fun SeriesBrowseScreen(
         // Bottom guideline bar
         SeriesBottomBar()
     }
+
+    // Opaque overlay to hide initial focus jump
+    if (!initialFocusDone && uiState.channels.isNotEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(colors.background),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Loading series…", color = colors.foregroundMuted, fontSize = 18.sp)
+        }
+    }
+    } // end outer Box
 }
 
 // ── Detail Hero with Season Tabs + Episode List ─────────────────
@@ -201,6 +313,8 @@ private fun SeriesDetailHero(
     onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (SeriesEpisode) -> Unit,
     onToggleFavorite: () -> Unit,
+    heroFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateDownFromHero: () -> Unit = {},
 ) {
     val colors = LuminaTheme.colors
 
@@ -358,6 +472,11 @@ private fun SeriesDetailHero(
 
                     Box(
                         modifier = Modifier
+                            .then(
+                                // Attach focus requester to first season tab so
+                                // Enter on a poster can jump focus here.
+                                if (index == 0) Modifier.focusRequester(heroFocusRequester) else Modifier
+                            )
                             .clip(RoundedCornerShape(6.dp))
                             .background(
                                 when {
@@ -513,6 +632,8 @@ private fun SeriesPosterTile(
     isFavorite: Boolean,
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -524,7 +645,7 @@ private fun SeriesPosterTile(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(2f / 3f)
             .clip(RoundedCornerShape(8.dp))
             .border(
@@ -534,6 +655,7 @@ private fun SeriesPosterTile(
             )
             .onFocusChanged {
                 isFocused = it.isFocused
+                if (it.isFocused) onFocused()
             }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -614,18 +736,87 @@ private fun SeriesGroupsSidebar(
     onGroupSelected: (Int) -> Unit,
     groupSearchQuery: String,
     onGroupSearchChanged: (String) -> Unit,
+    groupSortKey: GroupSortKey,
+    onGroupSortKeyChanged: (GroupSortKey) -> Unit,
+    groupSortDir: GroupSortDir,
+    onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToGrid: () -> Unit,
+    selectedGroupFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
 
-    Column(modifier = modifier.background(colors.surface)) {
-        TvSearchButton(
-            value = groupSearchQuery,
-            onValueChange = onGroupSearchChanged,
-            placeholder = "Filter categories…",
+    Column(modifier = modifier
+        .background(colors.surface)
+        .onPreviewKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                true
+            } else false
+        },
+    ) {
+        // Group search + sort
+        Row(
             modifier = Modifier.padding(6.dp),
-        )
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvSearchButton(
+                value = groupSearchQuery,
+                onValueChange = onGroupSearchChanged,
+                placeholder = "Filter categories…",
+                modifier = Modifier.weight(1f),
+            )
+
+            // Sort key cycle button (Enter = cycle key, Left/Right = toggle direction)
+            val sortLabel = when (groupSortKey) {
+                GroupSortKey.DEFAULT -> "Default"
+                GroupSortKey.NAME -> "A-Z"
+                GroupSortKey.SIZE -> "Size"
+            }
+            val dirArrow = if (groupSortDir == GroupSortDir.ASC) "↑" else "↓"
+            var sortFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .border(
+                        width = if (sortFocused) 2.dp else 1.dp,
+                        color = if (sortFocused) colors.accent else colors.border,
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .onFocusChanged { sortFocused = it.isFocused }
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionCenter, Key.Enter -> {
+                                    val keys = GroupSortKey.entries
+                                    val next = keys[(groupSortKey.ordinal + 1) % keys.size]
+                                    onGroupSortKeyChanged(next)
+                                    true
+                                }
+                                Key.DirectionLeft, Key.DirectionRight -> {
+                                    val next = if (groupSortDir == GroupSortDir.ASC) GroupSortDir.DESC else GroupSortDir.ASC
+                                    onGroupSortDirChanged(next)
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "$dirArrow $sortLabel",
+                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f).padding(6.dp),
@@ -654,17 +845,28 @@ private fun SeriesGroupsSidebar(
                             } else Modifier
                         )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .then(
+                            if (isSelected) Modifier.focusRequester(selectedGroupFocusRequester)
+                            else Modifier
+                        )
                         .onFocusChanged {
                             isFocused = it.isFocused
                             // Lazy load: only update grid on OK/Enter.
                         }
                         .onKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown &&
-                                (event.key == Key.DirectionCenter || event.key == Key.Enter)
-                            ) {
-                                onGroupSelected(index)
-                                onJumpToGrid()
-                                true
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionCenter, Key.Enter -> {
+                                        onGroupSelected(index)
+                                        onJumpToGrid()
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        onJumpToGrid()
+                                        true
+                                    }
+                                    else -> false
+                                }
                             } else false
                         }
                         .focusable(),
