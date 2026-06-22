@@ -100,10 +100,11 @@ fun AppRoot(
                 onItemSelected = { index, route ->
                     selectedTabIndex = index
                     navController.navigate(route) {
-                        popUpTo(Routes.HOME) {
-                            inclusive = route == Routes.HOME
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
                         }
                         launchSingleTop = true
+                        restoreState = true
                     }
                 },
             ) {

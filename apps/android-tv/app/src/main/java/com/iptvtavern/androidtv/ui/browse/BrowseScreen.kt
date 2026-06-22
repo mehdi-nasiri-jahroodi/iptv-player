@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,14 +47,13 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.common.MediaItem
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
@@ -103,6 +101,14 @@ fun BrowseScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
 
+    // ViewModel (and ExoPlayer) survive tab switches via Nav saveState — pause
+    // when Live TV is not the visible tab so audio does not bleed into Movies/etc.
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose {
+            viewModel.pauseMiniPlayer()
+        }
+    }
+
     // FocusRequester for the channel table — sidebar OK press jumps here.
     // Attached to the first item in the LazyColumn so focus lands on an
     // actual channel row, not the search bar above it.
@@ -124,6 +130,8 @@ fun BrowseScreen(
             if (playingIndex >= 0) {
                 lastFocusedChannelIndex = playingIndex
             }
+            // Resume mini player now that fullscreen player has released audio focus.
+            viewModel.resumeMiniPlayer()
             delay(150)
             try { channelFocusRequester.requestFocus() } catch (_: Throwable) {}
         }
@@ -262,8 +270,10 @@ fun BrowseScreen(
                 if (uiState.playingChannel != null) {
                     MiniPlayerRow(
                         channel = uiState.playingChannel!!,
+                        player = viewModel.getMiniPlayer(),
                         onGoFullScreen = {
                             val id = uiState.playingChannel!!.id
+                            viewModel.pauseMiniPlayer()
                             wentToPlayer = true
                             onNavigateToPlayer(id)
                         },
@@ -282,8 +292,15 @@ fun BrowseScreen(
                         .padding(bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
+                    val selectedGroup = uiState.filteredGroups.getOrNull(uiState.selectedGroupIndex)
+                    val channelCountLabel = when {
+                        uiState.channels.isNotEmpty() -> "${uiState.channels.size} channels"
+                        selectedGroup != null && selectedGroup.effectiveChannelCount() > 0 ->
+                            "${selectedGroup.effectiveChannelCount()} channels"
+                        else -> "0 channels"
+                    }
                     Text(
-                        text = "${uiState.channels.size} channels",
+                        text = channelCountLabel,
                         color = colors.foregroundMuted,
                         fontSize = 12.sp,
                     )
@@ -317,6 +334,8 @@ fun BrowseScreen(
                         },
                             onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                             onGoFullScreen = {
+                                viewModel.playInMiniPlayer(channel)
+                                viewModel.pauseMiniPlayer()
                                 wentToPlayer = true
                                 onNavigateToPlayer(channel.id)
                             },
@@ -371,27 +390,13 @@ fun BrowseScreen(
 @Composable
 private fun MiniPlayerRow(
     channel: Channel,
+    player: ExoPlayer,
     onGoFullScreen: () -> Unit,
     onNavigateDown: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
-    val context = LocalContext.current
     var isFocused by remember { mutableStateOf(false) }
-
-    // Create and manage ExoPlayer instance
-    val player = remember { ExoPlayer.Builder(context).build() }
-
-    DisposableEffect(channel.streamUrl) {
-        player.setMediaItem(MediaItem.fromUri(channel.streamUrl))
-        player.prepare()
-        player.playWhenReady = true
-        onDispose { }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { player.release() }
-    }
 
     Row(
         modifier = modifier
@@ -956,7 +961,7 @@ private fun GroupsSidebar(
                             )
                         }
                         Text(
-                            text = "${group.channels.size}",
+                            text = "${group.effectiveChannelCount()}",
                             color = when {
                                 isFocused -> colors.accentForeground
                                 else -> colors.foregroundMuted

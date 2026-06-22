@@ -30,6 +30,8 @@ class WatchedRepository @Inject constructor(
         positionMs: Long,
         durationMs: Long,
         parentSeriesId: String? = null,
+        channelName: String = "",
+        imageUrl: String? = null,
     ) {
         val completed = durationMs > 0 && positionMs.toDouble() / durationMs >= COMPLETION_THRESHOLD
         watchedDao.upsert(
@@ -37,6 +39,8 @@ class WatchedRepository @Inject constructor(
                 channelId = channelId,
                 sourceId = sourceId,
                 parentSeriesId = parentSeriesId,
+                channelName = channelName,
+                imageUrl = imageUrl,
                 positionMs = positionMs,
                 durationMs = durationMs,
                 completed = completed,

@@ -12,51 +12,44 @@ import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.GroupSortKey
 import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.ui.common.sortGroups
-import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.VodSortDir
 import com.iptvtavern.androidtv.domain.parser.VodSortKey
-import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.parser.sortVodChannels
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
-import java.net.HttpURLConnection
-import java.net.URL
 import javax.inject.Inject
 
 /**
  * UI state for the VOD browse screen.
  *
- * Similar to BrowseUiState but tailored for poster grid + detail hero.
+ * Categories load from a lightweight index; channel lists load when the
+ * user selects a group (lazy per category).
  */
 data class VodUiState(
     val isLoading: Boolean = true,
     val groups: List<ChannelGroup> = emptyList(),
     val filteredGroups: List<ChannelGroup> = emptyList(),
     val selectedGroupIndex: Int = 0,
-    /** VOD channels for the selected group, filtered + sorted. */
     val channels: List<Channel.Vod> = emptyList(),
     val searchQuery: String = "",
     val groupSearchQuery: String = "",
     val favorites: Set<String> = emptySet(),
     val error: String? = null,
-    /** Currently highlighted channel in the poster grid → shown in hero. */
     val selectedChannel: Channel.Vod? = null,
-    /** Enriched version of selectedChannel after Xtream detail fetch. */
     val detailChannel: Channel.Vod? = null,
     val detailLoading: Boolean = false,
-    /** Sorting state. */
     val sortKey: VodSortKey = VodSortKey.DEFAULT,
     val sortDir: VodSortDir = VodSortDir.ASC,
     val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
@@ -76,8 +69,8 @@ class VodBrowseViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(VodUiState())
     val uiState: StateFlow<VodUiState> = _uiState.asStateFlow()
 
-    private var allGroups: List<ChannelGroup> = emptyList()
-    private var allVodChannels: List<Channel.Vod> = emptyList()
+    private var catalogGroups: List<ChannelGroup> = emptyList()
+    private var loadedGroupChannels: List<Channel.Vod> = emptyList()
     private var activeSource: Source? = null
     private var detailFetchJob: Job? = null
 
@@ -103,10 +96,8 @@ class VodBrowseViewModel @Inject constructor(
 
             activeSource = source
 
-            // Per-kind read: only loads `vod.json` from disk on cold start.
-            // Skips parsing live + series entries that we'd filter out anyway.
-            val vodGroups = playlistManager.getVodGroups()
-            if (vodGroups == null) {
+            val stubs = playlistManager.getVodGroupStubs()
+            if (stubs == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load movies.",
@@ -114,36 +105,35 @@ class VodBrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            allVodChannels = vodGroups.flatMap { it.channels }.filterIsInstance<Channel.Vod>()
-            allGroups = vodGroups
-
+            catalogGroups = stubs
             val profile = profileRepository.getDefaultProfile()
             val favSet = profile.favorites.toSet()
-            val displayGroups = buildDisplayGroups(vodGroups, favSet)
+            val displayGroups = buildDisplayGroups(stubs, favSet)
 
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 groups = displayGroups,
                 filteredGroups = displayGroups,
                 selectedGroupIndex = 0,
-                channels = displayGroups.firstOrNull()
-                    ?.channels
-                    ?.filterIsInstance<Channel.Vod>()
-                    .orEmpty(),
+                channels = emptyList(),
                 favorites = favSet,
                 error = null,
             )
+            if (displayGroups.isNotEmpty()) {
+                selectGroup(0)
+            }
         }
     }
 
-    private fun buildDisplayGroups(
+    private suspend fun buildDisplayGroups(
         groups: List<ChannelGroup>,
         favorites: Set<String>,
     ): List<ChannelGroup> {
         val result = mutableListOf<ChannelGroup>()
 
-        // Favorites virtual group
-        val favChannels = allVodChannels.filter { it.id in favorites }
+        val favChannels = favorites.mapNotNull { id ->
+            playlistManager.findChannelById(id) as? Channel.Vod
+        }
         if (favChannels.isNotEmpty()) {
             result.add(
                 ChannelGroup(
@@ -151,19 +141,14 @@ class VodBrowseViewModel @Inject constructor(
                     name = "Favorites",
                     kind = GroupKind.vod,
                     channels = favChannels,
+                    channelCount = favChannels.size,
                 )
             )
         }
 
-        // "All Movies" virtual group intentionally omitted — flattening
-        // every VOD entry into one list is slow on low-RAM TV devices and
-        // not useful when groups already organize the catalog.
-
         result.addAll(groups)
         return result
     }
-
-    // ── Group selection ─────────────────────────────────────────
 
     fun selectGroup(index: Int) {
         val groups = _uiState.value.filteredGroups
@@ -176,8 +161,9 @@ class VodBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             val group = groups[index]
             val vodChannels = withContext(Dispatchers.Default) {
-                group.channels.filterIsInstance<Channel.Vod>()
+                channelsForGroup(group)
             }
+            loadedGroupChannels = vodChannels
             val filtered = withContext(Dispatchers.Default) {
                 filterAndSort(vodChannels)
             }
@@ -191,7 +177,18 @@ class VodBrowseViewModel @Inject constructor(
         }
     }
 
-    // ── Search ──────────────────────────────────────────────────
+    private suspend fun channelsForGroup(group: ChannelGroup): List<Channel.Vod> {
+        if (group.id == "__favorites__") {
+            return group.channels.filterIsInstance<Channel.Vod>()
+        }
+        if (group.channels.isNotEmpty()) {
+            return group.channels.filterIsInstance<Channel.Vod>()
+        }
+        return playlistManager.loadVodGroup(group.id)
+            ?.channels
+            ?.filterIsInstance<Channel.Vod>()
+            .orEmpty()
+    }
 
     fun updateSearch(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
@@ -218,7 +215,6 @@ class VodBrowseViewModel @Inject constructor(
         val allDisplayGroups = state.groups
         val query = state.groupSearchQuery
 
-        // Filter
         val filtered = if (query.isBlank()) {
             allDisplayGroups
         } else {
@@ -228,21 +224,15 @@ class VodBrowseViewModel @Inject constructor(
             }
         }
 
-        // Sort (keep virtual groups like Favorites at top)
         val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
 
         _uiState.value = state.copy(
             filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = sorted.firstOrNull()
-                ?.channels
-                ?.filterIsInstance<Channel.Vod>()
-                ?.let { filterAndSort(it) }
-                .orEmpty(),
+            channels = emptyList(),
         )
+        selectGroup(0)
     }
-
-    // ── Sorting ─────────────────────────────────────────────────
 
     fun setSortKey(key: VodSortKey) {
         _uiState.value = _uiState.value.copy(sortKey = key)
@@ -255,13 +245,8 @@ class VodBrowseViewModel @Inject constructor(
     }
 
     private fun recomputeChannels() {
-        val state = _uiState.value
-        val groups = state.filteredGroups
-        val groupIndex = state.selectedGroupIndex
-        if (groupIndex !in groups.indices) return
-        val vodChannels = groups[groupIndex].channels.filterIsInstance<Channel.Vod>()
-        val filtered = filterAndSort(vodChannels)
-        _uiState.value = state.copy(channels = filtered)
+        val filtered = filterAndSort(loadedGroupChannels)
+        _uiState.value = _uiState.value.copy(channels = filtered)
     }
 
     private fun filterAndSort(channels: List<Channel.Vod>): List<Channel.Vod> {
@@ -276,21 +261,13 @@ class VodBrowseViewModel @Inject constructor(
             .distinctBy { it.id }
     }
 
-    // ── Detail hero selection ───────────────────────────────────
-
-    /**
-     * Called when a poster tile is highlighted (focused).
-     * Sets the selected channel for the detail hero and kicks off
-     * Xtream detail enrichment if this is an Xtream source.
-     */
     fun highlightChannel(channel: Channel.Vod) {
         _uiState.value = _uiState.value.copy(
             selectedChannel = channel,
-            detailChannel = channel, // show base data immediately
+            detailChannel = channel,
             detailLoading = false,
         )
 
-        // Fetch Xtream detail if applicable
         val source = activeSource ?: return
         if (source.type != SourceType.XTREAM) return
         val creds = source.credentials ?: return
@@ -302,7 +279,6 @@ class VodBrowseViewModel @Inject constructor(
             try {
                 val info = XtreamClient.fetchVodInfoCached(creds, xtreamId, xtreamCache)
                 val enriched = XtreamClient.mergeVodChannelWithXtreamInfo(channel, info)
-                // Only update if this is still the selected channel
                 if (_uiState.value.selectedChannel?.id == channel.id) {
                     _uiState.value = _uiState.value.copy(
                         detailChannel = enriched,
@@ -317,15 +293,13 @@ class VodBrowseViewModel @Inject constructor(
         }
     }
 
-    // ── Favorites ───────────────────────────────────────────────
-
     fun toggleFavorite(channelId: String) {
         viewModelScope.launch {
             profileRepository.toggleFavorite(channelId)
             val current = _uiState.value.favorites.toMutableSet()
             if (channelId in current) current.remove(channelId) else current.add(channelId)
 
-            val displayGroups = buildDisplayGroups(allGroups, current)
+            val displayGroups = buildDisplayGroups(catalogGroups, current)
             val groupQuery = _uiState.value.groupSearchQuery
             val filtered = if (groupQuery.isBlank()) {
                 displayGroups
@@ -336,17 +310,14 @@ class VodBrowseViewModel @Inject constructor(
                 }
             }
             val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
-            val channels = filtered[groupIndex].channels
-                .filterIsInstance<Channel.Vod>()
-                .let { filterAndSort(it) }
 
             _uiState.value = _uiState.value.copy(
                 favorites = current,
                 groups = displayGroups,
                 filteredGroups = filtered,
                 selectedGroupIndex = groupIndex,
-                channels = channels,
             )
+            selectGroup(groupIndex)
         }
     }
 }

@@ -18,7 +18,7 @@ fun sortGroups(
     val sorted = when (key) {
         GroupSortKey.DEFAULT -> regular
         GroupSortKey.NAME -> regular.sortedBy { it.name.lowercase() }
-        GroupSortKey.SIZE -> regular.sortedByDescending { it.channels.size }
+        GroupSortKey.SIZE -> regular.sortedByDescending { it.effectiveChannelCount() }
     }
     val finalSorted = if (dir == GroupSortDir.DESC) sorted.reversed() else sorted
     return virtual + finalSorted

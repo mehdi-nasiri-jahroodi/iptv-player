@@ -37,6 +37,8 @@ sealed class Channel {
         val catchupMode: CatchupMode? = null,
         val catchupSource: String? = null,
         val xtreamStreamId: Int? = null,
+        /** Xtream `direct_source` when the panel provides a custom URL. */
+        val directSourceUrl: String? = null,
     ) : Channel()
 
     /** Video on demand entry (a single movie). */

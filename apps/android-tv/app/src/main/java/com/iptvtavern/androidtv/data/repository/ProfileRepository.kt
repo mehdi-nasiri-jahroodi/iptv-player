@@ -2,7 +2,9 @@ package com.iptvtavern.androidtv.data.repository
 
 import com.iptvtavern.androidtv.data.local.ProfileDao
 import com.iptvtavern.androidtv.data.local.ProfileEntity
+import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.UserProfile
+import com.iptvtavern.androidtv.domain.model.toSnapshot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -60,9 +62,25 @@ class ProfileRepository @Inject constructor(
 
     // ── Recents ─────────────────────────────────────────────────
 
+    /** Store a channel snapshot so Home can show recents without catalog I/O. */
+    suspend fun addRecent(channel: Channel) {
+        val snapshot = channel.toSnapshot()
+        val profile = getDefaultProfile()
+        val updatedSnapshots = listOf(snapshot) +
+            profile.recentSnapshots.filter { it.id != snapshot.id }
+        val updatedRecents = listOf(snapshot.id) +
+            profile.recents.filter { it != snapshot.id }
+        createOrUpdate(
+            profile.copy(
+                recentSnapshots = updatedSnapshots.take(MAX_RECENTS),
+                recents = updatedRecents.take(MAX_RECENTS),
+            )
+        )
+    }
+
+    /** Legacy ID-only path — keeps recents list in sync without display metadata. */
     suspend fun addRecent(channelId: String) {
         val profile = getDefaultProfile()
-        // Move to front, remove duplicates, cap at MAX_RECENTS
         val updated = listOf(channelId) + profile.recents.filter { it != channelId }
         createOrUpdate(profile.copy(recents = updated.take(MAX_RECENTS)))
     }

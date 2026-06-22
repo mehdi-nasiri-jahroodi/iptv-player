@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
+import com.iptvtavern.androidtv.BuildConfig
 import com.iptvtavern.androidtv.domain.model.AppTheme
 import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import com.iptvtavern.androidtv.domain.model.Source
@@ -90,7 +91,7 @@ fun SettingsScreen(
                 // About
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     SettingsSection(title = "About", fillHeight = true) {
-                        SettingsRow(label = "Version", value = "0.1.0")
+                        SettingsRow(label = "Version", value = BuildConfig.VERSION_NAME)
                     }
                 }
                 // Profile

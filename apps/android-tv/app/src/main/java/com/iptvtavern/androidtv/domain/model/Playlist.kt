@@ -19,7 +19,29 @@ data class ChannelGroup(
     val name: String,
     val kind: GroupKind = GroupKind.mixed,
     val channels: List<Channel> = emptyList(),
-)
+    /** Set on index stubs when [channels] is empty (lazy group load). */
+    val channelCount: Int = 0,
+) {
+    /** Count for sorting / UI when channels are not loaded yet. */
+    fun effectiveChannelCount(): Int =
+        if (channels.isNotEmpty()) channels.size else channelCount
+}
+
+@Serializable
+data class GroupIndexEntry(
+    val id: String,
+    val name: String,
+    val kind: GroupKind,
+    val channelCount: Int,
+) {
+    fun toStub(): ChannelGroup = ChannelGroup(
+        id = id,
+        name = name,
+        kind = kind,
+        channels = emptyList(),
+        channelCount = channelCount,
+    )
+}
 
 /**
  * Sort options for the groups sidebar.

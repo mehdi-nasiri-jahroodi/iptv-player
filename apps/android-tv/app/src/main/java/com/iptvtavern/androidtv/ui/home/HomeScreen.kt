@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.domain.model.ChannelSnapshot
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
@@ -202,10 +202,10 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(end = 32.dp),
                 ) {
-                    items(uiState.continueWatchingItems, key = { "cw_${it.channel.id}" }) { item ->
+                    items(uiState.continueWatchingItems, key = { "cw_${it.channelId}" }) { item ->
                         ContinueWatchingCard(
                             item = item,
-                            onClick = { onNavigateToPlayer(item.channel.id) },
+                            onClick = { onNavigateToPlayer(item.channelId) },
                         )
                     }
                 }
@@ -223,10 +223,10 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(end = 32.dp),
                 ) {
-                    items(uiState.recentChannels, key = { it.id }) { channel ->
+                    items(uiState.recentChannels, key = { it.id }) { snapshot ->
                         RecentChannelCard(
-                            channel = channel,
-                            onClick = { onNavigateToPlayer(channel.id) },
+                            snapshot = snapshot,
+                            onClick = { onNavigateToPlayer(snapshot.id) },
                         )
                     }
                 }
@@ -333,12 +333,7 @@ private fun ContinueWatchingCard(
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
-    val channel = item.channel
-    val posterUrl = when (channel) {
-        is Channel.Vod -> channel.posterUrl ?: channel.logoUrl
-        is Channel.Series -> channel.posterUrl ?: channel.logoUrl
-        else -> channel.logoUrl
-    }
+    val posterUrl = item.imageUrl
 
     Column(
         modifier = Modifier
@@ -366,7 +361,7 @@ private fun ContinueWatchingCard(
         if (posterUrl != null) {
             AsyncImage(
                 model = posterUrl,
-                contentDescription = channel.name,
+                contentDescription = item.name,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp),
@@ -381,7 +376,7 @@ private fun ContinueWatchingCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = channel.name.take(2).uppercase(),
+                    text = item.name.take(2).uppercase(),
                     color = colors.foregroundMuted,
                     fontSize = 20.sp,
                 )
@@ -404,7 +399,7 @@ private fun ContinueWatchingCard(
         }
 
         Text(
-            text = channel.name,
+            text = item.name,
             color = colors.foreground,
             fontSize = 12.sp,
             maxLines = 1,
@@ -419,11 +414,12 @@ private fun ContinueWatchingCard(
  */
 @Composable
 private fun RecentChannelCard(
-    channel: Channel,
+    snapshot: ChannelSnapshot,
     onClick: () -> Unit,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
+    val imageUrl = snapshot.displayImageUrl()
 
     Column(
         modifier = Modifier
@@ -448,10 +444,10 @@ private fun RecentChannelCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Logo
-        if (channel.logoUrl != null) {
+        if (imageUrl != null) {
             AsyncImage(
-                model = channel.logoUrl,
-                contentDescription = channel.name,
+                model = imageUrl,
+                contentDescription = snapshot.name,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(80.dp),
@@ -466,14 +462,14 @@ private fun RecentChannelCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = channel.name.take(2).uppercase(),
+                    text = snapshot.name.take(2).uppercase(),
                     color = colors.foregroundMuted,
                     fontSize = 20.sp,
                 )
             }
         }
         Text(
-            text = channel.name,
+            text = snapshot.name,
             color = colors.foreground,
             fontSize = 13.sp,
             maxLines = 1,

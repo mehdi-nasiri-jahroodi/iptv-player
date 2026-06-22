@@ -23,6 +23,10 @@ data class WatchedEntity(
     @PrimaryKey val channelId: String,
     val sourceId: String,
     val parentSeriesId: String? = null,
+    /** Display title for Continue Watching (no catalog lookup). */
+    val channelName: String = "",
+    /** Poster or logo URL for Continue Watching. */
+    val imageUrl: String? = null,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val completed: Boolean = false,

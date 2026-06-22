@@ -81,8 +81,8 @@ class SeriesBrowseViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SeriesUiState())
     val uiState: StateFlow<SeriesUiState> = _uiState.asStateFlow()
 
-    private var allGroups: List<ChannelGroup> = emptyList()
-    private var allSeriesChannels: List<Channel.Series> = emptyList()
+    private var catalogGroups: List<ChannelGroup> = emptyList()
+    private var loadedGroupChannels: List<Channel.Series> = emptyList()
     private var activeSource: Source? = null
     private var detailFetchJob: Job? = null
 
@@ -109,8 +109,8 @@ class SeriesBrowseViewModel @Inject constructor(
             activeSource = source
 
             // Per-kind read: only loads `series.json` from disk on cold start.
-            val seriesGroups = playlistManager.getSeriesGroups()
-            if (seriesGroups == null) {
+            val stubs = playlistManager.getSeriesGroupStubs()
+            if (stubs == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load series.",
@@ -118,36 +118,36 @@ class SeriesBrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            allSeriesChannels = seriesGroups.flatMap { it.channels }.filterIsInstance<Channel.Series>()
-            allGroups = seriesGroups
+            catalogGroups = stubs
 
             val profile = profileRepository.getDefaultProfile()
             val favSet = profile.favorites.toSet()
-            val displayGroups = buildDisplayGroups(seriesGroups, favSet)
+            val displayGroups = buildDisplayGroups(stubs, favSet)
 
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 groups = displayGroups,
                 filteredGroups = displayGroups,
                 selectedGroupIndex = 0,
-                channels = displayGroups.firstOrNull()
-                    ?.channels
-                    ?.filterIsInstance<Channel.Series>()
-                    .orEmpty(),
+                channels = emptyList(),
                 favorites = favSet,
                 error = null,
             )
+            if (displayGroups.isNotEmpty()) {
+                selectGroup(0)
+            }
         }
     }
 
-    private fun buildDisplayGroups(
+    private suspend fun buildDisplayGroups(
         groups: List<ChannelGroup>,
         favorites: Set<String>,
     ): List<ChannelGroup> {
         val result = mutableListOf<ChannelGroup>()
 
-        // Favorites virtual group
-        val favChannels = allSeriesChannels.filter { it.id in favorites }
+        val favChannels = favorites.mapNotNull { id ->
+            playlistManager.findChannelById(id) as? Channel.Series
+        }
         if (favChannels.isNotEmpty()) {
             result.add(
                 ChannelGroup(
@@ -155,13 +155,10 @@ class SeriesBrowseViewModel @Inject constructor(
                     name = "Favorites",
                     kind = GroupKind.series,
                     channels = favChannels,
+                    channelCount = favChannels.size,
                 )
             )
         }
-
-        // "All Series" virtual group intentionally omitted — flattening
-        // every series into one list is slow on low-RAM TV devices and
-        // not useful when groups already organize the catalog.
 
         result.addAll(groups)
         return result
@@ -180,8 +177,9 @@ class SeriesBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             val group = groups[index]
             val seriesChannels = withContext(Dispatchers.Default) {
-                group.channels.filterIsInstance<Channel.Series>()
+                channelsForGroup(group)
             }
+            loadedGroupChannels = seriesChannels
             val filtered = withContext(Dispatchers.Default) {
                 filterChannels(seriesChannels)
             }
@@ -195,6 +193,16 @@ class SeriesBrowseViewModel @Inject constructor(
                 isFilteringGroup = false,
             )
         }
+    }
+
+    private suspend fun channelsForGroup(group: ChannelGroup): List<Channel.Series> {
+        if (group.id == "__favorites__" || group.channels.isNotEmpty()) {
+            return group.channels.filterIsInstance<Channel.Series>()
+        }
+        return playlistManager.loadSeriesGroup(group.id)
+            ?.channels
+            ?.filterIsInstance<Channel.Series>()
+            .orEmpty()
     }
 
     // ── Search ──────────────────────────────────────────────────
@@ -238,22 +246,14 @@ class SeriesBrowseViewModel @Inject constructor(
         _uiState.value = state.copy(
             filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = sorted.firstOrNull()
-                ?.channels
-                ?.filterIsInstance<Channel.Series>()
-                ?.let { filterChannels(it) }
-                .orEmpty(),
+            channels = emptyList(),
         )
+        selectGroup(0)
     }
 
     private fun recomputeChannels() {
-        val state = _uiState.value
-        val groups = state.filteredGroups
-        val groupIndex = state.selectedGroupIndex
-        if (groupIndex !in groups.indices) return
-        val seriesChannels = groups[groupIndex].channels.filterIsInstance<Channel.Series>()
-        val filtered = filterChannels(seriesChannels)
-        _uiState.value = state.copy(channels = filtered)
+        val filtered = filterChannels(loadedGroupChannels)
+        _uiState.value = _uiState.value.copy(channels = filtered)
     }
 
     private fun filterChannels(channels: List<Channel.Series>): List<Channel.Series> {
@@ -340,7 +340,7 @@ class SeriesBrowseViewModel @Inject constructor(
             val current = _uiState.value.favorites.toMutableSet()
             if (channelId in current) current.remove(channelId) else current.add(channelId)
 
-            val displayGroups = buildDisplayGroups(allGroups, current)
+            val displayGroups = buildDisplayGroups(catalogGroups, current)
             val groupQuery = _uiState.value.groupSearchQuery
             val filtered = if (groupQuery.isBlank()) {
                 displayGroups
@@ -351,17 +351,14 @@ class SeriesBrowseViewModel @Inject constructor(
                 }
             }
             val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
-            val channels = filtered[groupIndex].channels
-                .filterIsInstance<Channel.Series>()
-                .let { filterChannels(it) }
 
             _uiState.value = _uiState.value.copy(
                 favorites = current,
                 groups = displayGroups,
                 filteredGroups = filtered,
                 selectedGroupIndex = groupIndex,
-                channels = channels,
             )
+            selectGroup(groupIndex)
         }
     }
 }

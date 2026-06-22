@@ -888,7 +888,7 @@ private fun SeriesGroupsSidebar(
                             )
                         }
                         Text(
-                            text = "${group.channels.size}",
+                            text = "${group.effectiveChannelCount()}",
                             color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
                             fontSize = 11.sp,
                         )

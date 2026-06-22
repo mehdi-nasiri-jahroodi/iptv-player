@@ -22,7 +22,7 @@ import androidx.room.RoomDatabase
         ChannelEntity::class,
         ChannelGroupEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

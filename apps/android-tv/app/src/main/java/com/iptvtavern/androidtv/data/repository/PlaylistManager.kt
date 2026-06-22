@@ -1,7 +1,9 @@
 package com.iptvtavern.androidtv.data.repository
 
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
+import com.iptvtavern.androidtv.domain.model.Channel
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
+import com.iptvtavern.androidtv.domain.model.GroupIndexEntry
 import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uFromStream
@@ -25,36 +27,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Single shared coordinator for playlist loading.
+ * Playlist loading coordinator with **lazy per-group** disk reads.
  *
- * ## Responsibilities
- *  - Deduplicate concurrent fetches (one network call shared by all VMs)
- *  - Cache-first reads from [PlaylistCacheStore] (parsed, per-kind)
- *  - Fall back to network and persist results for next time
- *  - Emit progress events on [loadEvents] so the UI can show a bar during
- *    the slow fetch path
- *  - Provide per-kind access (Live / VOD / Series) so each Browse screen
- *    only deserializes the slice it actually needs
- *
- * ## Two layers of cache
- *  1. **In-memory** — parsed `Playlist` kept for the active source.
- *     Survives navigation, dies with the process.
- *  2. **On-disk per-kind** — [PlaylistCacheStore], 30-day TTL,
- *     `filesDir/playlist_cache/<sourceId>/{live,vod,series,meta}.json`.
- *     Survives process kill, only invalidated by Refresh button or expiry.
- *
- * ## Two read paths
- *  - **Fast path (full)** — `getPlaylist()` returns the merged `Playlist`
- *    used by HomeViewModel for catalog counts and continue-watching.
- *  - **Fast path (per-kind)** — `getLiveGroups()` etc. for Browse/VOD/
- *    Series screens, which only deserialize their own slice from disk.
- *
- * ## Progress events
- *  [loadEvents] is a hot `SharedFlow<PlaylistLoadEvent>` (multicast). The
- *  overlay UI subscribes to it once at the app root and shows itself when
- *  a `Progress` event arrives, hides on `Success` / `Error` / `CacheHit`.
- *  Cache hits emit `CacheHit` *and not any* `Progress`, so the overlay
- *  stays out of the way on the happy path.
+ * Browse tabs load a lightweight group index first, then fetch one
+ * category's channels when the user selects it. Parsed group indexes
+ * and recently opened groups are memoized per kind so tab switches do
+ * not re-parse large JSON files.
  */
 @Singleton
 class PlaylistManager @Inject constructor(
@@ -64,168 +42,235 @@ class PlaylistManager @Inject constructor(
     private val cacheStore: PlaylistCacheStore,
 ) {
     private val mutex = Mutex()
+    private val memoLock = Any()
 
-    /**
-     * Background scope for fire-and-forget cache writes. Persisting an
-     * 85k-channel catalog can take seconds and allocate ~80 MB; doing
-     * it inline blocks the UI and risks OOM by stacking the parsed
-     * Playlist + entity list + JSON strings in memory simultaneously.
-     */
     private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /**
-     * In-memory cache of the parsed Playlist for the active source.
-     * The *real* fast path: once the Playlist is in memory (either
-     * freshly fetched or hydrated from disk on cold start), every
-     * ViewModel gets it instantly without re-deserializing.
-     */
-    @Volatile
-    private var memoryCache: Pair<String, Playlist>? = null
+    private enum class KindRead { Live, Vod, Series }
 
-    /** In-flight fetch dedup: sourceId → deferred result. */
+    private fun KindRead.toCatalogKind(): PlaylistCacheStore.CatalogKind = when (this) {
+        KindRead.Live -> PlaylistCacheStore.CatalogKind.LIVE
+        KindRead.Vod -> PlaylistCacheStore.CatalogKind.VOD
+        KindRead.Series -> PlaylistCacheStore.CatalogKind.SERIES
+    }
+
+    private data class GroupCacheKey(
+        val sourceId: String,
+        val kind: KindRead,
+        val groupId: String,
+    )
+
+    /** Parsed group indexes per kind (small — safe to keep all three). */
+    @Volatile
+    private var liveIndexMemo: Pair<String, List<GroupIndexEntry>>? = null
+    @Volatile
+    private var vodIndexMemo: Pair<String, List<GroupIndexEntry>>? = null
+    @Volatile
+    private var seriesIndexMemo: Pair<String, List<GroupIndexEntry>>? = null
+
+    /** LRU of recently loaded groups (one category file each). */
+    private val groupMemo = object : LinkedHashMap<GroupCacheKey, ChannelGroup>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<GroupCacheKey, ChannelGroup>?): Boolean =
+            size > MAX_GROUP_MEMO_ENTRIES
+    }
+
     private var inFlight: Pair<String, CompletableDeferred<Playlist?>>? = null
 
-    /**
-     * Multicast stream of load events. We use `extraBufferCapacity = 16`
-     * so emissions never suspend the producer (progress events are
-     * fire-and-forget — losing one is acceptable but blocking the fetch
-     * is not).
-     *
-     * `replay = 1` lets a late subscriber (e.g. the overlay attaching
-     * after a screen rotation) immediately see the latest event.
-     */
     private val _loadEvents = MutableSharedFlow<PlaylistLoadEvent>(
         replay = 1,
         extraBufferCapacity = 16,
     )
     val loadEvents: Flow<PlaylistLoadEvent> = _loadEvents.asSharedFlow()
 
-    // ── Public read paths ────────────────────────────────────────
-
-    /**
-     * Get the full playlist for the active source.
-     * Cache-first; falls back to network and emits progress events.
-     */
-    suspend fun getPlaylist(): Playlist? {
-        val source = activeSource() ?: return null
-
-        // 1. In-memory hit
-        memoryCache?.let { (id, pl) -> if (id == source.id) return pl }
-
-        // 2. On-disk parsed cache (PlaylistCacheStore)
-        cacheStore.readPlaylist(source.id)?.let { pl ->
-            memoryCache = source.id to pl
-            _loadEvents.tryEmit(PlaylistLoadEvent.CacheHit)
-            return pl
-        }
-
-        // 3. Network fetch with dedup + progress
-        return runFetch(source.id)
+    companion object {
+        private const val MAX_GROUP_MEMO_ENTRIES = 24
     }
 
-    /**
-     * Get only the live-channel groups for the active source.
-     * Reads only the `live.json` slice on cold start — much faster than
-     * deserializing the whole catalog when the user just opened Live.
-     */
-    suspend fun getLiveGroups(): List<ChannelGroup>? =
-        getKindGroups(KindRead.Live)
+    // ── Public read paths ────────────────────────────────────────
 
-    /** VOD slice — see [getLiveGroups]. */
-    suspend fun getVodGroups(): List<ChannelGroup>? =
-        getKindGroups(KindRead.Vod)
-
-    /** Series slice — see [getLiveGroups]. */
-    suspend fun getSeriesGroups(): List<ChannelGroup>? =
-        getKindGroups(KindRead.Series)
-
-    /**
-     * Force refresh: clears every cache layer (memory, disk, XtreamCache
-     * raw responses) and re-fetches from network. Called from the Home
-     * screen Refresh button.
-     */
-    suspend fun refreshPlaylist(): Playlist? {
+    suspend fun getCatalogMeta(): PlaylistCacheStore.CatalogMeta? {
         val source = activeSource() ?: return null
+        return cacheStore.readCatalogMeta(source.id)
+    }
 
-        memoryCache = null
+    suspend fun ensureCatalogMeta(): PlaylistCacheStore.CatalogMeta? {
+        val source = activeSource() ?: return null
+        cacheStore.readCatalogMeta(source.id)?.let { return it }
+        if (runFetch(source.id) == null) return null
+        return cacheStore.readCatalogMeta(source.id)
+    }
+
+    /** Category sidebar — no channel payloads. */
+    suspend fun getLiveGroupStubs(): List<ChannelGroup>? = getGroupStubs(KindRead.Live)
+    suspend fun getVodGroupStubs(): List<ChannelGroup>? = getGroupStubs(KindRead.Vod)
+    suspend fun getSeriesGroupStubs(): List<ChannelGroup>? = getGroupStubs(KindRead.Series)
+
+    suspend fun loadLiveGroup(groupId: String): ChannelGroup? = loadKindGroup(KindRead.Live, groupId)
+    suspend fun loadVodGroup(groupId: String): ChannelGroup? = loadKindGroup(KindRead.Vod, groupId)
+    suspend fun loadSeriesGroup(groupId: String): ChannelGroup? = loadKindGroup(KindRead.Series, groupId)
+
+    suspend fun findChannelById(channelId: String): Channel? {
+        val source = activeSource() ?: return null
+        val kind = inferKindFromChannelId(channelId)
+        val catalogKind = kind.toCatalogKind()
+        val groupId = cacheStore.lookupGroupId(source.id, catalogKind, channelId)
+            ?: return findChannelInFullKindLoad(channelId, kind)
+        val group = loadKindGroup(kind, groupId) ?: return null
+        return group.channels.find { it.id == channelId }
+    }
+
+    /** Full kind load — used by Player live zapping. */
+    suspend fun getLiveGroups(): List<ChannelGroup>? = getKindGroups(KindRead.Live)
+    suspend fun getVodGroups(): List<ChannelGroup>? = getKindGroups(KindRead.Vod)
+    suspend fun getSeriesGroups(): List<ChannelGroup>? = getKindGroups(KindRead.Series)
+
+    suspend fun getPlaylist(): Playlist? {
+        val source = activeSource() ?: return null
+        return cacheStore.readPlaylist(source.id) ?: runFetch(source.id)
+    }
+
+    suspend fun refreshPlaylist(): Boolean {
+        val source = activeSource() ?: return false
+        invalidateMemoryCache()
         cacheStore.invalidate(source.id)
         if (source.type == SourceType.XTREAM) {
             source.credentials?.let { xtreamCache.invalidateSource(it) }
         }
         sourceRepository.clearPlaylistCache(source.id)
-
-        return runFetch(source.id)
+        return runFetch(source.id) != null
     }
 
-    /**
-     * Drop the in-memory cache when the active source changes (so the
-     * next read doesn't return stale data from a different source).
-     */
     fun invalidateMemoryCache() {
-        memoryCache = null
+        synchronized(memoLock) {
+            liveIndexMemo = null
+            vodIndexMemo = null
+            seriesIndexMemo = null
+            groupMemo.clear()
+        }
     }
 
     // ── Internal ─────────────────────────────────────────────────
 
-    private enum class KindRead { Live, Vod, Series }
+    private suspend fun getGroupStubs(kind: KindRead): List<ChannelGroup>? {
+        val source = activeSource() ?: return null
+        ensureKindIndex(source.id, kind)?.let { index ->
+            return index.map { it.toStub() }.distinctBy { it.id }
+        }
+        val full = runFetch(source.id) ?: return null
+        ensureKindIndex(source.id, kind)?.let { index ->
+            return index.map { it.toStub() }.distinctBy { it.id }
+        }
+        return filterFromPlaylist(full, kind).map {
+            it.copy(channelCount = it.channels.size)
+        }
+    }
 
-    /**
-     * Per-kind read path:
-     *  1. Try memory cache, filter by kind.
-     *  2. Try the matching slice file on disk.
-     *  3. Otherwise trigger a full network fetch (via [runFetch]) and
-     *     filter the result.
-     *
-     * The network path always loads everything — providers don't expose
-     * per-kind endpoints in a way we can cleanly split. The on-disk
-     * cache is what makes subsequent reads cheap.
-     */
+    private suspend fun loadKindGroup(kind: KindRead, groupId: String): ChannelGroup? {
+        val source = activeSource() ?: return null
+        val key = GroupCacheKey(source.id, kind, groupId)
+        synchronized(memoLock) {
+            groupMemo[key]?.let { return it }
+        }
+        cacheStore.readGroup(source.id, kind.toCatalogKind(), groupId)?.let { loaded ->
+            synchronized(memoLock) { groupMemo[key] = loaded }
+            return loaded
+        }
+        // Do not trigger a full network fetch for one missing group file — that
+        // was causing repeated 60k+ API loads on every category click.
+        awaitInFlightFetch(source.id)?.let { playlist ->
+            cacheStore.readGroup(source.id, kind.toCatalogKind(), groupId)?.let { loaded ->
+                synchronized(memoLock) { groupMemo[key] = loaded }
+                return loaded
+            }
+            filterFromPlaylist(playlist, kind)
+                .find { it.id == groupId }
+                ?.let { fromMemory ->
+                    synchronized(memoLock) { groupMemo[key] = fromMemory }
+                    return fromMemory
+                }
+        }
+        return null
+    }
+
+    /** If a catalog fetch is in progress, wait for it (e.g. disk write finishing). */
+    private suspend fun awaitInFlightFetch(sourceId: String): Playlist? {
+        val existing = mutex.withLock {
+            inFlight?.takeIf { it.first == sourceId }?.second
+        }
+        return existing?.await()
+    }
+
+    private suspend fun ensureKindIndex(
+        sourceId: String,
+        kind: KindRead,
+    ): List<GroupIndexEntry>? {
+        synchronized(memoLock) {
+            indexMemoFor(kind)?.let { (id, index) ->
+                if (id == sourceId) return index
+            }
+        }
+        val fromDisk = cacheStore.readGroupIndex(sourceId, kind.toCatalogKind())
+        if (fromDisk != null) {
+            synchronized(memoLock) { setIndexMemo(kind, sourceId to fromDisk) }
+            _loadEvents.tryEmit(PlaylistLoadEvent.CacheHit)
+        }
+        return fromDisk
+    }
+
     private suspend fun getKindGroups(kind: KindRead): List<ChannelGroup>? {
         val source = activeSource() ?: return null
-
-        // 1. In-memory: filter by kind
-        memoryCache?.let { (id, pl) ->
-            if (id == source.id) return filterFromPlaylist(pl, kind).dedupGroups()
-        }
-
-        // 2. On-disk per-kind read — only deserializes the relevant file
-        val sliceReader: suspend (String) -> List<ChannelGroup>? = when (kind) {
+        val reader: suspend (String) -> List<ChannelGroup>? = when (kind) {
             KindRead.Live -> cacheStore::readLive
             KindRead.Vod -> cacheStore::readVod
             KindRead.Series -> cacheStore::readSeries
         }
-        val slice = sliceReader(source.id)
-        if (slice != null) {
+        reader(source.id)?.let { groups ->
             _loadEvents.tryEmit(PlaylistLoadEvent.CacheHit)
-            return slice.dedupGroups()
+            return groups.dedupGroups()
         }
-
-        // 3. Fall through to a full fetch — populates memory cache for
-        //    subsequent calls (other tabs the user might open).
         val full = runFetch(source.id) ?: return null
         return filterFromPlaylist(full, kind).dedupGroups()
     }
 
-    /**
-     * Drop groups whose `id` collides with one we've already kept.
-     *
-     * Some Xtream providers return the same category twice (different
-     * casing, or genuinely duplicated rows). Compose's `LazyColumn`
-     * crashes hard with `IllegalArgumentException: Key "..." was already
-     * used` if any two items share a key, so we dedupe at the data
-     * boundary rather than asking every screen to remember.
-     */
+    private suspend fun findChannelInFullKindLoad(
+        channelId: String,
+        kind: KindRead,
+    ): Channel? {
+        val groups = getKindGroups(kind) ?: return null
+        return groups.flatMap { it.channels }.find { it.id == channelId }
+    }
+
+    private fun indexMemoFor(kind: KindRead): Pair<String, List<GroupIndexEntry>>? = when (kind) {
+        KindRead.Live -> liveIndexMemo
+        KindRead.Vod -> vodIndexMemo
+        KindRead.Series -> seriesIndexMemo
+    }
+
+    private fun setIndexMemo(kind: KindRead, value: Pair<String, List<GroupIndexEntry>>) {
+        when (kind) {
+            KindRead.Live -> liveIndexMemo = value
+            KindRead.Vod -> vodIndexMemo = value
+            KindRead.Series -> seriesIndexMemo = value
+        }
+    }
+
+    private fun inferKindFromChannelId(channelId: String): KindRead = when {
+        channelId.contains(":series:") -> KindRead.Series
+        channelId.contains(":vod:") || channelId.startsWith("vod:") -> KindRead.Vod
+        else -> KindRead.Live
+    }
+
     private fun List<ChannelGroup>.dedupGroups(): List<ChannelGroup> =
         distinctBy { it.id }
 
     private fun filterFromPlaylist(pl: Playlist, kind: KindRead): List<ChannelGroup> {
         return pl.groups.mapNotNull { g ->
             val filtered = when (kind) {
-                KindRead.Live -> g.channels.filterIsInstance<com.iptvtavern.androidtv.domain.model.Channel.Live>()
-                KindRead.Vod -> g.channels.filterIsInstance<com.iptvtavern.androidtv.domain.model.Channel.Vod>()
-                KindRead.Series -> g.channels.filterIsInstance<com.iptvtavern.androidtv.domain.model.Channel.Series>()
+                KindRead.Live -> g.channels.filterIsInstance<Channel.Live>()
+                KindRead.Vod -> g.channels.filterIsInstance<Channel.Vod>()
+                KindRead.Series -> g.channels.filterIsInstance<Channel.Series>()
             }
-            if (filtered.isEmpty()) null else g.copy(channels = filtered)
+            if (filtered.isEmpty()) null else g.copy(channels = filtered, channelCount = filtered.size)
         }
     }
 
@@ -235,15 +280,7 @@ class PlaylistManager @Inject constructor(
         return sources.find { it.id == activeId } ?: sources.firstOrNull()
     }
 
-    /**
-     * Coordinated network fetch:
-     *  - Dedups concurrent callers via `inFlight`
-     *  - Emits Progress events as steps complete (XtreamClient callback)
-     *  - Persists the result to PlaylistCacheStore for next cold start
-     *  - Emits Success or Error terminal event
-     */
     private suspend fun runFetch(sourceId: String): Playlist? {
-        // Dedup
         val existing = mutex.withLock {
             inFlight?.takeIf { it.first == sourceId }?.second
         }
@@ -259,9 +296,6 @@ class PlaylistManager @Inject constructor(
                 return null
             }
 
-            // Emit step 0 immediately so the overlay appears as soon as
-            // we commit to a network fetch — otherwise the UI sees no
-            // event for several seconds while the first response loads.
             emitStep(0)
 
             val playlist: Playlist? = try {
@@ -273,9 +307,6 @@ class PlaylistManager @Inject constructor(
                             sourceId = source.id,
                             cache = xtreamCache,
                             onStepDone = { stepIndex ->
-                                // stepIndex 0..7 from XtreamClient; we
-                                // emit AFTER step completes, so the next
-                                // label shown is for the *upcoming* step.
                                 val nextStep = (stepIndex + 1).coerceAtMost(
                                     PlaylistLoadSteps.ALL.lastIndex
                                 )
@@ -284,10 +315,8 @@ class PlaylistManager @Inject constructor(
                         )
                     }
                     SourceType.M3U_URL, SourceType.M3U_FILE -> {
-                        // M3U has no granular steps — emit "fetching" then
-                        // jump to "parsing" once the response arrives.
                         val url = source.url ?: return null
-                        emitStep(1) // "Fetching live channels…" — closest label
+                        emitStep(1)
                         withContext(Dispatchers.IO) {
                             val conn = URL(url).openConnection() as HttpURLConnection
                             conn.connectTimeout = 15_000
@@ -312,22 +341,22 @@ class PlaylistManager @Inject constructor(
             }
 
             if (playlist != null) {
-                // Promote to memory cache before announcing success — readers
-                // collecting Success will immediately call getPlaylist()
-                // again and we want them to hit memory.
-                memoryCache = source.id to playlist
-
-                // Step 8: persist to per-kind cache. Fire-and-forget so the
-                // bar can drop and the UI becomes interactive immediately.
                 emitStep(8, percentOverride = PlaylistLoadSteps.percentAfter(7))
-                cacheScope.launch {
-                    try {
+                // Finish writing indexes + group files before callers read disk.
+                // Async writes caused index misses → repeated full fetches.
+                try {
+                    withContext(Dispatchers.IO) {
                         cacheStore.writePlaylist(playlist)
-                    } catch (_: Throwable) { /* best-effort */ }
-                    // Also keep the legacy Room cache for M3U so existing
-                    // SourceRepository paths still work. Xtream skips Room
-                    // (the read-back path OOMs on Chromecast).
-                    if (source.type != SourceType.XTREAM) {
+                    }
+                    synchronized(memoLock) {
+                        liveIndexMemo = null
+                        vodIndexMemo = null
+                        seriesIndexMemo = null
+                        groupMemo.clear()
+                    }
+                } catch (_: Throwable) { /* best-effort */ }
+                if (source.type != SourceType.XTREAM) {
+                    cacheScope.launch {
                         try { sourceRepository.cachePlaylist(playlist) } catch (_: Throwable) { }
                     }
                 }
@@ -347,12 +376,6 @@ class PlaylistManager @Inject constructor(
         }
     }
 
-    /**
-     * Emit a Progress event for the given step index. The percentage
-     * normally reflects "completion of the step before this one"; pass
-     * [percentOverride] when you want explicit control (e.g. for the
-     * weighted-sum-after-X-completed semantics from PlaylistLoadSteps).
-     */
     private fun emitStep(stepIndex: Int, percentOverride: Int? = null) {
         val safe = stepIndex.coerceIn(0, PlaylistLoadSteps.ALL.lastIndex)
         val step = PlaylistLoadSteps.ALL[safe]

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -19,14 +18,16 @@ import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
-import com.iptvtavern.androidtv.domain.model.Playlist
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
+import com.iptvtavern.androidtv.playback.ExoPlayerFactory
+import com.iptvtavern.androidtv.playback.LivePlaybackSession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,6 +84,14 @@ data class PlayerUiState(
 /** Matches series episode IDs: "xtream:series:<num>:ep:<episodeId>" */
 private val SERIES_EPISODE_PATTERN = Regex("^(xtream:series:\\d+):ep:(.+)$")
 
+private enum class PlayerContentKind { Live, Vod, SeriesEpisode }
+
+private fun inferPlayerContentKind(channelId: String): PlayerContentKind = when {
+    SERIES_EPISODE_PATTERN.matches(channelId) -> PlayerContentKind.SeriesEpisode
+    channelId.contains(":vod:") || channelId.startsWith("vod:") -> PlayerContentKind.Vod
+    else -> PlayerContentKind.Live
+}
+
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -103,35 +112,40 @@ class PlayerViewModel @Inject constructor(
      * The ExoPlayer instance. Exposed so the Composable can attach
      * an AndroidView to it. The ViewModel owns the lifecycle.
      */
-    val player: ExoPlayer = ExoPlayer.Builder(appContext)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                .setUsage(C.USAGE_MEDIA)
-                .build(),
-            /* handleAudioFocus = */ true,
-        )
-        .build()
+    val player: ExoPlayer = ExoPlayerFactory.create(appContext)
 
     /** Flat list of all live channels for channel zapping. */
     private var channelList: List<Channel> = emptyList()
     private var currentChannelId: String? = null
     /** Previous channel index for "jump back" (Green button). */
     private var previousChannelIndex: Int = -1
+    /** Active source — stream URLs and User-Agent for playback. */
+    private var activeSource: Source? = null
     /** Active source ID — needed for persisting watched progress. */
     private var activeSourceId: String? = null
     /** If currently playing a series episode, the parent series channel ID. */
     private var currentSeriesId: String? = null
+    private val livePlayback = LivePlaybackSession()
+    private var loadChannelJob: Job? = null
 
     init {
         // Set up player listener
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                val isBuffering = playbackState == Player.STATE_BUFFERING
                 _uiState.value = _uiState.value.copy(
-                    isLoading = playbackState == Player.STATE_BUFFERING,
-                    isBuffering = playbackState == Player.STATE_BUFFERING,
+                    isBuffering = isBuffering,
                     isPlaying = playbackState == Player.STATE_READY && player.playWhenReady,
                 )
+                if (playbackState == Player.STATE_READY) {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                    if (!_uiState.value.isVod) {
+                        livePlayback.nextIfAvBroken(player)?.let { url ->
+                            loadStreamUrl(url)
+                            return
+                        }
+                    }
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -139,6 +153,13 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (!_uiState.value.isVod) {
+                    livePlayback.nextOnError()?.let { url ->
+                        _uiState.value = _uiState.value.copy(error = null, errorDetails = null)
+                        loadStreamUrl(url)
+                        return
+                    }
+                }
                 val details = buildString {
                     appendLine("Error code: ${error.errorCode}")
                     appendLine("Error name: ${describeErrorCode(error.errorCode)}")
@@ -165,7 +186,23 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun loadChannel(channelId: String) {
-        viewModelScope.launch {
+        loadChannelJob?.cancel()
+        loadChannelJob = viewModelScope.launch {
+            val contentKind = inferPlayerContentKind(channelId)
+            val isVodContent = contentKind != PlayerContentKind.Live
+
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                isVod = isVodContent,
+                error = null,
+                errorDetails = null,
+                channelIndex = if (isVodContent) 0 else -1,
+                totalChannels = if (isVodContent) 1 else 0,
+                epgNowTitle = null,
+                epgNextTitle = null,
+                showOverlay = true,
+            )
+
             val activeId = settingsDataStore.activeSourceId.first()
             val sources = sourceRepository.sources.first()
             val source = sources.find { it.id == activeId } ?: sources.firstOrNull()
@@ -178,41 +215,81 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
+            activeSource = source
             activeSourceId = source.id
 
-            val playlist = loadPlaylist(source)
-            if (playlist == null) {
+            when (contentKind) {
+                PlayerContentKind.SeriesEpisode -> {
+                    val epMatch = SERIES_EPISODE_PATTERN.matchEntire(channelId)!!
+                    handleSeriesEpisode(epMatch, channelId, source)
+                }
+                PlayerContentKind.Vod -> {
+                    val channel = playlistManager.findChannelById(channelId)
+                    if (channel == null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "Channel not found.",
+                        )
+                        return@launch
+                    }
+                    applyChannelMetadata(channel, isVod = true)
+                    channelList = listOf(channel)
+                    profileRepository.addRecent(channel)
+                    currentSeriesId = null
+                    playChannel(0)
+                }
+                PlayerContentKind.Live -> {
+                    // Fast path: one group from cache (browse already loaded it).
+                    val channel = playlistManager.findChannelById(channelId)
+                    if (channel == null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = "Channel not found.",
+                        )
+                        return@launch
+                    }
+
+                    applyChannelMetadata(channel, isVod = false)
+                    profileRepository.addRecent(channel)
+                    currentSeriesId = null
+
+                    // Start playback immediately; expand channel list for zapping in background.
+                    channelList = listOf(channel)
+                    playChannel(0)
+
+                    launch {
+                        val liveGroups = playlistManager.getLiveGroups() ?: return@launch
+                        val fullList = liveGroups.flatMap { it.channels }
+                        val liveIndex = fullList.indexOfFirst { it.id == channelId }
+                        if (liveIndex < 0) return@launch
+                        channelList = fullList
+                        _uiState.value = _uiState.value.copy(
+                            channelIndex = liveIndex,
+                            totalChannels = fullList.size,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** Overlay channel name/logo as soon as the channel row is resolved. */
+    private fun applyChannelMetadata(channel: Channel, isVod: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            channelName = channel.name,
+            channelLogoUrl = channel.logoUrl,
+            isVod = isVod,
+        )
+        if (channel is Channel.Live && channel.tvgId != null) {
+            val guide = epgRepository.guide
+            if (guide != null) {
+                val programs = guide.programsByChannelId[channel.tvgId]
+                val nowNext = EpgParser.getNowAndNextProgram(programs)
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "Playlist not loaded. Go back and try again.",
+                    epgNowTitle = nowNext.current?.title,
+                    epgNextTitle = nowNext.next?.title,
                 )
-                return@launch
             }
-
-            // Check if this is a series episode ID: "xtream:series:<id>:ep:<episodeId>"
-            val epMatch = SERIES_EPISODE_PATTERN.matchEntire(channelId)
-            if (epMatch != null) {
-                handleSeriesEpisode(epMatch, channelId, playlist, source)
-                return@launch
-            }
-
-            // Build flat channel list for zapping
-            channelList = playlist.groups.flatMap { it.channels }
-            val index = channelList.indexOfFirst { it.id == channelId }
-
-            if (index == -1) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = "Channel not found.",
-                )
-                return@launch
-            }
-
-            // Track as recent
-            profileRepository.addRecent(channelId)
-            currentSeriesId = null
-
-            playChannel(index)
         }
     }
 
@@ -224,17 +301,15 @@ class PlayerViewModel @Inject constructor(
     private suspend fun handleSeriesEpisode(
         match: MatchResult,
         channelId: String,
-        playlist: Playlist,
         source: Source,
     ) {
+        _uiState.value = _uiState.value.copy(isVod = true, isLoading = true)
+
         val seriesChannelId = match.groupValues[1] // "xtream:series:<num>"
         val episodeId = match.groupValues[2]
 
-        // Find the series channel in the playlist
-        val seriesChannel = playlist.groups
-            .flatMap { it.channels }
-            .filterIsInstance<Channel.Series>()
-            .find { it.id == seriesChannelId }
+        val seriesChannel = playlistManager.findChannelById(seriesChannelId)
+            as? Channel.Series
 
         if (seriesChannel == null) {
             _uiState.value = _uiState.value.copy(
@@ -300,7 +375,7 @@ class PlayerViewModel @Inject constructor(
                 return
             }
 
-            profileRepository.addRecent(seriesChannelId)
+            profileRepository.addRecent(seriesChannel)
             currentSeriesId = seriesChannelId
             playChannel(index)
         } catch (e: Exception) {
@@ -309,13 +384,6 @@ class PlayerViewModel @Inject constructor(
                 error = "Failed to load series info: ${e.message}",
             )
         }
-    }
-
-    /**
-     * Load playlist via PlaylistManager — shares the single cached/in-flight fetch.
-     */
-    private suspend fun loadPlaylist(source: Source): Playlist? {
-        return playlistManager.getPlaylist()
     }
 
     private fun playChannel(index: Int) {
@@ -364,10 +432,13 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        val mediaItem = MediaItem.fromUri(channel.streamUrl)
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        player.playWhenReady = true
+        val playbackUrl = if (channel is Channel.Live) {
+            livePlayback.begin(channel, activeSource)
+        } else {
+            livePlayback.reset()
+            channel.streamUrl
+        }
+        loadStreamUrl(playbackUrl)
 
         // Resume from saved position for VOD/episodes
         if (isVod) {
@@ -380,6 +451,12 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun loadStreamUrl(url: String) {
+        player.setMediaItem(MediaItem.fromUri(url))
+        player.prepare()
+        player.playWhenReady = true
+    }
+
     // ── Channel zapping ──────────────────────────────────────────
 
     /**
@@ -390,11 +467,11 @@ class PlayerViewModel @Inject constructor(
         val id = currentChannelId ?: return
         val srcId = activeSourceId ?: return
         val channel = channelList.find { it.id == id } ?: return
-        // Only save progress for VOD / series episodes (not live streams)
         if (channel !is Channel.Vod) return
         val pos = player.currentPosition
         val dur = player.duration.coerceAtLeast(0)
         if (pos <= 0 && dur <= 0) return
+        val imageUrl = channel.posterUrl ?: channel.logoUrl
         viewModelScope.launch {
             watchedRepository.saveProgress(
                 channelId = id,
@@ -402,6 +479,8 @@ class PlayerViewModel @Inject constructor(
                 positionMs = pos,
                 durationMs = dur,
                 parentSeriesId = currentSeriesId,
+                channelName = channel.name,
+                imageUrl = imageUrl,
             )
         }
     }
@@ -411,7 +490,7 @@ class PlayerViewModel @Inject constructor(
         if (channelList.isEmpty()) return
         val next = if (current + 1 >= channelList.size) 0 else current + 1
         viewModelScope.launch {
-            profileRepository.addRecent(channelList[next].id)
+            profileRepository.addRecent(channelList[next])
         }
         playChannel(next)
     }
@@ -421,7 +500,7 @@ class PlayerViewModel @Inject constructor(
         if (channelList.isEmpty()) return
         val prev = if (current - 1 < 0) channelList.size - 1 else current - 1
         viewModelScope.launch {
-            profileRepository.addRecent(channelList[prev].id)
+            profileRepository.addRecent(channelList[prev])
         }
         playChannel(prev)
     }
@@ -431,7 +510,7 @@ class PlayerViewModel @Inject constructor(
         if (previousChannelIndex < 0 || channelList.isEmpty()) return
         if (previousChannelIndex >= channelList.size) return
         viewModelScope.launch {
-            profileRepository.addRecent(channelList[previousChannelIndex].id)
+            profileRepository.addRecent(channelList[previousChannelIndex])
         }
         playChannel(previousChannelIndex)
     }

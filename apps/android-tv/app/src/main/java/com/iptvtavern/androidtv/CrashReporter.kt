@@ -47,18 +47,25 @@ object CrashReporter {
         } else ""
     }
 
-    fun report(throwable: Throwable, appContext: android.content.Context) {
-        Thread {
+    fun report(throwable: Throwable, appContext: android.content.Context, blocking: Boolean = false) {
+        val task = Runnable {
             try {
                 writeToFile(throwable, appContext)
                 val url = webhookUrl
                 if (url.isNotEmpty()) {
                     sendReport(throwable, appContext, url)
+                } else {
+                    Log.w(TAG, "Telegram webhook not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to report crash", e)
             }
-        }.start()
+        }
+        if (blocking) {
+            task.run()
+        } else {
+            Thread(task, "CrashReporter").start()
+        }
     }
 
     private fun sendReport(throwable: Throwable, context: android.content.Context, url: String) {
@@ -102,7 +109,13 @@ object CrashReporter {
         conn.readTimeout = 5000
         OutputStreamWriter(conn.outputStream).use { it.write(body) }
         val responseCode = conn.responseCode
-        Log.d(TAG, "Crash sent to Telegram: HTTP $responseCode")
+        if (responseCode !in 200..299) {
+            val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            Log.e(TAG, "Telegram send failed: HTTP $responseCode — $errorBody")
+        } else {
+            Log.d(TAG, "Crash sent to Telegram: HTTP $responseCode")
+        }
+        conn.disconnect()
     }
 
     private fun buildTelegramText(throwable: Throwable, context: android.content.Context, parseMode: String): String {

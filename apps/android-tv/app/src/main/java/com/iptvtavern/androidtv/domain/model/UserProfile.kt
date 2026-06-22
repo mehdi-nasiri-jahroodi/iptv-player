@@ -16,6 +16,8 @@ data class UserProfile(
     val name: String,
     /** Channel IDs the user has favorited. */
     val favorites: List<String> = emptyList(),
-    /** Channel IDs the user has recently played (most recent first). */
+    /** Channel IDs the user has recently played (most recent first). Legacy IDs only. */
     val recents: List<String> = emptyList(),
+    /** Display snapshots for recently played channels (most recent first). */
+    val recentSnapshots: List<ChannelSnapshot> = emptyList(),
 )

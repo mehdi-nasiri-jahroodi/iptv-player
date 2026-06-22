@@ -1,7 +1,12 @@
 package com.iptvtavern.androidtv.ui.browse
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.iptvtavern.androidtv.data.local.SettingsDataStore
 import com.iptvtavern.androidtv.data.repository.EpgRepository
 import com.iptvtavern.androidtv.data.repository.PlaylistManager
@@ -13,13 +18,17 @@ import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.GroupSortKey
 import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.Playlist
+import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
 import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import com.iptvtavern.androidtv.domain.parser.EpgParser
+import com.iptvtavern.androidtv.playback.ExoPlayerFactory
+import com.iptvtavern.androidtv.playback.LivePlaybackSession
 import com.iptvtavern.androidtv.ui.common.sortGroups
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +73,7 @@ data class BrowseUiState(
 
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val sourceRepository: SourceRepository,
     private val playlistManager: PlaylistManager,
     private val profileRepository: ProfileRepository,
@@ -75,12 +85,58 @@ class BrowseViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(BrowseUiState())
     val uiState: StateFlow<BrowseUiState> = _uiState.asStateFlow()
 
-    private var allGroups: List<ChannelGroup> = emptyList()
-    private var allChannels: List<Channel> = emptyList()
+    private var catalogGroups: List<ChannelGroup> = emptyList()
+    private var loadedGroupChannels: List<Channel> = emptyList()
     /** Cached source ID so we can persist group order per-source. */
     private var currentSourceId: String? = null
+    private var activeSource: Source? = null
     /** Custom group order loaded from DataStore (null = use playlist order). */
     private var customGroupOrder: List<String>? = null
+
+    /**
+     * Single ExoPlayer instance for the mini player, created lazily on first use
+     * and released when the ViewModel is cleared (i.e. when the screen leaves the back stack).
+     *
+     * Why here and not in the composable:
+     * - A player created with `remember {}` is re-created every time MiniPlayerRow
+     *   re-enters composition (e.g. after a recomposition or config change).
+     * - The ViewModel outlives recomposition, so the player survives D-pad navigation
+     *   and screen re-draws without being torn down and rebuilt.
+     */
+    private var _miniPlayer: ExoPlayer? = null
+    private val miniLivePlayback = LivePlaybackSession()
+    private var miniPlayerListenerAttached = false
+
+    /** Returns the shared mini-player, creating it on first call. */
+    fun getMiniPlayer(): ExoPlayer =
+        _miniPlayer ?: ExoPlayerFactory.create(appContext, activeSource?.userAgent)
+            .also { player ->
+                _miniPlayer = player
+                if (!miniPlayerListenerAttached) {
+                    miniPlayerListenerAttached = true
+                    player.addListener(
+                        object : Player.Listener {
+                            override fun onPlaybackStateChanged(playbackState: Int) {
+                                if (playbackState == Player.STATE_READY) {
+                                    miniLivePlayback.nextIfAvBroken(player)?.let { url ->
+                                        player.setMediaItem(MediaItem.fromUri(url))
+                                        player.prepare()
+                                        player.playWhenReady = true
+                                    }
+                                }
+                            }
+
+                            override fun onPlayerError(error: PlaybackException) {
+                                miniLivePlayback.nextOnError()?.let { url ->
+                                    player.setMediaItem(MediaItem.fromUri(url))
+                                    player.prepare()
+                                    player.playWhenReady = true
+                                }
+                            }
+                        },
+                    )
+                }
+            }
 
     init {
         loadCatalog()
@@ -108,9 +164,10 @@ class BrowseViewModel @Inject constructor(
             // the on-disk cache. Skips parsing the 60k-90k movies+series
             // entries we'd otherwise filter out anyway. Big win on cold
             // start: ~9k items vs ~85k.
-            val liveGroups = playlistManager.getLiveGroups()
+            // Lazy index: categories only until the user picks a group.
+            val liveStubs = playlistManager.getLiveGroupStubs()
 
-            if (liveGroups == null) {
+            if (liveStubs == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load channels.",
@@ -118,22 +175,17 @@ class BrowseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Drop empty groups so the sidebar isn't polluted with
-            // VOD/Series-only categories that contain no live channels.
-            val playlistGroups = liveGroups.filter { it.channels.isNotEmpty() }
+            val playlistGroups = liveStubs.filter { it.effectiveChannelCount() > 0 }
 
-            // Load favorites
             val profile = profileRepository.getDefaultProfile()
             val favSet = profile.favorites.toSet()
 
-            allGroups = playlistGroups
-            allChannels = playlistGroups.flatMap { it.channels }
+            catalogGroups = playlistGroups
             currentSourceId = source.id
+            activeSource = source
 
-            // Load persisted custom group order for this source
             customGroupOrder = settingsDataStore.getGroupOrder(source.id)
 
-            // Build groups list with a "Favorites" virtual group at top
             val displayGroups = buildDisplayGroups(playlistGroups, favSet)
 
             _uiState.value = _uiState.value.copy(
@@ -141,10 +193,14 @@ class BrowseViewModel @Inject constructor(
                 groups = displayGroups,
                 filteredGroups = displayGroups,
                 selectedGroupIndex = 0,
-                channels = displayGroups.firstOrNull()?.channels.orEmpty(),
+                channels = emptyList(),
                 favorites = favSet,
                 error = null,
             )
+
+            if (displayGroups.isNotEmpty()) {
+                selectGroup(0)
+            }
 
             // Load EPG in background (non-blocking)
             viewModelScope.launch {
@@ -154,14 +210,15 @@ class BrowseViewModel @Inject constructor(
         }
     }
 
-    private fun buildDisplayGroups(
+    private suspend fun buildDisplayGroups(
         groups: List<ChannelGroup>,
         favorites: Set<String>,
     ): List<ChannelGroup> {
         val result = mutableListOf<ChannelGroup>()
 
-        // Favorites virtual group — always pinned at top
-        val favChannels = allChannels.filter { it.id in favorites }
+        val favChannels = favorites.mapNotNull { id ->
+            playlistManager.findChannelById(id)
+        }.filterIsInstance<Channel.Live>()
         if (favChannels.isNotEmpty()) {
             result.add(
                 ChannelGroup(
@@ -169,6 +226,7 @@ class BrowseViewModel @Inject constructor(
                     name = "Favorites",
                     kind = GroupKind.mixed,
                     channels = favChannels,
+                    channelCount = favChannels.size,
                 )
             )
         }
@@ -232,10 +290,11 @@ class BrowseViewModel @Inject constructor(
         viewModelScope.launch {
             val group = groups[index]
             val query = _uiState.value.searchQuery
+            val channels = channelsForGroup(group)
+            loadedGroupChannels = channels
             val filtered = withContext(Dispatchers.Default) {
-                filterChannels(group.channels, query)
+                filterChannels(channels, query)
             }
-            // Minimum visible spinner time so the animation is perceptible.
             delay(150)
             _uiState.value = _uiState.value.copy(
                 channels = filtered,
@@ -244,14 +303,17 @@ class BrowseViewModel @Inject constructor(
         }
     }
 
+    private suspend fun channelsForGroup(group: ChannelGroup): List<Channel> {
+        if (group.id == "__favorites__" || group.channels.isNotEmpty()) {
+            return group.channels
+        }
+        return playlistManager.loadLiveGroup(group.id)?.channels.orEmpty()
+    }
+
     fun updateSearch(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
-        val groups = _uiState.value.filteredGroups
-        val groupIndex = _uiState.value.selectedGroupIndex
-        if (groupIndex in groups.indices) {
-            val filtered = filterChannels(groups[groupIndex].channels, query)
-            _uiState.value = _uiState.value.copy(channels = filtered)
-        }
+        val filtered = filterChannels(loadedGroupChannels, query)
+        _uiState.value = _uiState.value.copy(channels = filtered)
     }
 
     fun updateGroupSearch(query: String) {
@@ -288,8 +350,9 @@ class BrowseViewModel @Inject constructor(
         _uiState.value = state.copy(
             filteredGroups = sorted,
             selectedGroupIndex = 0,
-            channels = sorted.firstOrNull()?.channels.orEmpty(),
+            channels = emptyList(),
         )
+        selectGroup(0)
     }
 
     private fun filterChannels(channels: List<Channel>, query: String): List<Channel> {
@@ -305,13 +368,10 @@ class BrowseViewModel @Inject constructor(
         viewModelScope.launch {
             profileRepository.toggleFavorite(channelId)
 
-            // Update local state
             val current = _uiState.value.favorites.toMutableSet()
             if (channelId in current) current.remove(channelId) else current.add(channelId)
 
-            // Rebuild groups with updated favorites
-            val displayGroups = buildDisplayGroups(allGroups, current)
-            // Re-apply group search filter
+            val displayGroups = buildDisplayGroups(catalogGroups, current)
             val groupQuery = _uiState.value.groupSearchQuery
             val filtered = if (groupQuery.isBlank()) {
                 displayGroups
@@ -322,16 +382,14 @@ class BrowseViewModel @Inject constructor(
                 }
             }
             val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
-            val query = _uiState.value.searchQuery
-            val channelFiltered = filterChannels(filtered[groupIndex].channels, query)
 
             _uiState.value = _uiState.value.copy(
                 favorites = current,
                 groups = displayGroups,
                 filteredGroups = filtered,
                 selectedGroupIndex = groupIndex,
-                channels = channelFiltered,
             )
+            selectGroup(groupIndex)
         }
     }
 
@@ -344,14 +402,49 @@ class BrowseViewModel @Inject constructor(
     /** Set channel to play in the inline mini player. */
     fun playInMiniPlayer(channel: Channel) {
         _uiState.value = _uiState.value.copy(playingChannel = channel)
+        val url = miniLivePlayback.begin(channel, activeSource)
+        getMiniPlayer().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+            playWhenReady = true
+        }
         viewModelScope.launch {
-            profileRepository.addRecent(channel.id)
+            profileRepository.addRecent(channel)
+        }
+    }
+
+    /**
+     * Pause the mini player without clearing the playing channel.
+     * Use when navigating to fullscreen — the mini player row should remain
+     * visible when the user returns, ready to resume.
+     */
+    fun pauseMiniPlayer() {
+        _miniPlayer?.playWhenReady = false
+    }
+
+    /**
+     * Resume the mini player after returning from fullscreen.
+     * No-op if the player is already playing or no channel is loaded.
+     */
+    fun resumeMiniPlayer() {
+        if (_miniPlayer != null && _uiState.value.playingChannel != null) {
+            _miniPlayer?.playWhenReady = true
         }
     }
 
     /** Stop the mini player — call before navigating away. */
     fun stopMiniPlayer() {
+        _miniPlayer?.apply {
+            stop()
+            clearMediaItems()
+        }
         _uiState.value = _uiState.value.copy(playingChannel = null)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        _miniPlayer?.release()
+        _miniPlayer = null
     }
 
     // ── Group reorder ───────────────────────────────────────────

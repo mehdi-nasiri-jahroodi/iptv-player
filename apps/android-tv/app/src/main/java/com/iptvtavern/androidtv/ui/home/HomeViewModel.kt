@@ -9,10 +9,9 @@ import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
-import com.iptvtavern.androidtv.domain.model.Playlist
+import com.iptvtavern.androidtv.domain.model.ChannelSnapshot
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.parser.EpgParser
-import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,8 +24,8 @@ import javax.inject.Inject
 /**
  * Home screen state — catalog counts, active source, and continue-watching channels.
  *
- * Similar to the web's home.tsx which shows CatalogTiles with counts
- * and a source switcher.
+ * Home never loads full catalog slices. Counts come from `meta.json`; recents
+ * and continue-watching use stored display snapshots / watched metadata.
  */
 data class HomeUiState(
     val isLoading: Boolean = true,
@@ -35,7 +34,7 @@ data class HomeUiState(
     val liveCount: Int = 0,
     val vodCount: Int = 0,
     val seriesCount: Int = 0,
-    val recentChannels: List<Channel> = emptyList(),
+    val recentChannels: List<ChannelSnapshot> = emptyList(),
     /** Items with playback progress (VOD/episodes not yet completed). */
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val error: String? = null,
@@ -45,9 +44,12 @@ data class HomeUiState(
 
 /**
  * A VOD or series episode with its saved playback progress.
+ * Display fields are persisted — no catalog lookup on Home.
  */
 data class ContinueWatchingItem(
-    val channel: Channel,
+    val channelId: String,
+    val name: String,
+    val imageUrl: String?,
     val positionMs: Long,
     val durationMs: Long,
     /** 0.0–1.0 progress fraction. */
@@ -65,7 +67,6 @@ class HomeViewModel @Inject constructor(
     private val sourceRepository: SourceRepository,
     private val profileRepository: ProfileRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val xtreamCache: XtreamCache,
     private val epgRepository: EpgRepository,
     private val watchedRepository: WatchedRepository,
     private val playlistManager: PlaylistManager,
@@ -74,24 +75,17 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    private var currentPlaylist: Playlist? = null
-
     init {
         viewModelScope.launch {
-            // Combine sources + activeSourceId to react to changes
             combine(
                 sourceRepository.sources,
                 settingsDataStore.activeSourceId,
             ) { sources, activeId ->
                 Pair(sources, activeId)
             }.collect { (sources, activeId) ->
-                // Auto-select first source if none active OR if saved ID is
-                // stale (e.g. DB was wiped by a schema migration but DataStore
-                // still holds the old UUID).
                 val matchedSource = activeId?.let { id -> sources.find { it.id == id } }
                 val activeSource = matchedSource ?: sources.firstOrNull()
 
-                // Persist correction so the stale-ID path doesn't repeat
                 if (activeSource != null && activeSource.id != activeId) {
                     settingsDataStore.setActiveSourceId(activeSource.id)
                 }
@@ -119,16 +113,20 @@ class HomeViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
         try {
-            val playlist = playlistManager.getPlaylist()
-            if (playlist != null) {
-                applyPlaylist(playlist)
-                // Load EPG spotlight in background
-                viewModelScope.launch { loadEpgSpotlight(source) }
-            } else {
+            val meta = playlistManager.ensureCatalogMeta()
+            if (meta == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = "Could not load channels from source.",
                 )
+                return
+            }
+
+            applyCatalogMeta(meta)
+
+            val profile = profileRepository.getDefaultProfile()
+            if (profile.favorites.isNotEmpty()) {
+                viewModelScope.launch { loadEpgSpotlight(source) }
             }
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
@@ -138,58 +136,34 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun applyPlaylist(playlist: Playlist) {
-        currentPlaylist = playlist
-
-        var live = 0
-        var vod = 0
-        var series = 0
-        for (group in playlist.groups) {
-            for (channel in group.channels) {
-                when (channel) {
-                    is Channel.Live -> live++
-                    is Channel.Vod -> vod++
-                    is Channel.Series -> series++
-                }
-            }
-        }
-
-        // Build recent channels from profile
+    private suspend fun applyCatalogMeta(meta: com.iptvtavern.androidtv.data.repository.PlaylistCacheStore.CatalogMeta) {
         val profile = profileRepository.getDefaultProfile()
-        val allChannels = playlist.groups.flatMap { it.channels }
-        val channelMap = allChannels.associateBy { it.id }
-        val recents = profile.recents.take(5).mapNotNull { channelMap[it] }
-            .distinctBy { it.id }
+        val recents = profile.recentSnapshots.take(5)
 
-        // Build "Continue Watching" from watched progress
         val sourceId = _uiState.value.activeSource?.id
         val continueItems = if (sourceId != null) {
             val watched = watchedRepository.getRecentInProgress(sourceId, 10)
             watched.mapNotNull { w ->
-                // For series episodes, resolve to the series channel
-                val channel = if (w.parentSeriesId != null) {
-                    channelMap[w.parentSeriesId]
-                } else {
-                    channelMap[w.channelId]
-                }
-                if (channel == null) return@mapNotNull null
                 val progress = if (w.durationMs > 0) {
                     (w.positionMs.toFloat() / w.durationMs).coerceIn(0f, 1f)
                 } else 0f
+                val name = w.channelName.ifBlank { w.channelId }
                 ContinueWatchingItem(
-                    channel = channel,
+                    channelId = w.channelId,
+                    name = name,
+                    imageUrl = w.imageUrl,
                     positionMs = w.positionMs,
                     durationMs = w.durationMs,
                     progress = progress,
                 )
-            }.distinctBy { it.channel.id } // dedupe series that have multiple in-progress episodes
+            }.distinctBy { it.channelId }
         } else emptyList()
 
         _uiState.value = _uiState.value.copy(
             isLoading = false,
-            liveCount = live,
-            vodCount = vod,
-            seriesCount = series,
+            liveCount = meta.liveCount,
+            vodCount = meta.vodCount,
+            seriesCount = meta.seriesCount,
             recentChannels = recents,
             continueWatchingItems = continueItems,
             error = null,
@@ -198,7 +172,6 @@ class HomeViewModel @Inject constructor(
 
     fun switchSource(sourceId: String) {
         viewModelScope.launch {
-            // Drop any cached parsed playlist for the previous source
             playlistManager.invalidateMemoryCache()
             settingsDataStore.setActiveSourceId(sourceId)
         }
@@ -209,15 +182,28 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
-                val playlist = playlistManager.refreshPlaylist()
-                if (playlist != null) {
-                    applyPlaylist(playlist)
-                    viewModelScope.launch { loadEpgSpotlight(source) }
-                } else {
+                playlistManager.invalidateMemoryCache()
+                val ok = playlistManager.refreshPlaylist()
+                if (!ok) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "Refresh failed.",
+                        error = "Refresh failed. Check your connection and try again.",
                     )
+                    return@launch
+                }
+
+                val meta = playlistManager.getCatalogMeta()
+                if (meta == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "Refresh failed. Could not read updated catalog.",
+                    )
+                    return@launch
+                }
+
+                applyCatalogMeta(meta)
+                if (profileRepository.getDefaultProfile().favorites.isNotEmpty()) {
+                    viewModelScope.launch { loadEpgSpotlight(source) }
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -229,20 +215,19 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Load EPG data and build a spotlight of favorite live channels
-     * showing what's currently on.
+     * Load EPG and build spotlight — loads only the live slice for favorite channels.
      */
     private suspend fun loadEpgSpotlight(source: Source) {
         epgRepository.loadForSource(source)
         val guide = epgRepository.guide ?: return
-        val playlist = currentPlaylist ?: return
+        val liveGroups = playlistManager.getLiveGroups() ?: return
         val profile = profileRepository.getDefaultProfile()
         val favSet = profile.favorites.toSet()
 
-        val liveChannels = playlist.groups.flatMap { it.channels }
+        val liveChannels = liveGroups.flatMap { it.channels }
             .filterIsInstance<Channel.Live>()
             .filter { it.id in favSet && it.tvgId != null }
-            .take(8) // limit spotlight items
+            .take(8)
 
         val items = liveChannels.mapNotNull { ch ->
             val programs = guide.programsByChannelId[ch.tvgId] ?: return@mapNotNull null

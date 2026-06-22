@@ -261,15 +261,17 @@ object XtreamClient {
     ): Channel.Live? {
         val streamId = jsonElementToInt(raw.streamId) ?: return null
         val tvArchive = jsonElementToInt(raw.tvArchive)
+        val direct = asUrl(raw.directSource)
         return Channel.Live(
             id = "xtream:live:$streamId",
             name = raw.name,
             groupTitle = categoryMap[raw.categoryId] ?: "Ungrouped",
-            streamUrl = buildLiveStreamUrl(credentials, streamId),
+            streamUrl = direct ?: buildLiveStreamUrl(credentials, streamId, extension = "ts"),
             logoUrl = asUrl(raw.streamIcon),
             tvgId = raw.epgChannelId?.takeIf { it.isNotBlank() },
             catchupDays = if (tvArchive != null && tvArchive > 0) tvArchive else null,
             xtreamStreamId = streamId,
+            directSourceUrl = direct,
         )
     }
 
@@ -438,17 +440,43 @@ object XtreamClient {
         val liveCatMap = categoryMap(liveCategories)
         val vodCatMap = categoryMap(vodCategories)
         val seriesCatMap = categoryMap(seriesCategories)
-
-        val liveChannels = liveStreams.mapNotNull { toLiveChannel(credentials, it, liveCatMap) }
-        val vodChannels = vodStreams.mapNotNull { toVodChannel(credentials, it, vodCatMap) }
-        val seriesChannels = seriesList.mapNotNull { toSeriesChannel(it, seriesCatMap) }
         onStepDone?.invoke(6)
 
-        // Step 7 — organize into groups by category
+        // Step 7 — organize into groups by category (id-keyed — names can repeat)
         val groups = mutableListOf<ChannelGroup>()
-        groups.addAll(buildGroups("live", GroupKind.live, liveCategories, liveChannels, sourceId))
-        groups.addAll(buildGroups("vod", GroupKind.vod, vodCategories, vodChannels, sourceId))
-        groups.addAll(buildGroups("series", GroupKind.series, seriesCategories, seriesChannels, sourceId))
+        groups.addAll(
+            buildGroupsByCategoryId(
+                kindPrefix = "live",
+                kind = GroupKind.live,
+                categories = liveCategories,
+                items = liveStreams.mapNotNull { raw ->
+                    toLiveChannel(credentials, raw, liveCatMap)?.let { raw.categoryId to it }
+                },
+                sourceId = sourceId,
+            ),
+        )
+        groups.addAll(
+            buildGroupsByCategoryId(
+                kindPrefix = "vod",
+                kind = GroupKind.vod,
+                categories = vodCategories,
+                items = vodStreams.mapNotNull { raw ->
+                    toVodChannel(credentials, raw, vodCatMap)?.let { raw.categoryId to it }
+                },
+                sourceId = sourceId,
+            ),
+        )
+        groups.addAll(
+            buildGroupsByCategoryId(
+                kindPrefix = "series",
+                kind = GroupKind.series,
+                categories = seriesCategories,
+                items = seriesList.mapNotNull { raw ->
+                    toSeriesChannel(raw, seriesCatMap)?.let { raw.categoryId to it }
+                },
+                sourceId = sourceId,
+            ),
+        )
         onStepDone?.invoke(7)
 
         Playlist(
@@ -460,47 +488,77 @@ object XtreamClient {
 
     // ── Helpers ──────────────────────────────────────────────────
 
-    private fun buildGroups(
+    /**
+     * Build groups keyed by Xtream [category_id], not display name.
+     * Providers often repeat category names; slugifying names produced duplicate
+     * group ids and crashed Compose lazy lists.
+     */
+    private fun buildGroupsByCategoryId(
         kindPrefix: String,
         kind: GroupKind,
         categories: List<XtreamCategory>,
-        channels: List<Channel>,
+        items: List<Pair<String?, Channel>>,
         sourceId: String,
     ): List<ChannelGroup> {
-        val byGroup = mutableMapOf<String, MutableList<Channel>>()
-        for (ch in channels) {
-            byGroup.getOrPut(ch.groupTitle) { mutableListOf() }.add(ch)
+        val byCatId = mutableMapOf<String, MutableList<Channel>>()
+        for ((catId, channel) in items) {
+            val key = catId?.takeIf { it.isNotBlank() } ?: UNGROUPED_KEY
+            byCatId.getOrPut(key) { mutableListOf() }.add(channel)
         }
 
         val ordered = mutableListOf<ChannelGroup>()
-        val seen = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
 
-        // Preserve category order from provider
         for (cat in categories) {
-            val list = byGroup[cat.categoryName]
-            if (list != null && list.isNotEmpty()) {
-                ordered.add(ChannelGroup(
-                    id = "$sourceId:$kindPrefix:${slugify(cat.categoryName)}",
+            val catId = cat.categoryId?.takeIf { it.isNotBlank() } ?: continue
+            val list = byCatId[catId] ?: continue
+            if (list.isEmpty()) continue
+            val groupId = "$sourceId:$kindPrefix:$catId"
+            if (!seenIds.add(groupId)) continue
+            ordered.add(
+                ChannelGroup(
+                    id = groupId,
                     name = cat.categoryName,
                     kind = kind,
                     channels = list,
-                ))
-                seen.add(cat.categoryName)
+                ),
+            )
+        }
+
+        byCatId[UNGROUPED_KEY]?.takeIf { it.isNotEmpty() }?.let { list ->
+            val groupId = "$sourceId:$kindPrefix:ungrouped"
+            if (seenIds.add(groupId)) {
+                ordered.add(
+                    ChannelGroup(
+                        id = groupId,
+                        name = "Ungrouped",
+                        kind = kind,
+                        channels = list,
+                    ),
+                )
             }
         }
-        // Append ungrouped
-        for ((name, list) in byGroup) {
-            if (name !in seen) {
-                ordered.add(ChannelGroup(
-                    id = "$sourceId:$kindPrefix:${slugify(name)}",
-                    name = name,
-                    kind = kind,
-                    channels = list,
-                ))
+
+        // Channels whose category_id is missing from the categories list
+        for ((catId, list) in byCatId) {
+            if (catId == UNGROUPED_KEY || list.isEmpty()) continue
+            val groupId = "$sourceId:$kindPrefix:$catId"
+            if (seenIds.add(groupId)) {
+                ordered.add(
+                    ChannelGroup(
+                        id = groupId,
+                        name = list.first().groupTitle,
+                        kind = kind,
+                        channels = list,
+                    ),
+                )
             }
         }
+
         return ordered
     }
+
+    private const val UNGROUPED_KEY = "__ungrouped__"
 
     private fun categoryMap(categories: List<XtreamCategory>): Map<String, String> {
         return categories.associate { (it.categoryId ?: "") to it.categoryName }

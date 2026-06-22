@@ -43,29 +43,29 @@ fun AppNavHost(
             )
         }
 
-        composable(
-            route = Routes.BROWSE,
-            arguments = listOf(navArgument("kind") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val kind = backStackEntry.arguments?.getString("kind") ?: "live"
-            when (kind) {
-                "vod" -> VodBrowseScreen(
-                    onNavigateToPlayer = { channelId ->
-                        navController.navigate(Routes.play(channelId))
-                    },
-                )
-                "series" -> SeriesBrowseScreen(
-                    onNavigateToPlayer = { channelId ->
-                        navController.navigate(Routes.play(channelId))
-                    },
-                )
-                else -> BrowseScreen(
-                    kind = kind,
-                    onNavigateToPlayer = { channelId ->
-                        navController.navigate(Routes.play(channelId))
-                    },
-                )
-            }
+        composable(Routes.BROWSE_LIVE) {
+            BrowseScreen(
+                kind = "live",
+                onNavigateToPlayer = { channelId ->
+                    navController.navigate(Routes.play(channelId))
+                },
+            )
+        }
+
+        composable(Routes.BROWSE_VOD) {
+            VodBrowseScreen(
+                onNavigateToPlayer = { channelId ->
+                    navController.navigate(Routes.play(channelId))
+                },
+            )
+        }
+
+        composable(Routes.BROWSE_SERIES) {
+            SeriesBrowseScreen(
+                onNavigateToPlayer = { channelId ->
+                    navController.navigate(Routes.play(channelId))
+                },
+            )
         }
 
         composable(

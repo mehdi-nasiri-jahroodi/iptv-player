@@ -23,8 +23,8 @@ android {
         applicationId = "com.iptvtavern.androidtv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 7
+        versionName = "0.1.6"
 
         // Inject secrets as BuildConfig fields — readable in Kotlin, not in git
         buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${localProps["TELEGRAM_BOT_TOKEN"] ?: ""}\"")
@@ -112,12 +112,14 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Media3 / ExoPlayer — video playback
-    val media3Version = "1.5.1"
+    val media3Version = "1.5.0"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
+    // MP2 / AC3 / EAC3 — common on IPTV live feeds (e.g. IRIB); not in Android MediaCodec.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1")
 
     // Compose Material Icons (for sidebar icons)
     implementation("androidx.compose.material:material-icons-extended")

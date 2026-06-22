@@ -23,7 +23,8 @@ class IptvTavernApp : Application() {
             if (isComposeScrollCrash) {
                 Log.e(TAG, "Suppressed Compose scroll crash", throwable)
             } else {
-                CrashReporter.report(throwable, this@IptvTavernApp)
+                // Block until Telegram/file write finish — process exits right after.
+                CrashReporter.report(throwable, this@IptvTavernApp, blocking = true)
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }

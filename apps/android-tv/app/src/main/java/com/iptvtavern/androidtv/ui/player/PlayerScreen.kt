@@ -101,8 +101,10 @@ fun PlayerScreen(
     // Auto-hide overlay after 5 seconds — runs even when controls are
     // focused so the user never has to manually unfocus before the timer
     // starts. Resets on every showOverlay toggle.
-    LaunchedEffect(uiState.showOverlay, uiState.error) {
-        if (uiState.showOverlay && uiState.error == null) {
+    LaunchedEffect(uiState.showOverlay, uiState.error, uiState.isLoading, uiState.isBuffering) {
+        if (uiState.showOverlay && uiState.error == null &&
+            !uiState.isLoading && !uiState.isBuffering
+        ) {
             delay(5000)
             overlayControlFocused = false
             overlayWantsFocus = false
@@ -263,7 +265,7 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Loading…",
+                    text = if (uiState.isVod) "Loading movie…" else "Loading…",
                     color = Color.White,
                     fontSize = 20.sp,
                 )
@@ -354,15 +356,19 @@ private fun ControlsOverlay(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = uiState.channelName,
+                    text = uiState.channelName.ifBlank {
+                        if (uiState.isVod) "Loading movie…" else "Loading channel…"
+                    },
                     color = Color.White,
                     fontSize = 22.sp,
                 )
-                Text(
-                    text = "Channel ${uiState.channelIndex + 1} / ${uiState.totalChannels}",
-                    color = Color(0xAAFFFFFF),
-                    fontSize = 14.sp,
-                )
+                if (!uiState.isVod) {
+                    Text(
+                        text = "Channel ${uiState.channelIndex + 1} / ${uiState.totalChannels}",
+                        color = Color(0xAAFFFFFF),
+                        fontSize = 14.sp,
+                    )
+                }
                 // EPG now/next
                 if (uiState.epgNowTitle != null) {
                     Text(
@@ -522,27 +528,28 @@ private fun ControlsOverlay(
                 } // end if subtitleTracks
             } // end of focus-tracked Column
 
-            // Color button hints
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Green = previous channel
+            // Color button hints (live only)
+            if (!uiState.isVod) {
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .background(Color(0xFF22C55E), CircleShape),
-                    )
-                    Text(
-                        text = "Previous channel",
-                        color = Color(0xAAFFFFFF),
-                        fontSize = 12.sp,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .background(Color(0xFF22C55E), CircleShape),
+                        )
+                        Text(
+                            text = "Previous channel",
+                            color = Color(0xAAFFFFFF),
+                            fontSize = 12.sp,
+                        )
+                    }
                 }
             }
         }
