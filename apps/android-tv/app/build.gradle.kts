@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+}
+
+// Load local.properties (never committed — holds secrets)
+val localProps = Properties().also { props ->
+    val file = rootProject.file("local.properties")
+    if (file.exists()) props.load(file.inputStream())
 }
 
 android {
@@ -17,6 +25,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // Inject secrets as BuildConfig fields — readable in Kotlin, not in git
+        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${localProps["TELEGRAM_BOT_TOKEN"] ?: ""}\"")
+        buildConfigField("String", "TELEGRAM_CHAT_ID", "\"${localProps["TELEGRAM_CHAT_ID"] ?: ""}\"")
 
         // Room schema export for migration tracking
         ksp {
@@ -45,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
