@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,15 +33,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,6 +55,7 @@ import com.iptvtavern.androidtv.domain.model.AppTheme
 import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
+import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import java.time.Instant
 import java.time.ZoneId
@@ -63,6 +70,13 @@ fun SettingsScreen(
 ) {
     val colors = LuminaTheme.colors
     val uiState by viewModel.uiState.collectAsState()
+    val navBarFocusRequester = LocalNavBarFocusRequester.current
+    // Anchor for the first interactive element (Profile "Edit"). Spatial focus
+    // search coming Down from the top tab bar can overshoot this small button
+    // (it sits on the left while the Settings tab is on the right) and land on
+    // the second row, so we pull focus here whenever focus enters the content.
+    val profileFocusRequester = remember { FocusRequester() }
+    var contentHasFocus by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onNavigateBack)
 
@@ -70,6 +84,17 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
+            .onFocusChanged { state ->
+                val nowHasFocus = state.hasFocus
+                if (nowHasFocus && !contentHasFocus && !uiState.isEditingName) {
+                    // Focus just entered the settings content from outside
+                    // (e.g. D-pad Down from the top tab bar). Route it to the
+                    // first interactive element instead of letting spatial
+                    // search overshoot to a lower row.
+                    try { profileFocusRequester.requestFocus() } catch (_: Throwable) {}
+                }
+                contentHasFocus = nowHasFocus
+            }
             .padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
@@ -82,18 +107,27 @@ fun SettingsScreen(
             )
         }
 
-        // About + Profile side-by-side
+        // Profile + About side-by-side
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max)
+                    .onPreviewKeyEvent { event ->
+                        // D-pad Up from the top row jumps reliably to the top tab bar.
+                        // Default spatial focus search is flaky here because of the
+                        // intrinsic-height boxes, so handle it explicitly. Skip while
+                        // editing the profile name so caret/IME Up stays unaffected.
+                        if (!uiState.isEditingName &&
+                            event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionUp
+                        ) {
+                            try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // About
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    SettingsSection(title = "About", fillHeight = true) {
-                        SettingsRow(label = "Version", value = BuildConfig.VERSION_NAME)
-                    }
-                }
                 // Profile
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     SettingsSection(title = "Profile", fillHeight = true) {
@@ -116,9 +150,16 @@ fun SettingsScreen(
                                     onClick = { viewModel.startEditingName() },
                                     variant = ButtonVariant.Secondary,
                                     size = ButtonSize.Small,
+                                    modifier = Modifier.focusRequester(profileFocusRequester),
                                 )
                             }
                         }
+                    }
+                }
+                // About
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    SettingsSection(title = "About", fillHeight = true) {
+                        SettingsRow(label = "Version", value = BuildConfig.VERSION_NAME)
                     }
                 }
             }
@@ -342,6 +383,13 @@ private fun ProfileNameEditor(
                 fontSize = 16.sp,
             ),
             cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(
+                // IME "Done" saves — same pattern as the onboarding profile step.
+                // Without this the key is dead and the user must Back out then
+                // D-pad to the Save button.
+                onDone = { onSave(text) },
+            ),
             modifier = Modifier
                 .weight(1f)
                 .background(colors.background, RoundedCornerShape(8.dp))
@@ -512,6 +560,7 @@ fun FocusableButton(
     modifier: Modifier = Modifier,
     variant: ButtonVariant = ButtonVariant.Primary,
     size: ButtonSize = ButtonSize.Normal,
+    onFocus: ((Boolean) -> Unit)? = null,
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -552,7 +601,10 @@ fun FocusableButton(
                 shape = RoundedCornerShape(8.dp),
             )
             .padding(horizontal = hPad, vertical = vPad)
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                onFocus?.invoke(it.isFocused)
+            }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.DirectionCenter || event.key == Key.Enter)

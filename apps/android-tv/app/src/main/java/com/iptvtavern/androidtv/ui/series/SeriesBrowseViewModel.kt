@@ -65,6 +65,8 @@ data class SeriesUiState(
     /** Set of episode IDs that have been watched (completed). */
     val watchedEpisodeIds: Set<String> = emptySet(),
     val isFilteringGroup: Boolean = false,
+    /** When true, skip stealing focus to the grid after a group filter ends — used by group-sort changes so focus stays on the sort button. */
+    val suppressGridFocus: Boolean = false,
     val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
     val groupSortDir: GroupSortDir = GroupSortDir.ASC,
 )
@@ -219,12 +221,46 @@ class SeriesBrowseViewModel @Inject constructor(
 
     fun setGroupSortKey(key: GroupSortKey) {
         _uiState.value = _uiState.value.copy(groupSortKey = key)
-        recomputeFilteredGroups()
+        applyGroupSort()
     }
 
     fun setGroupSortDir(dir: GroupSortDir) {
         _uiState.value = _uiState.value.copy(groupSortDir = dir)
-        recomputeFilteredGroups()
+        applyGroupSort()
+    }
+
+    /**
+     * Re-sort the groups sidebar and jump to the first group of the new order so
+     * the new order is immediately visible. Unlike a plain group switch, this
+     * keeps focus on the sort button: it sets [SeriesUiState.suppressGridFocus]
+     * so the screen's filter-end effect skips the grid focus steal.
+     */
+    private fun applyGroupSort() {
+        val state = _uiState.value
+        val allDisplayGroups = state.groups
+        val query = state.groupSearchQuery
+        val filtered = if (query.isBlank()) {
+            allDisplayGroups
+        } else {
+            val lower = query.lowercase()
+            allDisplayGroups.filter {
+                it.id.startsWith("__") || it.name.lowercase().contains(lower)
+            }
+        }
+        val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
+
+        _uiState.value = state.copy(
+            filteredGroups = sorted,
+            selectedGroupIndex = 0,
+            suppressGridFocus = true,
+        )
+        selectGroup(0)
+    }
+
+    fun clearSuppressGridFocus() {
+        if (_uiState.value.suppressGridFocus) {
+            _uiState.value = _uiState.value.copy(suppressGridFocus = false)
+        }
     }
 
     private fun recomputeFilteredGroups() {
@@ -243,12 +279,27 @@ class SeriesBrowseViewModel @Inject constructor(
 
         val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
 
-        _uiState.value = state.copy(
-            filteredGroups = sorted,
-            selectedGroupIndex = 0,
-            channels = emptyList(),
-        )
-        selectGroup(0)
+        // Keep the current selection stable by id so changing sort order (or
+        // refining the group filter) doesn't reset the user to group 0 or steal
+        // focus to the grid. Only reload when the previously selected group is
+        // no longer visible.
+        val previouslySelectedId = state.filteredGroups
+            .getOrNull(state.selectedGroupIndex)?.id
+        val newIndex = sorted.indexOfFirst { it.id == previouslySelectedId }
+
+        if (newIndex >= 0) {
+            _uiState.value = state.copy(
+                filteredGroups = sorted,
+                selectedGroupIndex = newIndex,
+            )
+        } else {
+            _uiState.value = state.copy(
+                filteredGroups = sorted,
+                selectedGroupIndex = 0,
+                channels = emptyList(),
+            )
+            selectGroup(0)
+        }
     }
 
     private fun recomputeChannels() {
@@ -340,6 +391,13 @@ class SeriesBrowseViewModel @Inject constructor(
             val current = _uiState.value.favorites.toMutableSet()
             if (channelId in current) current.remove(channelId) else current.add(channelId)
 
+            // Keep the selection stable by group id: adding/removing the first
+            // favorite inserts/removes the "Favorites" group at the top, which
+            // shifts every index. Matching by id avoids jumping onto the new
+            // Favorites group by accident.
+            val previouslySelectedId = _uiState.value.filteredGroups
+                .getOrNull(_uiState.value.selectedGroupIndex)?.id
+
             val displayGroups = buildDisplayGroups(catalogGroups, current)
             val groupQuery = _uiState.value.groupSearchQuery
             val filtered = if (groupQuery.isBlank()) {
@@ -350,15 +408,34 @@ class SeriesBrowseViewModel @Inject constructor(
                     it.id.startsWith("__") || it.name.lowercase().contains(lower)
                 }
             }
-            val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
 
+            val newIndex = filtered.indexOfFirst { it.id == previouslySelectedId }
+                .let { if (it >= 0) it else _uiState.value.selectedGroupIndex.coerceIn(filtered.indices) }
+
+            // Do NOT call selectGroup(): it reloads the whole grid and clears
+            // detailChannel, which closes an open detail modal. Only the visible
+            // channel set of the Favorites group changes on a toggle, so refresh
+            // that list in place while preserving detailChannel.
             _uiState.value = _uiState.value.copy(
                 favorites = current,
                 groups = displayGroups,
                 filteredGroups = filtered,
-                selectedGroupIndex = groupIndex,
+                selectedGroupIndex = newIndex,
             )
-            selectGroup(groupIndex)
+
+            if (previouslySelectedId == "__favorites__") {
+                val favGroup = filtered.getOrNull(newIndex)
+                if (favGroup != null) {
+                    val seriesChannels = withContext(Dispatchers.Default) {
+                        channelsForGroup(favGroup)
+                    }
+                    loadedGroupChannels = seriesChannels
+                    val refreshed = withContext(Dispatchers.Default) {
+                        filterChannels(seriesChannels)
+                    }
+                    _uiState.value = _uiState.value.copy(channels = refreshed)
+                }
+            }
         }
     }
 }

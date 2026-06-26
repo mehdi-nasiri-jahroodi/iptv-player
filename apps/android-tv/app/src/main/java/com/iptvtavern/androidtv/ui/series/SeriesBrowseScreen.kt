@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -147,16 +148,29 @@ fun SeriesBrowseScreen(
         if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
             hasStartedFiltering = false
             gridState.scrollToItem(0)
-            delay(100)
-            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+            // Group-sort changes keep focus on the sort button.
+            if (!uiState.suppressGridFocus) {
+                delay(100)
+                try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+            }
+            viewModel.clearSuppressGridFocus()
         }
     }
 
     // Focus the first season tab when modal appears
     LaunchedEffect(showDetailModal) {
-        if (showDetailModal) {
-            delay(150)
-            try { modalFocusRequester.requestFocus() } catch (_: Throwable) {}
+        if (!showDetailModal) return@LaunchedEffect
+        // The modal content lives inside AnimatedVisibility, so the focus
+        // target may not be composed/laid out on the first frame. Retry until
+        // focus lands on it — otherwise focus stays on the grid behind the
+        // overlay (the reported "focus stays below the modal" bug).
+        repeat(10) {
+            try {
+                modalFocusRequester.requestFocus()
+                return@LaunchedEffect
+            } catch (_: Throwable) {
+                delay(60)
+            }
         }
     }
 
@@ -330,6 +344,12 @@ private fun SeriesDetailModal(
     val colors = LuminaTheme.colors
     if (channel == null) return
 
+    // Focus-trap state: track which season tab and which action button hold
+    // focus so we can block D-pad moves that would escape the modal to the
+    // grid behind the overlay.
+    var focusedSeasonIndex by remember { mutableStateOf(0) }
+    var focusedActionIndex by remember { mutableStateOf(0) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -420,7 +440,20 @@ private fun SeriesDetailModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 4.dp)
+                            .onPreviewKeyEvent { event ->
+                                // Trap focus: nothing is above the tabs, and the
+                                // grid sits behind the overlay, so block Up
+                                // entirely plus Left/Right at the row edges.
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionUp -> true
+                                    Key.DirectionDown -> episodes.isEmpty()
+                                    Key.DirectionLeft -> focusedSeasonIndex == 0
+                                    Key.DirectionRight -> focusedSeasonIndex == seasons.lastIndex
+                                    else -> false
+                                }
+                            },
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         seasons.forEachIndexed { index, season ->
@@ -449,7 +482,10 @@ private fun SeriesDetailModal(
                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                                     .onFocusChanged {
                                         isFocused = it.isFocused
-                                        if (it.isFocused) onSelectSeason(index)
+                                        if (it.isFocused) {
+                                            focusedSeasonIndex = index
+                                            onSelectSeason(index)
+                                        }
                                     }
                                     .focusable(),
                             ) {
@@ -472,7 +508,18 @@ private fun SeriesDetailModal(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(top = 4.dp),
+                                .padding(top = 4.dp)
+                                .onPreviewKeyEvent { event ->
+                                    // No horizontal targets in the episode list —
+                                    // block Left/Right so focus can't escape to the
+                                    // grid behind the overlay. Up/Down stay free to
+                                    // navigate episodes / reach the tabs or actions.
+                                    if (event.type == KeyEventType.KeyDown &&
+                                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                                    ) {
+                                        true
+                                    } else false
+                                },
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             contentPadding = PaddingValues(vertical = 4.dp),
                         ) {
@@ -548,9 +595,23 @@ private fun SeriesDetailModal(
 
                 // Bottom actions
                 Row(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .onPreviewKeyEvent { event ->
+                            // Trap focus: nothing is below the actions, and the
+                            // grid sits behind the overlay. Block Down entirely
+                            // plus Left/Right at the row edges.
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> true
+                                Key.DirectionUp -> seasons.isEmpty()
+                                Key.DirectionLeft -> focusedActionIndex == 0
+                                Key.DirectionRight -> focusedActionIndex == 1
+                                else -> false
+                            }
+                        },
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 8.dp),
                 ) {
                     // If no season tabs, put focus requester on the favorite button
                     val favModifier = if (seasons.isEmpty()) Modifier.focusRequester(modalFocusRequester) else Modifier
@@ -561,6 +622,7 @@ private fun SeriesDetailModal(
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
                         modifier = favModifier,
+                        onFocus = { f -> if (f) focusedActionIndex = 0 },
                     )
 
                     FocusableButton(
@@ -568,6 +630,7 @@ private fun SeriesDetailModal(
                         onClick = onDismiss,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
+                        onFocus = { f -> if (f) focusedActionIndex = 1 },
                     )
                 }
             }
@@ -729,16 +792,19 @@ private fun SeriesGroupsSidebar(
 ) {
     val colors = LuminaTheme.colors
     val navBarFocusRequester = LocalNavBarFocusRequester.current
+    // Keep the selected group visible. Keying on the sort params (in addition to
+    // the selection) guarantees this re-runs on every sort change — even when the
+    // selection stays on group 0 — so the new order is shown from the top.
+    val groupListState = rememberLazyListState()
+    LaunchedEffect(selectedIndex, groupSortKey, groupSortDir) {
+        if (selectedIndex in groups.indices) groupListState.scrollToItem(selectedIndex)
+    }
+    // Focus requesters so D-pad Left cycles between the group search field and
+    // the group sort button (instead of escaping to the nav bar from both).
+    val groupSearchFr = remember { FocusRequester() }
+    val groupSortFr = remember { FocusRequester() }
 
-    Column(modifier = modifier
-        .background(colors.surface)
-        .onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                true
-            } else false
-        },
-    ) {
+    Column(modifier = modifier.background(colors.surface)) {
         // Group search + sort
         Row(
             modifier = Modifier.padding(6.dp),
@@ -749,7 +815,15 @@ private fun SeriesGroupsSidebar(
                 value = groupSearchQuery,
                 onValueChange = onGroupSearchChanged,
                 placeholder = "Filter categories…",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(groupSearchFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSortFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
             )
 
             // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
@@ -761,6 +835,13 @@ private fun SeriesGroupsSidebar(
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
+                    .focusRequester(groupSortFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSearchFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    }
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (sortFocused) colors.accent else colors.surface)
                     .border(
@@ -810,7 +891,14 @@ private fun SeriesGroupsSidebar(
         }
 
         LazyColumn(
-            modifier = Modifier.weight(1f).padding(6.dp),
+            state = groupListState,
+            modifier = Modifier.weight(1f).padding(6.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                        true
+                    } else false
+                },
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(groups, key = { _, g -> g.id }) { index, group ->

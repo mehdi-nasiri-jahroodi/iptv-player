@@ -31,10 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -379,6 +381,13 @@ fun TvTextField(
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
+    // On Compose `BasicTextField`, `ImeAction.Next` does NOT auto-advance focus
+    // (unlike the legacy `EditText` + `imeOptions="actionNext"`). Without this,
+    // the IME "Next" key runs a no-op and the keyboard strands on the current
+    // field — the user must press Back to dismiss it, then D-pad Down. We bridge
+    // it by moving focus down the tree; on the last field `moveFocus` returns
+    // false and we clear focus so the IME closes cleanly.
+    val focusManager = LocalFocusManager.current
 
     BasicTextField(
         value = value,
@@ -391,8 +400,16 @@ fun TvTextField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = imeAction),
         keyboardActions = KeyboardActions(
+            onNext = {
+                if (!focusManager.moveFocus(FocusDirection.Down)) {
+                    focusManager.clearFocus()
+                }
+            },
+            onPrevious = { focusManager.moveFocus(FocusDirection.Up) },
             onDone = { onImeAction?.invoke() },
-            onNext = { onImeAction?.invoke() },
+            onGo = { onImeAction?.invoke() },
+            onSearch = { onImeAction?.invoke() },
+            onSend = { onImeAction?.invoke() },
         ),
         decorationBox = { innerTextField ->
             Box(

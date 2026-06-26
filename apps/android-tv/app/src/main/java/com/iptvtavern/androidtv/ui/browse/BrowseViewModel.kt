@@ -66,6 +66,8 @@ data class BrowseUiState(
     val nowNextByTvgId: Map<String, EpgParser.NowNext> = emptyMap(),
     /** Brief loading flag while the channel list is being rebuilt after a group switch. */
     val isFilteringGroup: Boolean = false,
+    /** When true, skip stealing focus to the grid after a group filter ends — used by group-sort changes so focus stays on the sort button. */
+    val suppressGridFocus: Boolean = false,
     /** Sort order for the groups sidebar. */
     val groupSortKey: GroupSortKey = GroupSortKey.DEFAULT,
     val groupSortDir: GroupSortDir = GroupSortDir.ASC,
@@ -323,12 +325,46 @@ class BrowseViewModel @Inject constructor(
 
     fun setGroupSortKey(key: GroupSortKey) {
         _uiState.value = _uiState.value.copy(groupSortKey = key)
-        recomputeFilteredGroups()
+        applyGroupSort()
     }
 
     fun setGroupSortDir(dir: GroupSortDir) {
         _uiState.value = _uiState.value.copy(groupSortDir = dir)
-        recomputeFilteredGroups()
+        applyGroupSort()
+    }
+
+    /**
+     * Re-sort the groups sidebar and jump to the first group of the new order so
+     * the new order is immediately visible. Unlike a plain group switch, this
+     * keeps focus on the sort button: it sets [BrowseUiState.suppressGridFocus]
+     * so the screen's filter-end effect skips the grid focus steal.
+     */
+    private fun applyGroupSort() {
+        val state = _uiState.value
+        val allDisplayGroups = state.groups
+        val query = state.groupSearchQuery
+        val filtered = if (query.isBlank()) {
+            allDisplayGroups
+        } else {
+            val lower = query.lowercase()
+            allDisplayGroups.filter {
+                it.id.startsWith("__") || it.name.lowercase().contains(lower)
+            }
+        }
+        val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
+
+        _uiState.value = state.copy(
+            filteredGroups = sorted,
+            selectedGroupIndex = 0,
+            suppressGridFocus = true,
+        )
+        selectGroup(0)
+    }
+
+    fun clearSuppressGridFocus() {
+        if (_uiState.value.suppressGridFocus) {
+            _uiState.value = _uiState.value.copy(suppressGridFocus = false)
+        }
     }
 
     private fun recomputeFilteredGroups() {
@@ -347,12 +383,27 @@ class BrowseViewModel @Inject constructor(
 
         val sorted = sortGroups(filtered, state.groupSortKey, state.groupSortDir)
 
-        _uiState.value = state.copy(
-            filteredGroups = sorted,
-            selectedGroupIndex = 0,
-            channels = emptyList(),
-        )
-        selectGroup(0)
+        // Keep the current selection stable by id so changing sort order (or
+        // refining the group filter) doesn't reset the user to group 0 or steal
+        // focus to the grid. Only reload when the previously selected group is
+        // no longer visible.
+        val previouslySelectedId = state.filteredGroups
+            .getOrNull(state.selectedGroupIndex)?.id
+        val newIndex = sorted.indexOfFirst { it.id == previouslySelectedId }
+
+        if (newIndex >= 0) {
+            _uiState.value = state.copy(
+                filteredGroups = sorted,
+                selectedGroupIndex = newIndex,
+            )
+        } else {
+            _uiState.value = state.copy(
+                filteredGroups = sorted,
+                selectedGroupIndex = 0,
+                channels = emptyList(),
+            )
+            selectGroup(0)
+        }
     }
 
     private fun filterChannels(channels: List<Channel>, query: String): List<Channel> {
@@ -424,21 +475,33 @@ class BrowseViewModel @Inject constructor(
 
     /**
      * Resume the mini player after returning from fullscreen.
-     * No-op if the player is already playing or no channel is loaded.
+     * Re-prepares the player if it was stopped (clearMediaItems was called).
+     * No-op if no channel is loaded.
      */
     fun resumeMiniPlayer() {
-        if (_miniPlayer != null && _uiState.value.playingChannel != null) {
-            _miniPlayer?.playWhenReady = true
+        val channel = _uiState.value.playingChannel ?: return
+        val player = _miniPlayer ?: return
+        if (player.mediaItemCount == 0) {
+            val url = miniLivePlayback.begin(channel, activeSource)
+            player.apply {
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+                playWhenReady = true
+            }
+        } else {
+            player.playWhenReady = true
         }
     }
 
-    /** Stop the mini player — call before navigating away. */
+    /** Stop the mini player — call before navigating away.
+     *  Releases decoder resources but keeps channel reference
+     *  so mini player can resume on return from full-screen.
+     */
     fun stopMiniPlayer() {
         _miniPlayer?.apply {
             stop()
             clearMediaItems()
         }
-        _uiState.value = _uiState.value.copy(playingChannel = null)
     }
 
     override fun onCleared() {

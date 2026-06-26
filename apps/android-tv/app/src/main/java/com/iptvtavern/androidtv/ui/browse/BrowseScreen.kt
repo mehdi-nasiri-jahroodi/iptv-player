@@ -161,8 +161,12 @@ fun BrowseScreen(
         if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
             hasStartedFiltering = false
             listState.scrollToItem(0)
-            delay(100)
-            try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+            // Group-sort changes keep focus on the sort button.
+            if (!uiState.suppressGridFocus) {
+                delay(100)
+                try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+            }
+            viewModel.clearSuppressGridFocus()
         }
     }
 
@@ -241,15 +245,7 @@ fun BrowseScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(start = 8.dp, end = 16.dp, top = 8.dp)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionLeft
-                        ) {
-                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                            true
-                        } else false
-                    },
+                    .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
                 // Search bar — above mini player so D-pad down goes
                 // straight to the channel table without hitting the keyboard
@@ -263,7 +259,7 @@ fun BrowseScreen(
                         else -> "Search…"
                     },
                     imeAction = ImeAction.Search,
-                    modifier = Modifier.padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 )
 
                 // Mini player row
@@ -273,12 +269,15 @@ fun BrowseScreen(
                         player = viewModel.getMiniPlayer(),
                         onGoFullScreen = {
                             val id = uiState.playingChannel!!.id
-                            viewModel.pauseMiniPlayer()
+                            viewModel.stopMiniPlayer()
                             wentToPlayer = true
                             onNavigateToPlayer(id)
                         },
                         onNavigateDown = {
                             try { channelFocusRequester.requestFocus() } catch (_: Throwable) {}
+                        },
+                        onNavigateLeft = {
+                            try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
                         },
                         modifier = Modifier.focusRequester(miniPlayerFocusRequester),
                     )
@@ -393,6 +392,7 @@ private fun MiniPlayerRow(
     player: ExoPlayer,
     onGoFullScreen: () -> Unit,
     onNavigateDown: () -> Unit = {},
+    onNavigateLeft: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
@@ -419,6 +419,10 @@ private fun MiniPlayerRow(
                         }
                         Key.DirectionDown -> {
                             onNavigateDown()
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            onNavigateLeft()
                             true
                         }
                         else -> false
@@ -745,16 +749,19 @@ private fun GroupsSidebar(
 ) {
     val colors = LuminaTheme.colors
     val navBarFocusRequester = LocalNavBarFocusRequester.current
+    // Keep the selected group visible. Keying on the sort params (in addition to
+    // the selection) guarantees this re-runs on every sort change — even when the
+    // selection stays on group 0 — so the new order is shown from the top.
+    val groupListState = rememberLazyListState()
+    LaunchedEffect(selectedIndex, groupSortKey, groupSortDir) {
+        if (selectedIndex in groups.indices) groupListState.scrollToItem(selectedIndex)
+    }
+    // Focus requesters so D-pad Left cycles between the group search field and
+    // the group sort button (instead of escaping to the nav bar from both).
+    val groupSearchFr = remember { FocusRequester() }
+    val groupSortFr = remember { FocusRequester() }
 
-    Column(modifier = modifier
-        .background(colors.surface)
-        .onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                true
-            } else false
-        },
-    ) {
+    Column(modifier = modifier.background(colors.surface)) {
         // Group search + sort
         Row(
             modifier = Modifier.padding(6.dp),
@@ -765,7 +772,15 @@ private fun GroupsSidebar(
                 value = groupSearchQuery,
                 onValueChange = onGroupSearchChanged,
                 placeholder = "Filter groups…",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(groupSearchFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSortFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
             )
 
             // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
@@ -777,6 +792,13 @@ private fun GroupsSidebar(
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
+                    .focusRequester(groupSortFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSearchFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    }
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (sortFocused) colors.accent else colors.surface)
                     .border(
@@ -843,9 +865,16 @@ private fun GroupsSidebar(
         }
 
         LazyColumn(
+            state = groupListState,
             modifier = Modifier
                 .weight(1f)
-                .padding(6.dp),
+                .padding(6.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                        true
+                    } else false
+                },
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(groups, key = { _, g -> g.id }) { index, group ->

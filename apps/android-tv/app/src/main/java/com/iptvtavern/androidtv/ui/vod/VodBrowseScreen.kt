@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -152,16 +155,29 @@ fun VodBrowseScreen(
         if (!uiState.isFilteringGroup && hasStartedFiltering && uiState.channels.isNotEmpty()) {
             hasStartedFiltering = false
             gridState.scrollToItem(0)
-            delay(100)
-            try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+            // Group-sort changes keep focus on the sort button.
+            if (!uiState.suppressGridFocus) {
+                delay(100)
+                try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+            }
+            viewModel.clearSuppressGridFocus()
         }
     }
 
     // Focus the Watch button when modal appears
     LaunchedEffect(showDetailModal) {
-        if (showDetailModal) {
-            delay(150)
-            try { modalWatchFocusRequester.requestFocus() } catch (_: Throwable) {}
+        if (!showDetailModal) return@LaunchedEffect
+        // The modal content lives inside AnimatedVisibility, so the focus
+        // target may not be composed/laid out on the first frame. Retry until
+        // focus lands on it — otherwise focus stays on the grid behind the
+        // overlay (the reported "focus stays below the modal" bug).
+        repeat(10) {
+            try {
+                modalWatchFocusRequester.requestFocus()
+                return@LaunchedEffect
+            } catch (_: Throwable) {
+                delay(60)
+            }
         }
     }
 
@@ -365,9 +381,15 @@ private fun VodDetailModal(
             // Right: info + actions
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column {
+                // Bounded, scrollable info area so long content (long plot, many
+                // meta lines) never pushes the action buttons out of view or
+                // clips their labels. The action row below stays fully visible.
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     Text(
                         text = channel.name,
                         color = colors.foreground,
@@ -456,8 +478,31 @@ private fun VodDetailModal(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Action buttons at bottom
+                // Focus trap: while the modal is open, D-pad must not escape to
+                // the grid behind the overlay. The only focusables in this modal
+                // live in this row, so intercept vertical moves entirely and
+                // block horizontal moves at the row's edges.
+                var focusedActionIndex by remember { mutableStateOf(0) }
+                var idx = 0
+                val watchIdx = idx++
+                val trailerIdx = if (channel.trailerUrl != null) idx++ else -1
+                val favIdx = idx++
+                val closeIdx = idx++
+                val lastActionIndex = idx - 1
+
                 Row(
+                    modifier = Modifier.onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionUp, Key.DirectionDown -> true
+                            Key.DirectionLeft -> focusedActionIndex == 0
+                            Key.DirectionRight -> focusedActionIndex == lastActionIndex
+                            else -> false
+                        }
+                    },
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -467,6 +512,7 @@ private fun VodDetailModal(
                         variant = ButtonVariant.Primary,
                         size = ButtonSize.Small,
                         modifier = Modifier.focusRequester(watchButtonFocusRequester),
+                        onFocus = { f -> if (f) focusedActionIndex = watchIdx },
                     )
 
                     if (channel.trailerUrl != null) {
@@ -475,6 +521,7 @@ private fun VodDetailModal(
                             onClick = onPlayTrailer,
                             variant = ButtonVariant.Secondary,
                             size = ButtonSize.Small,
+                            onFocus = { f -> if (f) focusedActionIndex = trailerIdx },
                         )
                     }
 
@@ -483,6 +530,7 @@ private fun VodDetailModal(
                         onClick = onToggleFavorite,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
+                        onFocus = { f -> if (f) focusedActionIndex = favIdx },
                     )
 
                     FocusableButton(
@@ -490,6 +538,7 @@ private fun VodDetailModal(
                         onClick = onDismiss,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
+                        onFocus = { f -> if (f) focusedActionIndex = closeIdx },
                     )
                 }
             }
@@ -722,16 +771,19 @@ private fun VodGroupsSidebar(
 ) {
     val colors = LuminaTheme.colors
     val navBarFocusRequester = LocalNavBarFocusRequester.current
+    // Keep the selected group visible. Keying on the sort params (in addition to
+    // the selection) guarantees this re-runs on every sort change — even when the
+    // selection stays on group 0 — so the new order is shown from the top.
+    val groupListState = rememberLazyListState()
+    LaunchedEffect(selectedIndex, groupSortKey, groupSortDir) {
+        if (selectedIndex in groups.indices) groupListState.scrollToItem(selectedIndex)
+    }
+    // Focus requesters so D-pad Left cycles between the group search field and
+    // the group sort button (instead of escaping to the nav bar from both).
+    val groupSearchFr = remember { FocusRequester() }
+    val groupSortFr = remember { FocusRequester() }
 
-    Column(modifier = modifier
-        .background(colors.surface)
-        .onPreviewKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                true
-            } else false
-        },
-    ) {
+    Column(modifier = modifier.background(colors.surface)) {
         // Group search + sort
         Row(
             modifier = Modifier.padding(6.dp),
@@ -742,7 +794,15 @@ private fun VodGroupsSidebar(
                 value = groupSearchQuery,
                 onValueChange = onGroupSearchChanged,
                 placeholder = "Filter categories…",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(groupSearchFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSortFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
             )
 
             // Sort button — Enter cycles: Default → A-Z↑ → A-Z↓ → Size↑ → Size↓ → Default
@@ -754,6 +814,13 @@ private fun VodGroupsSidebar(
             var sortFocused by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
+                    .focusRequester(groupSortFr)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { groupSearchFr.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    }
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (sortFocused) colors.accent else colors.surface)
                     .border(
@@ -804,7 +871,14 @@ private fun VodGroupsSidebar(
         }
 
         LazyColumn(
-            modifier = Modifier.weight(1f).padding(6.dp),
+            state = groupListState,
+            modifier = Modifier.weight(1f).padding(6.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                        true
+                    } else false
+                },
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             itemsIndexed(groups, key = { _, g -> g.id }) { index, group ->
