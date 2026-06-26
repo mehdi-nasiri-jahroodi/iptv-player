@@ -422,8 +422,16 @@ class BrowseViewModel @Inject constructor(
             val current = _uiState.value.favorites.toMutableSet()
             if (channelId in current) current.remove(channelId) else current.add(channelId)
 
+            // Rebuilding display groups can prepend/remove the __favorites__
+            // virtual group, shifting every real group by one index. Track the
+            // selection by id (same approach as recomputeFilteredGroups) so the
+            // visible channel list doesn't jump to a different group.
+            val state = _uiState.value
+            val previouslySelectedId = state.filteredGroups
+                .getOrNull(state.selectedGroupIndex)?.id
+
             val displayGroups = buildDisplayGroups(catalogGroups, current)
-            val groupQuery = _uiState.value.groupSearchQuery
+            val groupQuery = state.groupSearchQuery
             val filtered = if (groupQuery.isBlank()) {
                 displayGroups
             } else {
@@ -432,15 +440,29 @@ class BrowseViewModel @Inject constructor(
                     it.id.startsWith("__") || it.name.lowercase().contains(lower)
                 }
             }
-            val groupIndex = _uiState.value.selectedGroupIndex.coerceIn(filtered.indices)
 
-            _uiState.value = _uiState.value.copy(
-                favorites = current,
-                groups = displayGroups,
-                filteredGroups = filtered,
-                selectedGroupIndex = groupIndex,
-            )
-            selectGroup(groupIndex)
+            val newIndex = filtered.indexOfFirst { it.id == previouslySelectedId }
+
+            if (newIndex >= 0) {
+                // Same group stays selected — keep its channels, no reload/flicker.
+                _uiState.value = state.copy(
+                    favorites = current,
+                    groups = displayGroups,
+                    filteredGroups = filtered,
+                    selectedGroupIndex = newIndex,
+                )
+            } else {
+                // Selected group vanished (e.g. left the Favorites group by
+                // removing its last channel) — fall back to the first group.
+                _uiState.value = state.copy(
+                    favorites = current,
+                    groups = displayGroups,
+                    filteredGroups = filtered,
+                    selectedGroupIndex = 0,
+                    channels = emptyList(),
+                )
+                selectGroup(0)
+            }
         }
     }
 

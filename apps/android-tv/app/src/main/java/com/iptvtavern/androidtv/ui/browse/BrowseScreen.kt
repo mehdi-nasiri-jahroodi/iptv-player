@@ -68,6 +68,9 @@ import com.iptvtavern.androidtv.ui.common.LoadingOverlay
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
+import com.iptvtavern.androidtv.ui.settings.ButtonSize
+import com.iptvtavern.androidtv.ui.settings.ButtonVariant
+import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -267,6 +270,11 @@ fun BrowseScreen(
                     MiniPlayerRow(
                         channel = uiState.playingChannel!!,
                         player = viewModel.getMiniPlayer(),
+                        isFavorite = uiState.playingChannel!!.id in uiState.favorites,
+                        onToggleFavorite = {
+                            viewModel.toggleFavorite(uiState.playingChannel!!.id)
+                        },
+                        rowFocusRequester = miniPlayerFocusRequester,
                         onGoFullScreen = {
                             val id = uiState.playingChannel!!.id
                             viewModel.stopMiniPlayer()
@@ -279,7 +287,6 @@ fun BrowseScreen(
                         onNavigateLeft = {
                             try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
                         },
-                        modifier = Modifier.focusRequester(miniPlayerFocusRequester),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -390,6 +397,9 @@ fun BrowseScreen(
 private fun MiniPlayerRow(
     channel: Channel,
     player: ExoPlayer,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    rowFocusRequester: FocusRequester,
     onGoFullScreen: () -> Unit,
     onNavigateDown: () -> Unit = {},
     onNavigateLeft: () -> Unit = {},
@@ -397,9 +407,11 @@ private fun MiniPlayerRow(
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
+    val favoriteButtonFocusRequester = remember { FocusRequester() }
 
     Row(
         modifier = modifier
+            .focusRequester(rowFocusRequester)
             .fillMaxWidth()
             .height(160.dp)
             .clip(RoundedCornerShape(8.dp))
@@ -415,6 +427,10 @@ private fun MiniPlayerRow(
                     when (event.key) {
                         Key.DirectionCenter, Key.Enter -> {
                             onGoFullScreen()
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            try { favoriteButtonFocusRequester.requestFocus() } catch (_: Throwable) {}
                             true
                         }
                         Key.DirectionDown -> {
@@ -497,21 +513,45 @@ private fun MiniPlayerRow(
                     maxLines = 1,
                 )
             }
-            // Fullscreen button
+            // Action row: fullscreen hint (left) + favorite toggle (right)
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                // Fullscreen hint
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(15.dp)
+                            .background(Color(0xFF2563EB), CircleShape),
+                    )
+                    Text(
+                        text = "⛶",
+                        color = colors.foreground,
+                        fontSize = 20.sp,
+                    )
+                }
+                // Favorite toggle — Left returns focus to the mini player row
                 Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .background(Color(0xFF2563EB), CircleShape),
-                )
-                Text(
-                    text = "⛶",
-                    color = colors.foreground,
-                    fontSize = 20.sp,
-                )
+                    modifier = Modifier.onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                            try { rowFocusRequester.requestFocus() } catch (_: Throwable) {}
+                            true
+                        } else false
+                    },
+                ) {
+                    FocusableButton(
+                        text = if (isFavorite) "★ Unfavorite" else "☆ Favorite",
+                        onClick = onToggleFavorite,
+                        variant = ButtonVariant.Secondary,
+                        size = ButtonSize.Small,
+                        modifier = Modifier.focusRequester(favoriteButtonFocusRequester),
+                    )
+                }
             }
         }
     }
