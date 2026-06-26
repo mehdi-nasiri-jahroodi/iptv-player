@@ -71,6 +71,8 @@ data class PlayerUiState(
     val totalChannels: Int = 0,
     /** True if this is a VOD/seekable stream (not live). */
     val isVod: Boolean = false,
+    /** True only when playing a series episode (drives prev/next episode buttons). */
+    val isSeriesEpisode: Boolean = false,
     /** Current playback position in ms (VOD). */
     val positionMs: Long = 0,
     /** Total duration in ms (VOD). */
@@ -194,6 +196,7 @@ class PlayerViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isLoading = true,
                 isVod = isVodContent,
+                isSeriesEpisode = contentKind == PlayerContentKind.SeriesEpisode,
                 error = null,
                 errorDetails = null,
                 channelIndex = if (isVodContent) 0 else -1,
@@ -499,6 +502,32 @@ class PlayerViewModel @Inject constructor(
         val current = _uiState.value.channelIndex
         if (channelList.isEmpty()) return
         val prev = if (current - 1 < 0) channelList.size - 1 else current - 1
+        viewModelScope.launch {
+            profileRepository.addRecent(channelList[prev])
+        }
+        playChannel(prev)
+    }
+
+    // ── Series episode navigation (bounded, no wrap) ─────────────
+
+    /** Jump to the next episode of the current series. No-op past the last one. */
+    fun playNextEpisode() {
+        if (!_uiState.value.isSeriesEpisode) return
+        val current = _uiState.value.channelIndex
+        val next = current + 1
+        if (next >= channelList.size) return
+        viewModelScope.launch {
+            profileRepository.addRecent(channelList[next])
+        }
+        playChannel(next)
+    }
+
+    /** Jump to the previous episode of the current series. No-op before the first one. */
+    fun playPrevEpisode() {
+        if (!_uiState.value.isSeriesEpisode) return
+        val current = _uiState.value.channelIndex
+        val prev = current - 1
+        if (prev < 0) return
         viewModelScope.launch {
             profileRepository.addRecent(channelList[prev])
         }

@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,23 +18,26 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,8 +57,11 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -75,6 +80,7 @@ import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -164,6 +170,24 @@ fun SeriesBrowseScreen(
         // target may not be composed/laid out on the first frame. Retry until
         // focus lands on it — otherwise focus stays on the grid behind the
         // overlay (the reported "focus stays below the modal" bug).
+        repeat(10) {
+            try {
+                modalFocusRequester.requestFocus()
+                return@LaunchedEffect
+            } catch (_: Throwable) {
+                delay(60)
+            }
+        }
+    }
+
+    // At modal-open time the channel is still a stub with no seasons, so the
+    // effect above focuses the fallback button. Once enrichment finishes and
+    // the season list arrives, move focus to the Episodes button (which then
+    // owns modalFocusRequester).
+    val seasonsAvailable = showDetailModal &&
+        uiState.detailChannel?.seasons?.isNotEmpty() == true
+    LaunchedEffect(seasonsAvailable) {
+        if (!seasonsAvailable) return@LaunchedEffect
         repeat(10) {
             try {
                 modalFocusRequester.requestFocus()
@@ -301,10 +325,7 @@ fun SeriesBrowseScreen(
             isLoading = uiState.detailLoading,
             isFavorite = uiState.detailChannel?.id?.let { it in uiState.favorites } == true,
             seasons = uiState.detailChannel?.seasons.orEmpty(),
-            selectedSeasonIndex = uiState.selectedSeasonIndex,
-            episodes = uiState.episodes,
             watchedEpisodeIds = uiState.watchedEpisodeIds,
-            onSelectSeason = viewModel::selectSeason,
             onPlayEpisode = { episode ->
                 val seriesId = uiState.detailChannel?.id ?: return@SeriesDetailModal
                 onNavigateToPlayer("${seriesId}:ep:${episode.id}")
@@ -332,10 +353,7 @@ private fun SeriesDetailModal(
     isLoading: Boolean,
     isFavorite: Boolean,
     seasons: List<SeriesSeason>,
-    selectedSeasonIndex: Int,
-    episodes: List<SeriesEpisode>,
     watchedEpisodeIds: Set<String>,
-    onSelectSeason: (Int) -> Unit,
     onPlayEpisode: (SeriesEpisode) -> Unit,
     onToggleFavorite: () -> Unit,
     onDismiss: () -> Unit,
@@ -344,11 +362,50 @@ private fun SeriesDetailModal(
     val colors = LuminaTheme.colors
     if (channel == null) return
 
-    // Focus-trap state: track which season tab and which action button hold
-    // focus so we can block D-pad moves that would escape the modal to the
-    // grid behind the overlay.
-    var focusedSeasonIndex by remember { mutableStateOf(0) }
+    // Two modes: Details (poster + info text) and Episodes (poster + the
+    // season/episode accordion). The modal opens in Details; the Episodes
+    // button switches to the accordion to give it the full modal height.
+    var showEpisodesView by remember { mutableStateOf(false) }
+
+    // Accordion state — hoisted so it survives switching between modes.
+    var expandedSeasonIndex by remember { mutableStateOf<Int?>(null) }
+    val headerFocusRequesters = remember(seasons.size) {
+        List(seasons.size) { FocusRequester() }
+    }
+    val scope = rememberCoroutineScope()
+
+    fun collapseToHeader(seasonIdx: Int) {
+        expandedSeasonIndex = null
+        val target = headerFocusRequesters.getOrNull(seasonIdx) ?: return
+        scope.launch {
+            delay(50)
+            try {
+                target.requestFocus()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    // Entering Episodes mode: focus the first season header so the user can
+    // navigate immediately.
+    LaunchedEffect(showEpisodesView) {
+        if (!showEpisodesView || headerFocusRequesters.isEmpty()) return@LaunchedEffect
+        repeat(10) {
+            try {
+                headerFocusRequesters[0].requestFocus()
+                return@LaunchedEffect
+            } catch (_: Throwable) {
+                delay(60)
+            }
+        }
+    }
+
+    // Focus-trap state: track which action button holds focus so we can block
+    // D-pad moves that would escape the modal to the grid behind the overlay.
     var focusedActionIndex by remember { mutableStateOf(0) }
+    val hasSeasons = seasons.isNotEmpty()
+    // [Episodes][Favorite][Close] when there are seasons, else [Favorite][Close].
+    val lastActionIndex = if (hasSeasons) 2 else 1
 
     Box(
         modifier = Modifier
@@ -381,141 +438,27 @@ private fun SeriesDetailModal(
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
             ) {
-                // Title + meta
-                Text(
-                    text = channel.name,
-                    color = colors.foreground,
-                    fontSize = 24.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                val metaParts = mutableListOf<String>()
-                channel.releaseYear?.let { metaParts.add("$it") }
-                channel.rating?.let { r ->
-                    if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
-                }
-                if (seasons.isNotEmpty()) {
-                    metaParts.add("${seasons.size} season${if (seasons.size != 1) "s" else ""}")
-                }
-                if (metaParts.isNotEmpty()) {
-                    Text(
-                        text = metaParts.joinToString(" · "),
-                        color = colors.foregroundMuted,
-                        fontSize = 14.sp,
-                    )
-                }
-
-                channel.genre?.let { g ->
-                    Text(text = g, color = colors.foregroundMuted, fontSize = 13.sp, maxLines = 1)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                channel.plot?.let { p ->
-                    Text(
-                        text = p,
-                        color = colors.foregroundMuted,
-                        fontSize = 13.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                if (isFavorite) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = "★ Favorite", color = colors.danger, fontSize = 13.sp)
-                }
-
-                if (isLoading) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = "Loading details…", color = colors.foregroundMuted, fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Season tabs
-                if (seasons.isNotEmpty()) {
-                    Row(
+                if (showEpisodesView && hasSeasons) {
+                    // ── Episodes mode: only the season/episode accordion ──
+                    val listState = rememberLazyListState()
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(vertical = 4.dp)
-                            .onPreviewKeyEvent { event ->
-                                // Trap focus: nothing is above the tabs, and the
-                                // grid sits behind the overlay, so block Up
-                                // entirely plus Left/Right at the row edges.
-                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionUp -> true
-                                    Key.DirectionDown -> episodes.isEmpty()
-                                    Key.DirectionLeft -> focusedSeasonIndex == 0
-                                    Key.DirectionRight -> focusedSeasonIndex == seasons.lastIndex
-                                    else -> false
-                                }
-                            },
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            .weight(1f),
                     ) {
-                        seasons.forEachIndexed { index, season ->
-                            var isFocused by remember { mutableStateOf(false) }
-                            val isSelected = index == selectedSeasonIndex
-                            val label = season.name ?: "Season ${season.seasonNumber}"
-
-                            Box(
-                                modifier = Modifier
-                                    .then(
-                                        if (index == 0) Modifier.focusRequester(modalFocusRequester) else Modifier
-                                    )
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        when {
-                                            isFocused -> colors.accent
-                                            isSelected -> colors.surfaceRaised
-                                            else -> Color.Transparent
-                                        }
-                                    )
-                                    .border(
-                                        width = if (isSelected && !isFocused) 1.dp else 0.dp,
-                                        color = if (isSelected && !isFocused) colors.border else Color.Transparent,
-                                        shape = RoundedCornerShape(6.dp),
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    .onFocusChanged {
-                                        isFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            focusedSeasonIndex = index
-                                            onSelectSeason(index)
-                                        }
-                                    }
-                                    .focusable(),
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = when {
-                                        isFocused -> colors.accentForeground
-                                        isSelected -> colors.foreground
-                                        else -> colors.foregroundMuted
-                                    },
-                                    fontSize = 13.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    // Episode list
-                    if (episodes.isNotEmpty()) {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(top = 4.dp)
+                                .fillMaxSize()
+                                .padding(top = 4.dp, end = 12.dp)
                                 .onPreviewKeyEvent { event ->
-                                    // No horizontal targets in the episode list —
-                                    // block Left/Right so focus can't escape to the
-                                    // grid behind the overlay. Up/Down stay free to
-                                    // navigate episodes / reach the tabs or actions.
+                                    // Block Right so focus can't escape to the grid
+                                    // behind the overlay. Left reaches the focused
+                                    // item: an episode collapses its accordion, a
+                                    // header just consumes it. (Preview dispatches
+                                    // parent→child, so this runs first.)
                                     if (event.type == KeyEventType.KeyDown &&
-                                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                                        event.key == Key.DirectionRight
                                     ) {
                                         true
                                     } else false
@@ -523,77 +466,111 @@ private fun SeriesDetailModal(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             contentPadding = PaddingValues(vertical = 4.dp),
                         ) {
-                            itemsIndexed(episodes, key = { _, ep -> ep.id }) { _, episode ->
-                                var isFocused by remember { mutableStateOf(false) }
-                                val isWatched = "${channel.id}:ep:${episode.id}" in watchedEpisodeIds
-                                val durationText = episode.durationSeconds?.let { secs ->
-                                    val mins = secs / 60
-                                    if (mins > 0) "${mins}m" else null
+                            val listScope = this
+                            seasons.forEachIndexed { seasonIndex, season ->
+                                listScope.item(key = "season-$seasonIndex") {
+                                    SeasonAccordionHeader(
+                                        season = season,
+                                        isExpanded = expandedSeasonIndex == seasonIndex,
+                                        isTopHeader = seasonIndex == 0,
+                                        focusRequester = headerFocusRequesters.getOrNull(seasonIndex),
+                                        onFocusGained = {
+                                            // Collapse the previously open season when the
+                                            // user moves focus to a different header.
+                                            val open = expandedSeasonIndex
+                                            if (open != null && open != seasonIndex) {
+                                                expandedSeasonIndex = null
+                                            }
+                                        },
+                                        onToggle = {
+                                            // Single-open accordion: toggle this season and
+                                            // close any other that was open.
+                                            expandedSeasonIndex =
+                                                if (expandedSeasonIndex == seasonIndex) null else seasonIndex
+                                        },
+                                    )
                                 }
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (isFocused) colors.accent else Color.Transparent)
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                        .onFocusChanged { isFocused = it.isFocused }
-                                        .onKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown &&
-                                                (event.key == Key.DirectionCenter ||
-                                                    event.key == Key.Enter ||
-                                                    event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
-                                                    event.key == Key.B)
-                                            ) {
-                                                onPlayEpisode(episode)
-                                                true
-                                            } else false
-                                        }
-                                        .focusable(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            text = "E${episode.episodeNumber}",
-                                            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
-                                            fontSize = 12.sp,
-                                        )
-                                        if (isWatched) {
-                                            Text(
-                                                text = "✓",
-                                                color = if (isFocused) colors.accentForeground else colors.accent,
-                                                fontSize = 12.sp,
-                                            )
-                                        }
-                                        Text(
-                                            text = episode.title,
-                                            color = if (isFocused) colors.accentForeground else colors.foreground,
-                                            fontSize = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    durationText?.let {
-                                        Text(
-                                            text = it,
-                                            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
-                                            fontSize = 12.sp,
+                                if (expandedSeasonIndex == seasonIndex) {
+                                    listScope.itemsIndexed(
+                                        season.episodes,
+                                        key = { _, ep -> "s$seasonIndex-${ep.id}" },
+                                    ) { _, episode ->
+                                        EpisodeRow(
+                                            episode = episode,
+                                            isWatched = "${channel.id}:ep:${episode.id}" in watchedEpisodeIds,
+                                            onPlay = { onPlayEpisode(episode) },
+                                            onCollapse = { collapseToHeader(seasonIndex) },
                                         )
                                     }
                                 }
                             }
                         }
+                        // Scroll indicator — only draws when content overflows.
+                        SeriesModalScrollbar(
+                            listState = listState,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .padding(end = 2.dp),
+                        )
                     }
+                } else {
+                    // ── Details mode: info text only (no accordion) ──
+                    Text(
+                        text = channel.name,
+                        color = colors.foreground,
+                        fontSize = 24.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    val metaParts = mutableListOf<String>()
+                    channel.releaseYear?.let { metaParts.add("$it") }
+                    channel.rating?.let { r ->
+                        if (r > 0) metaParts.add("${"%.1f".format(r)} ★")
+                    }
+                    if (hasSeasons) {
+                        metaParts.add("${seasons.size} season${if (seasons.size != 1) "s" else ""}")
+                    }
+                    if (metaParts.isNotEmpty()) {
+                        Text(
+                            text = metaParts.joinToString(" · "),
+                            color = colors.foregroundMuted,
+                            fontSize = 14.sp,
+                        )
+                    }
+
+                    channel.genre?.let { g ->
+                        Text(text = g, color = colors.foregroundMuted, fontSize = 13.sp, maxLines = 1)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    channel.plot?.let { p ->
+                        Text(
+                            text = p,
+                            color = colors.foregroundMuted,
+                            fontSize = 13.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    if (isFavorite) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "★ Favorite", color = colors.danger, fontSize = 13.sp)
+                    }
+
+                    if (isLoading) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "Loading details…", color = colors.foregroundMuted, fontSize = 12.sp)
+                    }
+
+                    // Push the action buttons to the bottom.
+                    Spacer(modifier = Modifier.weight(1f))
                 }
 
-                Spacer(modifier = Modifier.weight(if (seasons.isEmpty() || episodes.isEmpty()) 1f else 0.01f))
-
-                // Bottom actions
+                // ── Bottom actions (both modes) ──
                 Row(
                     modifier = Modifier
                         .padding(top = 8.dp)
@@ -604,25 +581,37 @@ private fun SeriesDetailModal(
                             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                             when (event.key) {
                                 Key.DirectionDown -> true
-                                Key.DirectionUp -> seasons.isEmpty()
+                                // Details mode: nothing focusable above. Episodes
+                                // mode: Up climbs into the accordion.
+                                Key.DirectionUp -> !showEpisodesView
                                 Key.DirectionLeft -> focusedActionIndex == 0
-                                Key.DirectionRight -> focusedActionIndex == 1
+                                Key.DirectionRight -> focusedActionIndex == lastActionIndex
                                 else -> false
                             }
                         },
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // If no season tabs, put focus requester on the favorite button
-                    val favModifier = if (seasons.isEmpty()) Modifier.focusRequester(modalFocusRequester) else Modifier
+                    // Episodes/Details toggle — first button; owns the modal
+                    // entry focus when the series has seasons.
+                    if (hasSeasons) {
+                        FocusableButton(
+                            text = if (showEpisodesView) "◀ Details" else "Episodes ▶",
+                            onClick = { showEpisodesView = !showEpisodesView },
+                            variant = ButtonVariant.Primary,
+                            size = ButtonSize.Small,
+                            modifier = Modifier.focusRequester(modalFocusRequester),
+                            onFocus = { f -> if (f) focusedActionIndex = 0 },
+                        )
+                    }
 
                     FocusableButton(
                         text = if (isFavorite) "★ Unfavorite" else "☆ Favorite",
                         onClick = onToggleFavorite,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
-                        modifier = favModifier,
-                        onFocus = { f -> if (f) focusedActionIndex = 0 },
+                        modifier = if (!hasSeasons) Modifier.focusRequester(modalFocusRequester) else Modifier,
+                        onFocus = { f -> if (f) focusedActionIndex = if (hasSeasons) 1 else 0 },
                     )
 
                     FocusableButton(
@@ -630,11 +619,237 @@ private fun SeriesDetailModal(
                         onClick = onDismiss,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
-                        onFocus = { f -> if (f) focusedActionIndex = 1 },
+                        onFocus = { f -> if (f) focusedActionIndex = lastActionIndex },
                     )
                 }
             }
         }
+    }
+}
+
+// ── Season Accordion Header ────────────────────────────────────
+
+/**
+ * A single season row in the detail-modal accordion. Focusable; pressing OK
+ * toggles expansion. The caller controls single-open behavior via [onToggle]
+ * and collapses the previous season on focus change via [onFocusGained].
+ */
+@Composable
+private fun SeasonAccordionHeader(
+    season: SeriesSeason,
+    isExpanded: Boolean,
+    isTopHeader: Boolean,
+    focusRequester: FocusRequester?,
+    onFocusGained: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+    val label = season.name ?: "Season ${season.seasonNumber}"
+    val episodeCount = season.episodes.size
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                when {
+                    isFocused -> colors.accent
+                    isExpanded -> colors.surfaceRaised
+                    else -> Color.Transparent
+                },
+            )
+            .border(
+                width = if (isExpanded && !isFocused) 1.dp else 0.dp,
+                color = if (isExpanded && !isFocused) colors.border else Color.Transparent,
+                shape = RoundedCornerShape(6.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocusGained()
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    // OK / Enter toggles the accordion open or closed.
+                    Key.DirectionCenter, Key.Enter -> {
+                        onToggle()
+                        true
+                    }
+                    // Topmost header: block Up so focus can't escape the modal
+                    // to the non-focusable title/plot above.
+                    Key.DirectionUp -> isTopHeader
+                    // No horizontal target at a header — consume Left so focus
+                    // can't escape to the grid behind the overlay.
+                    Key.DirectionLeft -> true
+                    else -> false
+                }
+            }
+            .focusable(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = if (isExpanded) "▼" else "▶",
+            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+            fontSize = 12.sp,
+        )
+        Text(
+            text = label,
+            color = if (isFocused) colors.accentForeground else colors.foreground,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "$episodeCount ep",
+            color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+// ── Episode Row ────────────────────────────────────────────────
+
+/** A single episode row inside an expanded season. Press OK / Enter to play. */
+@Composable
+private fun EpisodeRow(
+    episode: SeriesEpisode,
+    isWatched: Boolean,
+    onPlay: () -> Unit,
+    onCollapse: () -> Unit,
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+    val durationText = episode.durationSeconds?.let { secs ->
+        val mins = secs / 60
+        if (mins > 0) "${mins}m" else null
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (isFocused) colors.accent else Color.Transparent)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                // Left closes the accordion and returns focus to the season
+                // header. Handled in preview so it runs before the LazyColumn's
+                // Left/Right trap consumes the key.
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                    onCollapse()
+                    true
+                } else {
+                    false
+                }
+            }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter ||
+                        event.key == Key.Enter ||
+                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
+                        event.key == Key.B)
+                ) {
+                    onPlay()
+                    true
+                } else false
+            }
+            .focusable(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "E${episode.episodeNumber}",
+                color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+                fontSize = 12.sp,
+            )
+            if (isWatched) {
+                Text(
+                    text = "✓",
+                    color = if (isFocused) colors.accentForeground else colors.accent,
+                    fontSize = 12.sp,
+                )
+            }
+            Text(
+                text = episode.title,
+                color = if (isFocused) colors.accentForeground else colors.foreground,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        durationText?.let {
+            Text(
+                text = it,
+                color = if (isFocused) colors.accentForeground else colors.foregroundMuted,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+// ── Modal Scrollbar ────────────────────────────────────────────
+
+/**
+ * Thin vertical scroll indicator for the modal's season/episode list. The thumb
+ * size reflects how much of the content is visible and its position reflects
+ * scroll progress. Renders nothing while the content fits the viewport.
+ */
+@Composable
+private fun SeriesModalScrollbar(
+    listState: LazyListState,
+    modifier: Modifier = Modifier,
+    width: Dp = 4.dp,
+) {
+    val colors = LuminaTheme.colors
+    val info = listState.layoutInfo
+    val visible = info.visibleItemsInfo
+    val total = info.totalItemsCount
+    if (total == 0 || visible.isEmpty()) return
+
+    val viewportPx = (info.viewportEndOffset - info.viewportStartOffset).coerceAtLeast(1)
+    // Items vary in height (headers vs episodes), so estimate total content size
+    // from the first visible item — accurate enough for an indicator.
+    val itemPx = visible.first().size.coerceAtLeast(1)
+    val totalPx = (total * itemPx).coerceAtLeast(viewportPx)
+    if (totalPx <= viewportPx) return
+
+    val thumbFraction = (viewportPx.toFloat() / totalPx.toFloat()).coerceIn(0.05f, 1f)
+    val first = visible.first()
+    val scrolledPx = (first.index * itemPx - first.offset).coerceAtLeast(0)
+    val maxScrollPx = (totalPx - viewportPx).coerceAtLeast(1)
+    val scrollFraction = (scrolledPx.toFloat() / maxScrollPx.toFloat()).coerceIn(0f, 1f)
+
+    var trackPx by remember { mutableIntStateOf(0) }
+
+    Box(
+        modifier
+            .width(width)
+            .onSizeChanged { trackPx = it.height }
+            .clip(RoundedCornerShape(width / 2))
+            .background(colors.surfaceRaised.copy(alpha = 0.3f)),
+    ) {
+        val usable = (trackPx - trackPx * thumbFraction).coerceAtLeast(0f)
+        val thumbOffsetPx = (scrollFraction * usable).roundToInt()
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(thumbFraction)
+                .offset { IntOffset(0, thumbOffsetPx) }
+                .clip(RoundedCornerShape(width / 2))
+                .background(colors.accent.copy(alpha = 0.7f)),
+        )
     }
 }
 

@@ -301,6 +301,8 @@ fun PlayerScreen(
                 onChannelDown = viewModel::channelDown,
                 onSeekForward = viewModel::seekForward,
                 onSeekBackward = viewModel::seekBackward,
+                onNextEpisode = viewModel::playNextEpisode,
+                onPrevEpisode = viewModel::playPrevEpisode,
                 onSelectAudioTrack = viewModel::selectAudioTrack,
                 onSelectSubtitleTrack = viewModel::selectSubtitleTrack,
                 onDisableSubtitles = viewModel::disableSubtitles,
@@ -323,6 +325,8 @@ private fun ControlsOverlay(
     onChannelDown: () -> Unit,
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
+    onNextEpisode: () -> Unit = {},
+    onPrevEpisode: () -> Unit = {},
     onSelectAudioTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onSelectSubtitleTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onDisableSubtitles: () -> Unit,
@@ -457,6 +461,12 @@ private fun ControlsOverlay(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (uiState.isSeriesEpisode) {
+                        FocusableButton(
+                            text = "◀ Prev Ep",
+                            onClick = onPrevEpisode,
+                        )
+                    }
                     FocusableButton(
                         text = if (uiState.isPlaying) "⏸ Pause" else "▶ Play",
                         onClick = onPlayPause,
@@ -479,6 +489,12 @@ private fun ControlsOverlay(
                         FocusableButton(
                             text = "▼ Ch−",
                             onClick = onChannelDown,
+                        )
+                    }
+                    if (uiState.isSeriesEpisode) {
+                        FocusableButton(
+                            text = "Next Ep ▶",
+                            onClick = onNextEpisode,
                         )
                     }
                 }
