@@ -57,6 +57,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
+import com.iptvtavern.androidtv.ui.common.LoadingOverlay
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import kotlinx.coroutines.delay
 
@@ -86,6 +87,12 @@ fun PlayerScreen(
     // Left/Right seek shows overlay WITHOUT focus; Down shows WITH focus.
     var overlayWantsFocus by remember { mutableStateOf(false) }
 
+    // Activity heartbeat for the auto-hide timer. Bumped on every D-pad press
+    // while the overlay is open so the 5s countdown restarts — prevents the
+    // controls from vanishing mid-action while the user navigates the
+    // subtitle/audio pickers (each focus move = new key event = reset).
+    var overlayActivityTick by remember { mutableStateOf(0) }
+
     BackHandler(onBack = {
         if (uiState.showOverlay) {
             // Single Back press always dismisses the overlay — no need to
@@ -100,8 +107,16 @@ fun PlayerScreen(
 
     // Auto-hide overlay after 5 seconds — runs even when controls are
     // focused so the user never has to manually unfocus before the timer
-    // starts. Resets on every showOverlay toggle.
-    LaunchedEffect(uiState.showOverlay, uiState.error, uiState.isLoading, uiState.isBuffering) {
+    // starts. Resets on every showOverlay toggle AND on every key press
+    // while the overlay is up (overlayActivityTick) so navigating the
+    // subtitle/audio pickers doesn't dismiss the controls mid-action.
+    LaunchedEffect(
+        uiState.showOverlay,
+        uiState.error,
+        uiState.isLoading,
+        uiState.isBuffering,
+        overlayActivityTick,
+    ) {
         if (uiState.showOverlay && uiState.error == null &&
             !uiState.isLoading && !uiState.isBuffering
         ) {
@@ -155,6 +170,14 @@ fun PlayerScreen(
                 // When overlay controls are focused, let Left/Right/Up/Down pass
                 // through so D-pad navigation works on subtitle/audio buttons.
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+
+                // Any key press while the overlay is up counts as activity —
+                // bump the heartbeat so the 5s auto-hide timer restarts. This
+                // is what keeps the controls from closing while the user is
+                // moving focus between subtitle/audio track buttons.
+                if (uiState.showOverlay && uiState.error == null) {
+                    overlayActivityTick++
+                }
 
                 when (event.key) {
                     Key.DirectionLeft, Key.DirectionRight -> {
@@ -234,15 +257,7 @@ fun PlayerScreen(
                         viewModel.channelDown()
                         true
                     }
-                    else -> {
-                        // Green button = previous channel
-                        if (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
-                            event.key == Key.G
-                        ) {
-                            viewModel.previousChannel()
-                            true
-                        } else false
-                    }
+                    else -> false
                 }
             }
             .focusable(),
@@ -260,16 +275,9 @@ fun PlayerScreen(
 
         // Loading indicator
         if (uiState.isLoading || uiState.isBuffering) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (uiState.isVod) "Loading movie…" else "Loading…",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                )
-            }
+            LoadingOverlay(
+                label = if (uiState.isVod) "Loading movie" else "Loading",
+            )
         }
 
         // Error overlay
@@ -301,6 +309,8 @@ fun PlayerScreen(
                 onChannelDown = viewModel::channelDown,
                 onSeekForward = viewModel::seekForward,
                 onSeekBackward = viewModel::seekBackward,
+                onSeekForwardLong = viewModel::seekForwardLong,
+                onSeekBackwardLong = viewModel::seekBackwardLong,
                 onNextEpisode = viewModel::playNextEpisode,
                 onPrevEpisode = viewModel::playPrevEpisode,
                 onSelectAudioTrack = viewModel::selectAudioTrack,
@@ -325,6 +335,8 @@ private fun ControlsOverlay(
     onChannelDown: () -> Unit,
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
+    onSeekForwardLong: () -> Unit = {},
+    onSeekBackwardLong: () -> Unit = {},
     onNextEpisode: () -> Unit = {},
     onPrevEpisode: () -> Unit = {},
     onSelectAudioTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
@@ -474,12 +486,20 @@ private fun ControlsOverlay(
                     )
                     if (uiState.isVod) {
                         FocusableButton(
-                            text = "⏪ −10s",
+                            text = "⏪ −2m",
+                            onClick = onSeekBackwardLong,
+                        )
+                        FocusableButton(
+                            text = "−10s",
                             onClick = onSeekBackward,
                         )
                         FocusableButton(
-                            text = "⏩ +10s",
+                            text = "+10s",
                             onClick = onSeekForward,
+                        )
+                        FocusableButton(
+                            text = "+2m ⏩",
+                            onClick = onSeekForwardLong,
                         )
                     } else {
                         FocusableButton(

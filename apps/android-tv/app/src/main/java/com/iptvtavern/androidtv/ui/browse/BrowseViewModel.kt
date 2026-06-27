@@ -18,6 +18,7 @@ import com.iptvtavern.androidtv.domain.model.GroupKind
 import com.iptvtavern.androidtv.domain.model.GroupSortKey
 import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.Playlist
+import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.parseM3uToPlaylist
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
@@ -109,9 +111,18 @@ class BrowseViewModel @Inject constructor(
     private val miniLivePlayback = LivePlaybackSession()
     private var miniPlayerListenerAttached = false
 
+    /** User's Buffer Mode setting, read once at construction for the mini player's LoadControl. */
+    private val bufferMode: PlayerBufferMode = runBlocking {
+        settingsDataStore.settings.first().playerBufferMode
+    }
+
     /** Returns the shared mini-player, creating it on first call. */
     fun getMiniPlayer(): ExoPlayer =
-        _miniPlayer ?: ExoPlayerFactory.create(appContext, activeSource?.userAgent)
+        _miniPlayer ?: ExoPlayerFactory.create(
+            context = appContext,
+            userAgent = activeSource?.userAgent,
+            bufferMode = bufferMode,
+        )
             .also { player ->
                 _miniPlayer = player
                 if (!miniPlayerListenerAttached) {
@@ -283,6 +294,17 @@ class BrowseViewModel @Inject constructor(
     fun selectGroup(index: Int) {
         val groups = _uiState.value.filteredGroups
         if (index !in groups.indices) return
+
+        // Stop streaming the previous group's channel when the user actually
+        // switches groups. The mini player reopens only when they pick a
+        // channel from the new group — leaving it running would stream a
+        // channel that's no longer in view, which is confusing.
+        val newGroupId = groups[index].id
+        val currentGroupId = groups.getOrNull(_uiState.value.selectedGroupIndex)?.id
+        if (newGroupId != currentGroupId) {
+            stopMiniPlayer()
+            _uiState.value = _uiState.value.copy(playingChannel = null)
+        }
 
         // Show spinner immediately, filter off main thread.
         _uiState.value = _uiState.value.copy(
@@ -534,14 +556,32 @@ class BrowseViewModel @Inject constructor(
 
     // ── Group reorder ───────────────────────────────────────────
 
-    /** Toggle reorder mode (Red button). */
+    /** Toggle group reorder mode. */
     fun toggleReorderMode() {
-        val wasReordering = _uiState.value.isReorderingGroups
-        _uiState.value = _uiState.value.copy(isReorderingGroups = !wasReordering)
-
-        // When exiting reorder mode, persist the current order
-        if (wasReordering) {
+        val state = _uiState.value
+        if (state.isReorderingGroups) {
+            // Exiting → persist the edited order and turn reorder off.
+            _uiState.value = state.copy(isReorderingGroups = false)
             saveGroupOrder()
+        } else {
+            // Entering → reset the sidebar to the full, custom-ordered list
+            // (clear any search filter and force DEFAULT sort). Reordering only
+            // makes sense on the canonical custom order; a size/name sort would
+            // be immediately overridden on the next recompute, hiding the edits.
+            val canonical = state.groups
+            val selId = state.filteredGroups.getOrNull(state.selectedGroupIndex)?.id
+            val newIdx = selId
+                ?.let { id -> canonical.indexOfFirst { it.id == id } }
+                ?.takeIf { it >= 0 }
+                ?: state.selectedGroupIndex
+            _uiState.value = state.copy(
+                isReorderingGroups = true,
+                groupSearchQuery = "",
+                groupSortKey = GroupSortKey.DEFAULT,
+                groupSortDir = GroupSortDir.ASC,
+                filteredGroups = canonical,
+                selectedGroupIndex = newIdx,
+            )
         }
     }
 
@@ -556,34 +596,38 @@ class BrowseViewModel @Inject constructor(
         val state = _uiState.value
         if (!state.isReorderingGroups) return
 
-        val groups = state.groups.toMutableList()
+        // Swap in the DISPLAYED list (filteredGroups) — this is what the sidebar
+        // renders, so the move is immediately visible. Previously this swapped
+        // the canonical `groups` list which the sidebar never shows, making every
+        // reorder invisible until the screen was reloaded.
+        val displayed = state.filteredGroups.toMutableList()
         val idx = state.selectedGroupIndex
 
-        // Count virtual groups at top (they're pinned)
-        val pinnedCount = groups.count { it.id.startsWith("__") }
-
-        // Can't move virtual groups
+        // Virtual groups (id starts with "__") are pinned at the top.
+        val pinnedCount = displayed.count { it.id.startsWith("__") }
         if (idx < pinnedCount) return
 
         val targetIdx = idx + direction
-        // Can't move outside the real-group range
-        if (targetIdx < pinnedCount || targetIdx >= groups.size) return
+        if (targetIdx < pinnedCount || targetIdx >= displayed.size) return
 
-        // Swap
-        val temp = groups[idx]
-        groups[idx] = groups[targetIdx]
-        groups[targetIdx] = temp
+        java.util.Collections.swap(displayed, idx, targetIdx)
+
+        // Keep canonical `groups` in sync when the sidebar shows the full list
+        // (no search filter), so a later re-sort/filter won't discard the edit.
+        val syncedGroups =
+            if (state.groupSearchQuery.isBlank()) displayed.toList() else state.groups
 
         _uiState.value = state.copy(
-            groups = groups,
+            filteredGroups = displayed,
+            groups = syncedGroups,
             selectedGroupIndex = targetIdx,
         )
     }
 
     private fun saveGroupOrder() {
         val sourceId = currentSourceId ?: return
-        // Extract only real group IDs (skip virtual groups)
-        val realGroupIds = _uiState.value.groups
+        // Persist the DISPLAYED (edited) order, skipping virtual groups.
+        val realGroupIds = _uiState.value.filteredGroups
             .filter { !it.id.startsWith("__") }
             .map { it.id }
 

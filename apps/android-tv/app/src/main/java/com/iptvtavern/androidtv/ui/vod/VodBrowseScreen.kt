@@ -1,5 +1,6 @@
 package com.iptvtavern.androidtv.ui.vod
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -30,7 +31,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +55,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.ui.common.rememberOkLongPress
 import com.iptvtavern.androidtv.domain.model.ChannelGroup
 import com.iptvtavern.androidtv.domain.model.GroupSortKey
 import com.iptvtavern.androidtv.domain.model.GroupSortDir
@@ -157,8 +159,18 @@ fun VodBrowseScreen(
             gridState.scrollToItem(0)
             // Group-sort changes keep focus on the sort button.
             if (!uiState.suppressGridFocus) {
-                delay(100)
-                try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+                // Retry focus from frame zero — a fixed delay left a window
+                // where the old focused poster was disposed but the new one
+                // hadn't received focus yet, so Compose restored focus upward
+                // and the Home tab briefly lit up.
+                for (attempt in 0 until 10) {
+                    try {
+                        gridFocusRequester.requestFocus()
+                        break
+                    } catch (_: Throwable) {
+                        delay(30)
+                    }
+                }
             }
             viewModel.clearSuppressGridFocus()
         }
@@ -181,13 +193,13 @@ fun VodBrowseScreen(
         }
     }
 
+    // Grid sort now flows through isFilteringGroup (same as a group switch):
+    // VodBrowseViewModel.recomputeChannelsAsync sets the flag, the
+    // isFilteringGroup effect below scrolls to the top and focuses the first
+    // poster, and the spinner covers the grid while the recompute runs.
+
     if (uiState.isLoading) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Loading movies…", color = colors.foregroundMuted, fontSize = 18.sp)
-        }
+        LoadingOverlay(label = "Loading movies")
         return
     }
 
@@ -223,6 +235,7 @@ fun VodBrowseScreen(
                     }
                 },
                 selectedGroupFocusRequester = sidebarFocusRequester,
+                disabled = uiState.isFilteringGroup || uiState.isLoading,
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
@@ -233,7 +246,7 @@ fun VodBrowseScreen(
                     .fillMaxHeight()
                     .padding(start = 8.dp, end = 16.dp, top = 8.dp),
             ) {
-                // Toolbar: search + sort
+                // Toolbar: sort + search
                 VodToolbar(
                     searchQuery = uiState.searchQuery,
                     onSearchChanged = viewModel::updateSearch,
@@ -242,6 +255,7 @@ fun VodBrowseScreen(
                     sortDir = uiState.sortDir,
                     onSortDirChanged = viewModel::setSortDir,
                     channelCount = uiState.channels.size,
+                    disabled = uiState.isFilteringGroup || uiState.isLoading,
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -265,7 +279,6 @@ fun VodBrowseScreen(
                                     lastFocusedPosterIndex = index
                                     showDetailModal = true
                                 },
-                                onPlay = { onNavigateToPlayer(channel.id) },
                                 onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
                                 onFocused = { lastFocusedPosterIndex = index },
                                 modifier = when {
@@ -292,14 +305,11 @@ fun VodBrowseScreen(
         VodBottomBar()
     }
 
-    // Opaque overlay that hides the initial focus jump
+    // Loading overlay to hide the initial focus jump — same look as the main
+    // page loader so the experience is consistent whether the catalog is
+    // coming from disk (first load) or from the cached ViewModel (tab return).
     if (!initialFocusDone && uiState.channels.isNotEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Loading movies…", color = colors.foregroundMuted, fontSize = 18.sp)
-        }
+        LoadingOverlay(label = "Loading movies")
     }
 
     // Detail modal overlay
@@ -557,6 +567,7 @@ private fun VodToolbar(
     sortDir: VodSortDir,
     onSortDirChanged: (VodSortDir) -> Unit,
     channelCount: Int,
+    disabled: Boolean = false,
 ) {
     val colors = LuminaTheme.colors
 
@@ -565,16 +576,9 @@ private fun VodToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Search
-        TvSearchButton(
-            value = searchQuery,
-            onValueChange = onSearchChanged,
-            placeholder = "Search movies…",
-            imeAction = ImeAction.Search,
-            modifier = Modifier.weight(1f),
-        )
-
-        // Sort key selector (cycles through options with Enter)
+        // Sort key selector (cycles through options with Enter).
+        // Lives on the left so the eye lands on the active ordering before the
+        // search field; the count badge sits between them.
         val sortLabel = when (sortKey) {
             VodSortKey.DEFAULT -> "Default"
             VodSortKey.NAME -> "Name"
@@ -590,41 +594,50 @@ private fun VodToolbar(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(if (sortFocused) colors.accent else colors.surface)
+                .background(if (sortFocused && !disabled) colors.accent else colors.surface)
                 .border(
-                    width = if (sortFocused) 2.dp else 1.dp,
-                    color = if (sortFocused) colors.accent else colors.border,
+                    width = if (sortFocused && !disabled) 2.dp else 1.dp,
+                    color = if (sortFocused && !disabled) colors.accent else colors.border,
                     shape = RoundedCornerShape(6.dp),
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .onFocusChanged { sortFocused = it.isFocused }
                 .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown) {
-                        when (event.key) {
-                            Key.DirectionCenter, Key.Enter -> {
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionCenter, Key.Enter -> {
+                            if (!disabled) {
                                 // Cycle sort key
                                 val keys = VodSortKey.entries
                                 val next = keys[(sortKey.ordinal + 1) % keys.size]
                                 onSortKeyChanged(next)
-                                true
                             }
-                            Key.DirectionLeft, Key.DirectionRight -> {
+                            // Consume even when disabled so focus stays put
+                            // and the user gets consistent feedback.
+                            true
+                        }
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            if (!disabled) {
                                 // Toggle direction
                                 val next = if (sortDir == VodSortDir.ASC) VodSortDir.DESC else VodSortDir.ASC
                                 onSortDirChanged(next)
-                                true
                             }
-                            // Up/Down NOT intercepted — let focus move to
-                            // hero/header (Up) or grid (Down) naturally.
-                            else -> false
+                            true
                         }
-                    } else false
+                        // Up/Down NOT intercepted — let focus move to
+                        // hero/header (Up) or grid (Down) naturally.
+                        else -> false
+                    }
                 }
                 .focusable(),
         ) {
             Text(
                 text = "Sort: $sortLabel $dirArrow",
-                color = if (sortFocused) colors.accentForeground else colors.foreground,
+                color = when {
+                    disabled -> colors.foregroundMuted
+                    sortFocused -> colors.accentForeground
+                    else -> colors.foreground
+                },
                 fontSize = 13.sp,
             )
         }
@@ -634,6 +647,15 @@ private fun VodToolbar(
             text = "$channelCount movies",
             color = colors.foregroundMuted,
             fontSize = 12.sp,
+        )
+
+        // Search — fills remaining width on the right.
+        TvSearchButton(
+            value = searchQuery,
+            onValueChange = onSearchChanged,
+            placeholder = "Search movies…",
+            imeAction = ImeAction.Search,
+            modifier = Modifier.weight(1f),
         )
     }
 }
@@ -646,7 +668,6 @@ private fun VodPosterTile(
     isSelected: Boolean,
     isFavorite: Boolean,
     onSelect: () -> Unit,
-    onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
     onFocused: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -654,6 +675,19 @@ private fun VodPosterTile(
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
     val badge = remember(channel) { getVodPosterBadge(channel) }
+    // OK tap = open detail; OK hold = toggle favorite (no colored buttons).
+    val context = LocalContext.current
+    val onOk = rememberOkLongPress(
+        onShortClick = onSelect,
+        onLongClick = {
+            onToggleFavorite()
+            Toast.makeText(
+                context,
+                if (isFavorite) "Removed from favorites" else "Added to favorites",
+                Toast.LENGTH_SHORT,
+            ).show()
+        },
+    )
 
     val borderColor = when {
         isSelected -> colors.accent
@@ -674,29 +708,7 @@ private fun VodPosterTile(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when {
-                        event.key == Key.DirectionCenter || event.key == Key.Enter -> {
-                            onSelect()
-                            true
-                        }
-                        // Blue = play
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
-                        event.key == Key.B -> {
-                            onPlay()
-                            true
-                        }
-                        // Yellow = favorite
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_YELLOW.toLong()) ||
-                        event.key == Key.F -> {
-                            onToggleFavorite()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
+            .onKeyEvent { event -> onOk(event.key, event.type) }
             .focusable(),
     ) {
         // Poster image
@@ -767,6 +779,7 @@ private fun VodGroupsSidebar(
     onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToGrid: () -> Unit,
     selectedGroupFocusRequester: FocusRequester,
+    disabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
@@ -822,10 +835,10 @@ private fun VodGroupsSidebar(
                         } else false
                     }
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .background(if (sortFocused && !disabled) colors.accent else colors.surface)
                     .border(
-                        width = if (sortFocused) 2.dp else 1.dp,
-                        color = if (sortFocused) colors.accent else colors.border,
+                        width = if (sortFocused && !disabled) 2.dp else 1.dp,
+                        color = if (sortFocused && !disabled) colors.accent else colors.border,
                         shape = RoundedCornerShape(6.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 8.dp)
@@ -834,25 +847,30 @@ private fun VodGroupsSidebar(
                         if (event.type == KeyEventType.KeyDown &&
                             (event.key == Key.DirectionCenter || event.key == Key.Enter)
                         ) {
-                            // Cycle: DEFAULT → NAME/ASC → NAME/DESC → SIZE/ASC → SIZE/DESC → DEFAULT
-                            when {
-                                groupSortKey == GroupSortKey.DEFAULT -> {
-                                    onGroupSortKeyChanged(GroupSortKey.NAME)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
-                                }
-                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
-                                    onGroupSortDirChanged(GroupSortDir.DESC)
-                                }
-                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
-                                    onGroupSortKeyChanged(GroupSortKey.SIZE)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
-                                }
-                                groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
-                                    onGroupSortDirChanged(GroupSortDir.DESC)
-                                }
-                                else -> {
-                                    onGroupSortKeyChanged(GroupSortKey.DEFAULT)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                            // Disabled while content is loading: consume the
+                            // press so focus stays put, but skip the expensive
+                            // recompute to prevent mashing the sort button.
+                            if (!disabled) {
+                                // Cycle: DEFAULT → NAME/ASC → NAME/DESC → SIZE/ASC → SIZE/DESC → DEFAULT
+                                when {
+                                    groupSortKey == GroupSortKey.DEFAULT -> {
+                                        onGroupSortKeyChanged(GroupSortKey.NAME)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
+                                    groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
+                                        onGroupSortDirChanged(GroupSortDir.DESC)
+                                    }
+                                    groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
+                                        onGroupSortKeyChanged(GroupSortKey.SIZE)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
+                                    groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
+                                        onGroupSortDirChanged(GroupSortDir.DESC)
+                                    }
+                                    else -> {
+                                        onGroupSortKeyChanged(GroupSortKey.DEFAULT)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
                                 }
                             }
                             true
@@ -863,7 +881,11 @@ private fun VodGroupsSidebar(
             ) {
                 Text(
                     text = sortLabel,
-                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    color = when {
+                        disabled -> colors.foregroundMuted
+                        sortFocused -> colors.foreground
+                        else -> colors.foregroundMuted
+                    },
                     fontSize = 12.sp,
                     maxLines = 1,
                 )
@@ -981,23 +1003,7 @@ private fun VodBottomBar() {
         horizontalArrangement = Arrangement.spacedBy(24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Yellow = Favorite
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(modifier = Modifier.size(14.dp).background(Color(0xFFEAB308), CircleShape))
-            Text("Favorite", color = colors.foreground, fontSize = 12.sp)
-        }
-        // Blue = Play
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(modifier = Modifier.size(14.dp).background(Color(0xFF2563EB), CircleShape))
-            Text("Play", color = colors.foreground, fontSize = 12.sp)
-        }
-        // OK = Select / Show details
+        // OK (tap) = show details
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1011,6 +1017,21 @@ private fun VodBottomBar() {
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
             Text("Select", color = colors.foreground, fontSize = 12.sp)
+        }
+        // OK (hold) = favorite
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "hold OK",
+                color = colors.accentForeground,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .background(colors.accent, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+            Text("Favorite", color = colors.foreground, fontSize = 12.sp)
         }
     }
 }

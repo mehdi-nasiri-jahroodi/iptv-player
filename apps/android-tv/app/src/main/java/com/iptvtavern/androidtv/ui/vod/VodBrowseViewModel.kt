@@ -75,6 +75,8 @@ class VodBrowseViewModel @Inject constructor(
     private var loadedGroupChannels: List<Channel.Vod> = emptyList()
     private var activeSource: Source? = null
     private var detailFetchJob: Job? = null
+    /** Cancellable handle for the async grid-sort recompute (see [recomputeChannelsAsync]). */
+    private var recomputeJob: Job? = null
 
     init {
         loadCatalog()
@@ -287,17 +289,51 @@ class VodBrowseViewModel @Inject constructor(
 
     fun setSortKey(key: VodSortKey) {
         _uiState.value = _uiState.value.copy(sortKey = key)
-        recomputeChannels()
+        recomputeChannelsAsync()
     }
 
     fun setSortDir(dir: VodSortDir) {
         _uiState.value = _uiState.value.copy(sortDir = dir)
-        recomputeChannels()
+        recomputeChannelsAsync()
+    }
+
+    /**
+     * Async variant of [recomputeChannels] used by the grid sort. Filtering +
+     * sorting a large VOD group (tens of thousands of items) is expensive, so
+     * it runs on Dispatchers.Default behind the [VodUiState.isFilteringGroup]
+     * spinner. That flag also disables the sort buttons in the UI, preventing
+     * the user from queueing overlapping recomputes by mashing the button.
+     *
+     * Any in-flight recompute (sort or a previous one) is cancelled first so
+     * only the latest sort key/direction wins. Search uses the synchronous
+     * [recomputeChannels] and also cancels this job so the typed query wins.
+     */
+    private fun recomputeChannelsAsync() {
+        recomputeJob?.cancel()
+        _uiState.value = _uiState.value.copy(isFilteringGroup = true)
+        recomputeJob = viewModelScope.launch {
+            val filtered = withContext(Dispatchers.Default) {
+                filterAndSort(loadedGroupChannels)
+            }
+            // Brief floor so the spinner is perceptible on fast groups —
+            // matches the group-switch timing for a consistent feel.
+            delay(150)
+            _uiState.value = _uiState.value.copy(
+                channels = filtered,
+                isFilteringGroup = false,
+            )
+        }
     }
 
     private fun recomputeChannels() {
+        // Search path: synchronous so typing feels instant. Cancel any in-flight
+        // sort recompute and clear the loading flag so the search result wins.
+        recomputeJob?.cancel()
         val filtered = filterAndSort(loadedGroupChannels)
-        _uiState.value = _uiState.value.copy(channels = filtered)
+        _uiState.value = _uiState.value.copy(
+            channels = filtered,
+            isFilteringGroup = false,
+        )
     }
 
     private fun filterAndSort(channels: List<Channel.Vod>): List<Channel.Vod> {

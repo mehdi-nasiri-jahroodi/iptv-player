@@ -69,17 +69,7 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(32.dp)
-            .onKeyEvent { event ->
-                // Green button = refresh catalog
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key(android.view.KeyEvent.KEYCODE_PROG_GREEN.toLong()) ||
-                     event.key == Key.G)
-                ) {
-                    viewModel.refreshCatalog()
-                    true
-                } else false
-            },
+            .padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Header with source indicator

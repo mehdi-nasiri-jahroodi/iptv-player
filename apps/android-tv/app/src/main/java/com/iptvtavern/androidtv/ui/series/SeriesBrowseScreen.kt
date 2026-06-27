@@ -1,5 +1,6 @@
 package com.iptvtavern.androidtv.ui.series
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -31,8 +32,8 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,6 +58,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,6 +76,7 @@ import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.common.rememberOkLongPress
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
@@ -156,8 +159,18 @@ fun SeriesBrowseScreen(
             gridState.scrollToItem(0)
             // Group-sort changes keep focus on the sort button.
             if (!uiState.suppressGridFocus) {
-                delay(100)
-                try { gridFocusRequester.requestFocus() } catch (_: Throwable) {}
+                // Retry focus from frame zero — a fixed delay left a window
+                // where the old focused poster was disposed but the new one
+                // hadn't received focus yet, so Compose restored focus upward
+                // and the Home tab briefly lit up.
+                for (attempt in 0 until 10) {
+                    try {
+                        gridFocusRequester.requestFocus()
+                        break
+                    } catch (_: Throwable) {
+                        delay(30)
+                    }
+                }
             }
             viewModel.clearSuppressGridFocus()
         }
@@ -199,12 +212,7 @@ fun SeriesBrowseScreen(
     }
 
     if (uiState.isLoading) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Loading series…", color = colors.foregroundMuted, fontSize = 18.sp)
-        }
+        LoadingOverlay(label = "Loading series")
         return
     }
 
@@ -240,6 +248,7 @@ fun SeriesBrowseScreen(
                     }
                 },
                 selectedGroupFocusRequester = sidebarFocusRequester,
+                disabled = uiState.isFilteringGroup || uiState.isLoading,
                 modifier = Modifier.width(200.dp).fillMaxHeight(),
             )
 
@@ -304,14 +313,11 @@ fun SeriesBrowseScreen(
         SeriesBottomBar()
     }
 
-    // Opaque overlay to hide initial focus jump
+    // Loading overlay to hide the initial focus jump — same look as the main
+    // page loader so the experience is consistent whether the catalog is
+    // coming from disk (first load) or from the cached ViewModel (tab return).
     if (!initialFocusDone && uiState.channels.isNotEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Loading series…", color = colors.foregroundMuted, fontSize = 18.sp)
-        }
+        LoadingOverlay(label = "Loading series")
     }
 
     // Detail modal overlay
@@ -404,8 +410,13 @@ private fun SeriesDetailModal(
     // D-pad moves that would escape the modal to the grid behind the overlay.
     var focusedActionIndex by remember { mutableStateOf(0) }
     val hasSeasons = seasons.isNotEmpty()
-    // [Episodes][Favorite][Close] when there are seasons, else [Favorite][Close].
-    val lastActionIndex = if (hasSeasons) 2 else 1
+    // Reserve the Episodes slot as soon as the modal opens — even before
+    // enrichment finishes — so the layout is stable and the button doesn't
+    // "pop in". While seasons are still loading, the slot renders a disabled
+    // spinner button (LoadingEpisodesButton) instead of the toggle.
+    val showEpisodesSlot = hasSeasons || isLoading
+    // [Episodes/loading][Favorite][Close] when the slot is present, else [Favorite][Close].
+    val lastActionIndex = if (showEpisodesSlot) 2 else 1
 
     Box(
         modifier = Modifier
@@ -593,16 +604,25 @@ private fun SeriesDetailModal(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // Episodes/Details toggle — first button; owns the modal
-                    // entry focus when the series has seasons.
-                    if (hasSeasons) {
-                        FocusableButton(
-                            text = if (showEpisodesView) "◀ Details" else "Episodes ▶",
-                            onClick = { showEpisodesView = !showEpisodesView },
-                            variant = ButtonVariant.Primary,
-                            size = ButtonSize.Small,
-                            modifier = Modifier.focusRequester(modalFocusRequester),
-                            onFocus = { f -> if (f) focusedActionIndex = 0 },
-                        )
+                    // entry focus when the series has seasons. While seasons
+                    // are still loading, a non-clickable spinner button holds
+                    // the same slot so the layout doesn't jump.
+                    if (showEpisodesSlot) {
+                        if (hasSeasons) {
+                            FocusableButton(
+                                text = if (showEpisodesView) "◀ Details" else "Episodes ▶",
+                                onClick = { showEpisodesView = !showEpisodesView },
+                                variant = ButtonVariant.Primary,
+                                size = ButtonSize.Small,
+                                modifier = Modifier.focusRequester(modalFocusRequester),
+                                onFocus = { f -> if (f) focusedActionIndex = 0 },
+                            )
+                        } else {
+                            LoadingEpisodesButton(
+                                modifier = Modifier.focusRequester(modalFocusRequester),
+                                onFocusGained = { focusedActionIndex = 0 },
+                            )
+                        }
                     }
 
                     FocusableButton(
@@ -610,8 +630,8 @@ private fun SeriesDetailModal(
                         onClick = onToggleFavorite,
                         variant = ButtonVariant.Secondary,
                         size = ButtonSize.Small,
-                        modifier = if (!hasSeasons) Modifier.focusRequester(modalFocusRequester) else Modifier,
-                        onFocus = { f -> if (f) focusedActionIndex = if (hasSeasons) 1 else 0 },
+                        modifier = if (!showEpisodesSlot) Modifier.focusRequester(modalFocusRequester) else Modifier,
+                        onFocus = { f -> if (f) focusedActionIndex = if (showEpisodesSlot) 1 else 0 },
                     )
 
                     FocusableButton(
@@ -624,6 +644,63 @@ private fun SeriesDetailModal(
                 }
             }
         }
+    }
+}
+
+// ── Loading Episodes Button (modal slot placeholder) ──────────
+
+/**
+ * Placeholder for the Episodes slot in [SeriesDetailModal] while seasons are
+ * still being fetched from the Xtream API. Mirrors the FocusableButton shape
+ * (padding, border, focus ring) so the action row layout doesn't jump when
+ * enrichment finishes and the real toggle button takes over.
+ *
+ * Focusable so it can own [modalFocusRequester] (keeping the modal's focus
+ * trap intact), but Enter/OK is a no-op — there's nothing to expand yet.
+ */
+@Composable
+private fun LoadingEpisodesButton(
+    modifier: Modifier = Modifier,
+    onFocusGained: () -> Unit = {},
+) {
+    val colors = LuminaTheme.colors
+    var isFocused by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .background(
+                color = if (isFocused) colors.surfaceRaised else colors.surface,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .border(
+                width = if (isFocused) 3.dp else 2.dp,
+                color = if (isFocused) colors.accent else colors.border,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onFocusGained()
+            }
+            // Consume Enter/OK so the focus trap logic stays consistent —
+            // clicking does nothing while loading.
+            .onKeyEvent { event ->
+                event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+            }
+            .focusable(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(14.dp),
+            strokeWidth = 2.dp,
+            color = colors.accent,
+        )
+        Text(
+            text = "Loading episodes…",
+            color = if (isFocused) colors.foreground else colors.foregroundMuted,
+            fontSize = 13.sp,
+        )
     }
 }
 
@@ -751,10 +828,7 @@ private fun EpisodeRow(
             }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter ||
-                        event.key == Key.Enter ||
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
-                        event.key == Key.B)
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
                 ) {
                     onPlay()
                     true
@@ -898,6 +972,19 @@ private fun SeriesPosterTile(
 ) {
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
+    // OK tap = open detail; OK hold = toggle favorite (no colored buttons).
+    val context = LocalContext.current
+    val onOk = rememberOkLongPress(
+        onShortClick = onSelect,
+        onLongClick = {
+            onToggleFavorite()
+            Toast.makeText(
+                context,
+                if (isFavorite) "Removed from favorites" else "Added to favorites",
+                Toast.LENGTH_SHORT,
+            ).show()
+        },
+    )
 
     val borderColor = when {
         isSelected -> colors.accent
@@ -918,23 +1005,7 @@ private fun SeriesPosterTile(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when {
-                        event.key == Key.DirectionCenter || event.key == Key.Enter -> {
-                            onSelect()
-                            true
-                        }
-                        // Yellow = favorite
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_YELLOW.toLong()) ||
-                        event.key == Key.F -> {
-                            onToggleFavorite()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
+            .onKeyEvent { event -> onOk(event.key, event.type) }
             .focusable(),
     ) {
         // Poster image
@@ -1003,6 +1074,7 @@ private fun SeriesGroupsSidebar(
     onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToGrid: () -> Unit,
     selectedGroupFocusRequester: FocusRequester,
+    disabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
@@ -1058,10 +1130,10 @@ private fun SeriesGroupsSidebar(
                         } else false
                     }
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .background(if (sortFocused && !disabled) colors.accent else colors.surface)
                     .border(
-                        width = if (sortFocused) 2.dp else 1.dp,
-                        color = if (sortFocused) colors.accent else colors.border,
+                        width = if (sortFocused && !disabled) 2.dp else 1.dp,
+                        color = if (sortFocused && !disabled) colors.accent else colors.border,
                         shape = RoundedCornerShape(6.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 8.dp)
@@ -1070,24 +1142,29 @@ private fun SeriesGroupsSidebar(
                         if (event.type == KeyEventType.KeyDown &&
                             (event.key == Key.DirectionCenter || event.key == Key.Enter)
                         ) {
-                            when {
-                                groupSortKey == GroupSortKey.DEFAULT -> {
-                                    onGroupSortKeyChanged(GroupSortKey.NAME)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
-                                }
-                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
-                                    onGroupSortDirChanged(GroupSortDir.DESC)
-                                }
-                                groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
-                                    onGroupSortKeyChanged(GroupSortKey.SIZE)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
-                                }
-                                groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
-                                    onGroupSortDirChanged(GroupSortDir.DESC)
-                                }
-                                else -> {
-                                    onGroupSortKeyChanged(GroupSortKey.DEFAULT)
-                                    onGroupSortDirChanged(GroupSortDir.ASC)
+                            // Disabled while content is loading: consume the
+                            // press so focus stays put, but skip the expensive
+                            // recompute to prevent mashing the sort button.
+                            if (!disabled) {
+                                when {
+                                    groupSortKey == GroupSortKey.DEFAULT -> {
+                                        onGroupSortKeyChanged(GroupSortKey.NAME)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
+                                    groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.ASC -> {
+                                        onGroupSortDirChanged(GroupSortDir.DESC)
+                                    }
+                                    groupSortKey == GroupSortKey.NAME && groupSortDir == GroupSortDir.DESC -> {
+                                        onGroupSortKeyChanged(GroupSortKey.SIZE)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
+                                    groupSortKey == GroupSortKey.SIZE && groupSortDir == GroupSortDir.ASC -> {
+                                        onGroupSortDirChanged(GroupSortDir.DESC)
+                                    }
+                                    else -> {
+                                        onGroupSortKeyChanged(GroupSortKey.DEFAULT)
+                                        onGroupSortDirChanged(GroupSortDir.ASC)
+                                    }
                                 }
                             }
                             true
@@ -1098,7 +1175,11 @@ private fun SeriesGroupsSidebar(
             ) {
                 Text(
                     text = sortLabel,
-                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    color = when {
+                        disabled -> colors.foregroundMuted
+                        sortFocused -> colors.foreground
+                        else -> colors.foregroundMuted
+                    },
                     fontSize = 12.sp,
                     maxLines = 1,
                 )
@@ -1216,23 +1297,7 @@ private fun SeriesBottomBar() {
         horizontalArrangement = Arrangement.spacedBy(24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Yellow = Favorite
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(modifier = Modifier.size(14.dp).background(Color(0xFFEAB308), CircleShape))
-            Text("Favorite", color = colors.foreground, fontSize = 12.sp)
-        }
-        // Blue = Play Episode
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(modifier = Modifier.size(14.dp).background(Color(0xFF2563EB), CircleShape))
-            Text("Play Episode", color = colors.foreground, fontSize = 12.sp)
-        }
-        // OK = Select
+        // OK (tap) = select
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1246,6 +1311,21 @@ private fun SeriesBottomBar() {
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
             Text("Select", color = colors.foreground, fontSize = 12.sp)
+        }
+        // OK (hold) = favorite
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "hold OK",
+                color = colors.accentForeground,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .background(colors.accent, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+            Text("Favorite", color = colors.foreground, fontSize = 12.sp)
         }
     }
 }

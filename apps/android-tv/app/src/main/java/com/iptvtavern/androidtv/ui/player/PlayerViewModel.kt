@@ -18,6 +18,7 @@ import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.data.repository.WatchedRepository
 import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
 import com.iptvtavern.androidtv.domain.parser.EpgParser
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 /**
@@ -113,8 +115,20 @@ class PlayerViewModel @Inject constructor(
     /**
      * The ExoPlayer instance. Exposed so the Composable can attach
      * an AndroidView to it. The ViewModel owns the lifecycle.
+     *
+     * Buffer mode is read once from settings at construction so the
+     * user's "Buffer Mode" preference (Settings → Player) is applied to
+     * the player's LoadControl. runBlocking is acceptable here: it is a
+     * one-time read of a small DataStore file at ViewModel creation.
      */
-    val player: ExoPlayer = ExoPlayerFactory.create(appContext)
+    private val bufferMode: PlayerBufferMode = runBlocking {
+        settingsDataStore.settings.first().playerBufferMode
+    }
+
+    val player: ExoPlayer = ExoPlayerFactory.create(
+        context = appContext,
+        bufferMode = bufferMode,
+    )
 
     /** Flat list of all live channels for channel zapping. */
     private var channelList: List<Channel> = emptyList()
@@ -593,6 +607,23 @@ class PlayerViewModel @Inject constructor(
     fun seekBackward() {
         val pos = player.currentPosition
         player.seekTo(maxOf(pos - 10_000, 0))
+        updatePositionIfVod()
+    }
+
+    /** Seek forward by 2 minutes — for skipping intros, credits, or slow stretches. */
+    fun seekForwardLong() {
+        val pos = player.currentPosition
+        val dur = player.duration
+        if (dur > 0) {
+            player.seekTo(minOf(pos + 120_000, dur))
+            updatePositionIfVod()
+        }
+    }
+
+    /** Seek backward by 2 minutes — for rewatching a scene or skipping an outro. */
+    fun seekBackwardLong() {
+        val pos = player.currentPosition
+        player.seekTo(maxOf(pos - 120_000, 0))
         updatePositionIfVod()
     }
 

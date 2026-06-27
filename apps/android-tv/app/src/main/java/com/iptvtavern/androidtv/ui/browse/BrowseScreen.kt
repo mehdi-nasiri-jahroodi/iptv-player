@@ -1,5 +1,6 @@
 package com.iptvtavern.androidtv.ui.browse
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -47,6 +48,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import com.iptvtavern.androidtv.ui.common.rememberOkLongPress
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -166,26 +169,26 @@ fun BrowseScreen(
             listState.scrollToItem(0)
             // Group-sort changes keep focus on the sort button.
             if (!uiState.suppressGridFocus) {
-                delay(100)
-                try { channelTableFocusRequester.requestFocus() } catch (_: Throwable) {}
+                // Retry focus from frame zero instead of a fixed delay. A fixed
+                // delay left a window where the old focused row was already
+                // disposed but the new row hadn't received focus yet — Compose
+                // restored focus upward and the Home tab briefly lit up. Grabbing
+                // focus as soon as the new row is composed closes that window.
+                for (attempt in 0 until 10) {
+                    try {
+                        channelTableFocusRequester.requestFocus()
+                        break
+                    } catch (_: Throwable) {
+                        delay(30)
+                    }
+                }
             }
             viewModel.clearSuppressGridFocus()
         }
     }
 
     if (uiState.isLoading) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Loading channels…",
-                color = colors.foregroundMuted,
-                fontSize = 18.sp,
-            )
-        }
+        LoadingOverlay(label = "Loading channels")
         return
     }
 
@@ -238,6 +241,7 @@ fun BrowseScreen(
                     }
                 },
                 selectedGroupFocusRequester = sidebarFocusRequester,
+                disabled = uiState.isFilteringGroup || uiState.isLoading,
                 modifier = Modifier
                     .width(200.dp)
                     .fillMaxHeight(),
@@ -339,12 +343,6 @@ fun BrowseScreen(
                             }
                         },
                             onToggleFavorite = { viewModel.toggleFavorite(channel.id) },
-                            onGoFullScreen = {
-                                viewModel.playInMiniPlayer(channel)
-                                viewModel.pauseMiniPlayer()
-                                wentToPlayer = true
-                                onNavigateToPlayer(channel.id)
-                            },
                             onNavigateLeft = {
                                 try { sidebarFocusRequester.requestFocus() } catch (_: Throwable) {}
                             },
@@ -370,17 +368,14 @@ fun BrowseScreen(
         }
 
         // Bottom guideline bar
-        BottomGuidelineBar(isReordering = uiState.isReorderingGroups)
+        BottomGuidelineBar()
     }
 
-    // Opaque overlay to hide initial focus jump
+    // Loading overlay to hide the initial focus jump — same look as the main
+    // page loader so the experience is consistent whether the catalog is
+    // coming from disk (first load) or from the cached ViewModel (tab return).
     if (!initialFocusDone && uiState.channels.isNotEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().background(colors.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Loading channels…", color = colors.foregroundMuted, fontSize = 18.sp)
-        }
+        LoadingOverlay(label = "Loading channels")
     }
     } // end outer Box
 }
@@ -564,10 +559,9 @@ private fun MiniPlayerRow(
  *
  * Columns: # | Logo+Name+Group | Category | Quality | Status | ★
  *
- * Remote color buttons:
- * - Yellow (KEYCODE_PROG_YELLOW / KEYCODE_Y): toggle favorite
- *
- * Enter/Select: play channel in mini player
+ * D-pad:
+ * - OK (tap)   : play channel in mini player
+ * - OK (hold)  : toggle favorite
  */
 @Composable
 private fun ChannelTableRow(
@@ -578,7 +572,6 @@ private fun ChannelTableRow(
     nowNext: EpgParser.NowNext?,
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onGoFullScreen: () -> Unit,
     onNavigateLeft: () -> Unit = {},
     onFocused: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -586,6 +579,19 @@ private fun ChannelTableRow(
     val colors = LuminaTheme.colors
     var isFocused by remember { mutableStateOf(false) }
     val qualityBadges = remember(channel.name) { inferStreamQualityHints(channel.name) }
+    // OK tap = play in mini player; OK hold = toggle favorite (no colored buttons).
+    val context = LocalContext.current
+    val onOk = rememberOkLongPress(
+        onShortClick = onSelect,
+        onLongClick = {
+            onToggleFavorite()
+            Toast.makeText(
+                context,
+                if (isFavorite) "Removed from favorites" else "Added to favorites",
+                Toast.LENGTH_SHORT,
+            ).show()
+        },
+    )
 
     val bgColor = when {
         isPlaying -> colors.accent.copy(alpha = 0.15f)
@@ -615,31 +621,14 @@ private fun ChannelTableRow(
                 if (it.isFocused) onFocused()
             }
             .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when {
-                        event.key == Key.DirectionLeft -> {
-                            onNavigateLeft()
-                            true
-                        }
-                        event.key == Key.DirectionCenter || event.key == Key.Enter -> {
-                            onSelect()
-                            true
-                        }
-                        // Yellow button on remote = toggle favorite
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_YELLOW.toLong()) ||
-                        event.key == Key.F -> {
-                            onToggleFavorite()
-                            true
-                        }
-                        // Blue button on remote = full screen
-                        event.key == Key(android.view.KeyEvent.KEYCODE_PROG_BLUE.toLong()) ||
-                        event.key == Key.B -> {
-                            onGoFullScreen()
-                            true
-                        }
-                        else -> false
+                when {
+                    event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft -> {
+                        onNavigateLeft()
+                        true
                     }
-                } else false
+                    // OK tap (play in mini player) / OK hold (favorite)
+                    else -> onOk(event.key, event.type)
+                }
             }
             .focusable(),
         verticalAlignment = Alignment.CenterVertically,
@@ -785,21 +774,55 @@ private fun GroupsSidebar(
     onGroupSortDirChanged: (GroupSortDir) -> Unit,
     onJumpToChannelTable: () -> Unit,
     selectedGroupFocusRequester: FocusRequester,
+    disabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = LuminaTheme.colors
+    val context = LocalContext.current
     val navBarFocusRequester = LocalNavBarFocusRequester.current
     // Keep the selected group visible. Keying on the sort params (in addition to
     // the selection) guarantees this re-runs on every sort change — even when the
     // selection stays on group 0 — so the new order is shown from the top.
     val groupListState = rememberLazyListState()
     LaunchedEffect(selectedIndex, groupSortKey, groupSortDir) {
-        if (selectedIndex in groups.indices) groupListState.scrollToItem(selectedIndex)
+        // Skip auto-scroll while reordering: scrolling to the moved group on
+        // every swap pins it in the viewport and makes the swap look like focus
+        // navigation instead of a visible position change.
+        if (!isReordering && selectedIndex in groups.indices) {
+            groupListState.scrollToItem(selectedIndex)
+        }
+    }
+    // During reorder, keep the active group on screen ONLY when it reaches the
+    // viewport edges — so it never vanishes at the top/bottom — while leaving
+    // middle swaps unscrolled (so the movement stays visible, not pinned).
+    LaunchedEffect(isReordering, selectedIndex) {
+        if (!isReordering) return@LaunchedEffect
+        val visible = groupListState.layoutInfo.visibleItemsInfo
+        if (visible.isEmpty()) return@LaunchedEffect
+        val first = visible.first().index
+        val last = visible.last().index
+        when {
+            selectedIndex < first -> groupListState.scrollToItem(selectedIndex)
+            selectedIndex > last -> groupListState.scrollToItem(
+                (selectedIndex - (last - first - 1)).coerceAtLeast(0),
+            )
+        }
     }
     // Focus requesters so D-pad Left cycles between the group search field and
     // the group sort button (instead of escaping to the nav bar from both).
     val groupSearchFr = remember { FocusRequester() }
     val groupSortFr = remember { FocusRequester() }
+
+    // When reorder mode turns on, jump focus to the selected group so the
+    // user can move it with Up/Down immediately. We focus ONCE on entry only:
+    // after that, focus follows the row by its stable key as it swaps position
+    // (re-requesting focus on every move would trigger bringIntoView and scroll
+    // the viewport, masking the swap).
+    LaunchedEffect(isReordering) {
+        if (isReordering) {
+            try { selectedGroupFocusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
 
     Column(modifier = modifier.background(colors.surface)) {
         // Group search + sort
@@ -840,10 +863,10 @@ private fun GroupsSidebar(
                         } else false
                     }
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (sortFocused) colors.accent else colors.surface)
+                    .background(if (sortFocused && !disabled) colors.accent else colors.surface)
                     .border(
-                        width = if (sortFocused) 2.dp else 1.dp,
-                        color = if (sortFocused) colors.accent else colors.border,
+                        width = if (sortFocused && !disabled) 2.dp else 1.dp,
+                        color = if (sortFocused && !disabled) colors.accent else colors.border,
                         shape = RoundedCornerShape(6.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 8.dp)
@@ -852,6 +875,12 @@ private fun GroupsSidebar(
                         if (event.type == KeyEventType.KeyDown &&
                             (event.key == Key.DirectionCenter || event.key == Key.Enter)
                         ) {
+                            // Sorting is disabled during reorder: a re-sort would
+                            // discard the manual edits (the sidebar list is rebuilt
+                            // from the canonical order). Exit reorder first.
+                            // Also disabled while content is loading to prevent
+                            // queueing overlapping recomputes by mashing the button.
+                            if (isReordering || disabled) return@onKeyEvent true
                             when {
                                 groupSortKey == GroupSortKey.DEFAULT -> {
                                     onGroupSortKeyChanged(GroupSortKey.NAME)
@@ -880,26 +909,77 @@ private fun GroupsSidebar(
             ) {
                 Text(
                     text = sortLabel,
-                    color = if (sortFocused) colors.foreground else colors.foregroundMuted,
+                    color = when {
+                        disabled -> colors.foregroundMuted
+                        sortFocused -> colors.foreground
+                        else -> colors.foregroundMuted
+                    },
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+
+            // Reorder button — toggles group reorder mode (was the Red button).
+            var reorderFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        when {
+                            isReordering -> Color(0xFFDC2626)
+                            reorderFocused -> colors.accent
+                            else -> colors.surface
+                        }
+                    )
+                    .border(
+                        width = if (reorderFocused || isReordering) 2.dp else 1.dp,
+                        color = when {
+                            isReordering -> Color(0xFFDC2626)
+                            reorderFocused -> colors.accent
+                            else -> colors.border
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .onFocusChanged { reorderFocused = it.isFocused }
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                        ) {
+                            val exiting = isReordering
+                            onToggleReorder()
+                            if (exiting) {
+                                Toast.makeText(context, "Group order saved", Toast.LENGTH_SHORT).show()
+                            }
+                            true
+                        } else false
+                    }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (isReordering) "✓" else "↕",
+                    color = if (reorderFocused || isReordering) colors.foreground else colors.foregroundMuted,
                     fontSize = 12.sp,
                     maxLines = 1,
                 )
             }
         }
 
-        // Reorder mode indicator
+        // Reorder mode indicator — compact single line so it takes minimal
+        // vertical space and never visually crowds the group list below it.
         if (isReordering) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFDC2626).copy(alpha = 0.15f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .background(Color(0xFFDC2626))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
                 Text(
-                    text = "↕ Reorder mode — D-pad to move, Red to confirm",
-                    color = Color(0xFFDC2626),
+                    text = "↑/↓ move · OK to confirm",
+                    color = colors.accentForeground,
                     fontSize = 11.sp,
-                    maxLines = 2,
+                    maxLines = 1,
                 )
             }
         }
@@ -910,9 +990,26 @@ private fun GroupsSidebar(
                 .weight(1f)
                 .padding(6.dp)
                 .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                        try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
-                        true
+                    // Preview phase: runs BEFORE focus traversal, so we can
+                    // intercept Up/Down to MOVE the selected group instead of
+                    // letting the focus system navigate between rows.
+                    if (event.type == KeyEventType.KeyDown) {
+                        when {
+                            event.key == Key.DirectionLeft -> {
+                                try { navBarFocusRequester.requestFocus() } catch (_: Throwable) {}
+                                true
+                            }
+                            // Reorder mode: Up/Down moves the selected group.
+                            isReordering && event.key == Key.DirectionUp -> {
+                                onMoveGroup(-1)
+                                true
+                            }
+                            isReordering && event.key == Key.DirectionDown -> {
+                                onMoveGroup(1)
+                                true
+                            }
+                            else -> false
+                        }
                     } else false
                 },
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -929,7 +1026,7 @@ private fun GroupsSidebar(
                         .clip(RoundedCornerShape(6.dp))
                         .background(
                             when {
-                                isReordering && isSelected -> colors.accent.copy(alpha = 0.3f)
+                                isReordering && isSelected -> Color(0xFFDC2626)
                                 isFocused -> colors.accent
                                 isSelected -> colors.surfaceRaised
                                 else -> colors.surface
@@ -962,25 +1059,11 @@ private fun GroupsSidebar(
                         .onKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown) {
                                 when {
-                                    // Red button = toggle reorder mode
-                                    event.key == Key(android.view.KeyEvent.KEYCODE_PROG_RED.toLong()) ||
-                                    event.key == Key.R -> {
-                                        onToggleReorder()
-                                        true
-                                    }
-                                    // In reorder mode, intercept Up/Down to move groups
-                                    isReordering && !isVirtual && event.key == Key.DirectionUp -> {
-                                        onMoveGroup(-1)
-                                        true
-                                    }
-                                    isReordering && !isVirtual && event.key == Key.DirectionDown -> {
-                                        onMoveGroup(1)
-                                        true
-                                    }
-                                    // Enter/Select = select group and jump to channel table
+                                    // Enter/Select = select group (or confirm reorder)
                                     event.key == Key.DirectionCenter || event.key == Key.Enter -> {
                                         if (isReordering) {
                                             onToggleReorder() // confirm and exit
+                                            Toast.makeText(context, "Group order saved", Toast.LENGTH_SHORT).show()
                                         } else {
                                             onGroupSelected(index)
                                             onJumpToChannelTable()
@@ -1007,7 +1090,7 @@ private fun GroupsSidebar(
                             if (isReordering && !isVirtual) {
                                 Text(
                                     text = "≡",
-                                    color = if (isSelected) Color(0xFFDC2626) else colors.foregroundMuted,
+                                    color = if (isSelected) colors.accentForeground else colors.foregroundMuted,
                                     fontSize = 16.sp,
                                 )
                             }
@@ -1021,6 +1104,7 @@ private fun GroupsSidebar(
                             Text(
                                 text = group.name,
                                 color = when {
+                                    isReordering && isSelected -> colors.accentForeground
                                     isFocused -> colors.accentForeground
                                     else -> colors.foreground
                                 },
@@ -1032,6 +1116,7 @@ private fun GroupsSidebar(
                         Text(
                             text = "${group.effectiveChannelCount()}",
                             color = when {
+                                isReordering && isSelected -> colors.accentForeground
                                 isFocused -> colors.accentForeground
                                 else -> colors.foregroundMuted
                             },
@@ -1047,11 +1132,13 @@ private fun GroupsSidebar(
 // ── Bottom Guideline Bar ────────────────────────────────────────────
 
 /**
- * Bottom bar showing remote button hints — standard TV lean-back UX pattern.
- * Shows which color buttons do what, like real TV apps (EPG, teletext, etc.).
+ * Bottom bar showing D-pad hints (standard TV lean-back UX).
+ * Colored-button hints were removed because colored remote keys are not
+ * delivered on most modern devices (Chromecast/Google TV, etc.); the
+ * favorite action is now a long-press of OK.
  */
 @Composable
-private fun BottomGuidelineBar(isReordering: Boolean = false) {
+private fun BottomGuidelineBar() {
     val colors = LuminaTheme.colors
 
     Row(
@@ -1062,27 +1149,17 @@ private fun BottomGuidelineBar(isReordering: Boolean = false) {
         horizontalArrangement = Arrangement.spacedBy(24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Red button = Reorder groups
-        ButtonHint(
-            color = Color(0xFFDC2626), // Red
-            label = if (isReordering) "Confirm order" else "Reorder groups",
-        )
-        // Yellow button = Favorite
-        ButtonHint(
-            color = Color(0xFFEAB308), // Yellow
-            label = "Favorite",
-        )
-        // Blue button = Full screen (no label needed — obvious from context)
-        Box(
-            modifier = Modifier
-                .size(14.dp)
-                .background(Color(0xFF2563EB), CircleShape),
-        )
-        // Enter = Play
+        // OK (tap) = play in mini player
         ButtonHint(
             color = colors.accent,
             label = "Play in mini player",
             symbol = "OK",
+        )
+        // OK (hold) = toggle favorite
+        ButtonHint(
+            color = colors.accent,
+            label = "Favorite",
+            symbol = "hold OK",
         )
     }
 }
