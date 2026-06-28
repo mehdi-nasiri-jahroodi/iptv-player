@@ -22,9 +22,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,10 +60,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.iptvtavern.androidtv.domain.model.EpgProgram
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Fullscreen player screen — Media3/ExoPlayer with D-pad controls.
@@ -121,15 +127,21 @@ fun PlayerScreen(
     // subtitle/audio pickers (each focus move = new key event = reset).
     var overlayActivityTick by remember { mutableStateOf(0) }
 
+    // Catchup program picker (shown over the controls when the user picks
+    // a past program to replay).
+    var showCatchupPicker by remember { mutableStateOf(false) }
+
     BackHandler(onBack = {
-        if (uiState.showOverlay) {
-            // Single Back press always dismisses the overlay — no need to
-            // unfocus first. This fixes the "triple-back" problem.
-            overlayControlFocused = false
-            overlayWantsFocus = false
-            viewModel.hideOverlay()
-        } else {
-            onNavigateBack()
+        when {
+            showCatchupPicker -> showCatchupPicker = false
+            uiState.showOverlay -> {
+                // Single Back press always dismisses the overlay — no need to
+                // unfocus first. This fixes the "triple-back" problem.
+                overlayControlFocused = false
+                overlayWantsFocus = false
+                viewModel.hideOverlay()
+            }
+            else -> onNavigateBack()
         }
     })
 
@@ -144,9 +156,10 @@ fun PlayerScreen(
         uiState.isLoading,
         uiState.isBuffering,
         overlayActivityTick,
+        showCatchupPicker,
     ) {
         if (uiState.showOverlay && uiState.error == null &&
-            !uiState.isLoading && !uiState.isBuffering
+            !uiState.isLoading && !uiState.isBuffering && !showCatchupPicker
         ) {
             delay(5000)
             overlayControlFocused = false
@@ -188,12 +201,32 @@ fun PlayerScreen(
         }
     }
 
+    // When the catchup picker closes (program picked OR Back dismissed), the
+    // previously-focused program row is removed. Compose would otherwise
+    // restore focus into the overlay buttons — letting the user tab between
+    // them before the auto-hide cycle. Force focus back to the root so the
+    // overlay behaves like a fresh "shown without focus" state: the user
+    // must press Down again to arm button focus.
+    LaunchedEffect(showCatchupPicker) {
+        if (!showCatchupPicker) {
+            overlayWantsFocus = false
+            overlayControlFocused = false
+            try { focusRequester.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { event ->
+                // Catchup picker open → defer ALL keys to its rows (Up/Down
+                // focus nav, Enter selects, Back handled by its own handler).
+                // Without this, the live-zap / showOverlay logic below steals
+                // Up/Down and the user can't move between programs.
+                if (showCatchupPicker) return@onPreviewKeyEvent false
+
                 // Preview phase: only consume keys that should NOT reach children.
                 // When overlay controls are focused, let Left/Right/Up/Down pass
                 // through so D-pad navigation works on subtitle/audio buttons.
@@ -364,7 +397,25 @@ fun PlayerScreen(
                 onEnterPip = {
                     activity?.let { viewModel.pipController.enterPictureInPicture(it) }
                 },
+                onOpenCatchup = { showCatchupPicker = true },
+                onReturnToLive = viewModel::exitCatchup,
                 playPauseFocusRequester = playPauseFocusRequester,
+            )
+        }
+
+        // Catchup program picker — focus-trapped modal over everything else.
+        AnimatedVisibility(
+            visible = showCatchupPicker && uiState.catchupPrograms.isNotEmpty(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            CatchupPickerOverlay(
+                programs = uiState.catchupPrograms,
+                onPick = { program ->
+                    showCatchupPicker = false
+                    viewModel.playCatchupProgram(program)
+                },
+                onDismiss = { showCatchupPicker = false },
             )
         }
     }
@@ -391,6 +442,8 @@ private fun ControlsOverlay(
     onDisableSubtitles: () -> Unit,
     onControlFocusChanged: (Boolean) -> Unit = {},
     onEnterPip: () -> Unit = {},
+    onOpenCatchup: () -> Unit = {},
+    onReturnToLive: () -> Unit = {},
     playPauseFocusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val colors = LuminaTheme.colors
@@ -433,8 +486,15 @@ private fun ControlsOverlay(
                         fontSize = 14.sp,
                     )
                 }
-                // EPG now/next
-                if (uiState.epgNowTitle != null) {
+                // EPG now/next, or the catchup program being replayed.
+                if (uiState.catchupTitle != null) {
+                    Text(
+                        text = "⏮ ${uiState.catchupTitle}",
+                        color = Color(0xFFFFB300),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                    )
+                } else if (uiState.epgNowTitle != null) {
                     Text(
                         text = "▶ ${uiState.epgNowTitle}" +
                             (uiState.epgNextTitle?.let { " │ Next: $it" } ?: ""),
@@ -549,6 +609,12 @@ private fun ControlsOverlay(
                             text = "+2m ⏩",
                             onClick = onSeekForwardLong,
                         )
+                        if (uiState.isCatchupActive) {
+                            FocusableButton(
+                                text = "● Return to Live",
+                                onClick = onReturnToLive,
+                            )
+                        }
                     } else {
                         FocusableButton(
                             text = "▲ Ch+",
@@ -558,6 +624,12 @@ private fun ControlsOverlay(
                             text = "▼ Ch−",
                             onClick = onChannelDown,
                         )
+                        if (uiState.isCatchupCapable) {
+                            FocusableButton(
+                                text = "⏮ Catchup",
+                                onClick = onOpenCatchup,
+                            )
+                        }
                     }
                     if (uiState.isSeriesEpisode) {
                         FocusableButton(
@@ -739,6 +811,136 @@ private fun ErrorOverlay(
             }
         }
     }
+}
+
+/**
+ * Catchup program picker — modal list of past/currently-airing programs
+ * within the channel's catchup window. Focus-trapped; Back dismisses
+ * (handled by the parent [PlayerScreen] BackHandler).
+ */
+@Composable
+private fun CatchupPickerOverlay(
+    programs: List<EpgProgram>,
+    onPick: (EpgProgram) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val firstRowFocus = remember { FocusRequester() }
+
+    LaunchedEffect(programs) {
+        if (programs.isNotEmpty()) {
+            delay(150)
+            try { firstRowFocus.requestFocus() } catch (_: Throwable) {}
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xEE000000))
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                    onDismiss()
+                    true
+                } else false
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .background(Color(0xFF1A1A1A), RoundedCornerShape(16.dp))
+                .padding(24.dp),
+        ) {
+            Text(
+                text = "Catchup",
+                color = Color.White,
+                fontSize = 22.sp,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Pick a program to replay from the start",
+                color = Color(0xAAFFFFFF),
+                fontSize = 13.sp,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.heightIn(max = 420.dp),
+            ) {
+                items(programs) { program ->
+                    CatchupProgramRow(
+                        program = program,
+                        modifier = if (program === programs.first()) {
+                            Modifier.focusRequester(firstRowFocus)
+                        } else {
+                            Modifier
+                        },
+                        onClick = { onPick(program) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatchupProgramRow(
+    program: EpgProgram,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(
+                color = if (isFocused) Color(0xFF2A2A2A) else Color(0xFF212121),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .border(
+                width = if (isFocused) 3.dp else 0.dp,
+                color = if (isFocused) Color(0xFFFFB300) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else false
+            }
+            .focusable(),
+    ) {
+        Column {
+            Text(
+                text = program.title,
+                color = Color.White,
+                fontSize = 16.sp,
+                maxLines = 1,
+            )
+            val time = formatProgramTime(program.start)
+            if (time.isNotEmpty()) {
+                Text(
+                    text = time,
+                    color = Color(0xAAFFFFFF),
+                    fontSize = 12.sp,
+                )
+            }
+        }
+    }
+}
+
+private val PROGRAM_TIME_FMT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("EEE MMM d · HH:mm").withZone(ZoneId.systemDefault())
+
+private fun formatProgramTime(iso: String): String = try {
+    PROGRAM_TIME_FMT.format(Instant.parse(iso))
+} catch (_: Exception) {
+    ""
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

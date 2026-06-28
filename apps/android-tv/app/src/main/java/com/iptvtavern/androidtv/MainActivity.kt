@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -128,6 +129,17 @@ fun AppRoot(
         currentRoute != Routes.ADD_SOURCE &&
         currentRoute != Routes.EDIT_SOURCE
 
+    // Keep selectedTabIndex in sync with the actual route. The tab index is
+    // otherwise only ever set by onItemSelected, so after a Back/pop or any
+    // nav not initiated by tapping a tab, the highlight (and the
+    // navBarFocusRequester target) would drift from reality.
+    LaunchedEffect(currentRoute) {
+        val matched = TAB_ITEMS.indexOfFirst { it.route == currentRoute }
+        if (matched >= 0 && matched != selectedTabIndex) {
+            selectedTabIndex = matched
+        }
+    }
+
     // Wrap the entire navigation tree in a Box so the overlay can render
     // on top regardless of which screen is active. The overlay itself
     // handles its own visibility (animated fade in/out from
@@ -138,12 +150,21 @@ fun AppRoot(
                 selectedIndex = selectedTabIndex,
                 onItemSelected = { index, route ->
                     selectedTabIndex = index
-                    navController.navigate(route) {
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = true
+                    if (route == Routes.HOME) {
+                        // Home is the graph root — pop back to it cleanly.
+                        // The bottom-nav saveState/restoreState pattern was
+                        // mis-restoring a saved leaf tab when returning to
+                        // Home (landing on Live instead of Home). popBackStack
+                        // to the always-present root entry avoids that entirely.
+                        navController.popBackStack(Routes.HOME, inclusive = false)
+                    } else if (currentRoute != route) {
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.startDestinationId) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
-                        launchSingleTop = true
-                        restoreState = true
                     }
                 },
                 requestInitialFocus = !initialTabFocusDone,

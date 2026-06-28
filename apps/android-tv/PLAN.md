@@ -563,7 +563,7 @@ Android TV is a **lean-back, 10-foot UI** controlled exclusively with a D-pad re
 
 ## 5. Future phases (post-MVP, not planned in detail)
 
-- **Catchup / time-shift playback** — `buildCatchupUrl` exists in `packages/core`; live channels carry `catchupDays` / `catchupMode`
+- **Catchup / time-shift playback** — ✅ DONE. `CatchupUrlBuilder` + `CatchupSupport` (`domain/catchup/`) build per-mode URLs (Xtream `timeshift` path, M3U `catchup-source` template, `append`/`shift`/`flussonic` fallback); player overlay exposes a program picker + "Return to Live". `buildCatchupUrl` also exists in `packages/core`.
 - **Multiple profiles** — separate favorites per family member
 - **QR onboarding** — scan QR code on phone to paste source URL on TV
 - **Backup sync** — cloud backup/restore (requires account design)

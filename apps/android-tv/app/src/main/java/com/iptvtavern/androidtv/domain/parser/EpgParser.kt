@@ -209,6 +209,9 @@ object EpgParser {
         Pattern.CASE_INSENSITIVE,
     )
 
+    /** Parse an ISO-8601 instant string to epoch-millis, or 0 if unparseable. */
+    fun parseInstantToMs(iso: String): Long = parseInstant(iso)
+
     private fun parseInstant(iso: String): Long {
         return try {
             Instant.parse(iso).toEpochMilli()

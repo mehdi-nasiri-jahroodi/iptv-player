@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,7 +80,16 @@ class VodBrowseViewModel @Inject constructor(
     private var recomputeJob: Job? = null
 
     init {
-        loadCatalog()
+        // React to active-source changes so the catalog reloads when the
+        // user switches sources on Home and returns via the top tab bar
+        // (which uses saveState/restoreState → this ViewModel is retained,
+        // not recreated). Without this, the tab shows the previous source's
+        // movies. distinctUntilChanged avoids reloads from unrelated pref edits.
+        viewModelScope.launch {
+            settingsDataStore.activeSourceId.distinctUntilChanged().collect {
+                loadCatalog()
+            }
+        }
     }
 
     private fun loadCatalog() {

@@ -68,6 +68,7 @@ import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.parser.EpgParser
 import com.iptvtavern.androidtv.domain.parser.inferStreamQualityHints
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.common.EmptyState
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.onboarding.TvTextField
@@ -205,6 +206,16 @@ fun BrowseScreen(
                 fontSize = 18.sp,
             )
         }
+        return
+    }
+
+    if (uiState.filteredGroups.isEmpty() && uiState.groupSearchQuery.isBlank()) {
+        EmptyState(
+            icon = "📺",
+            title = "No live channels",
+            message = "This source has no live TV channels. Try switching sources, " +
+                "or add an M3U or Xtream source that includes live TV.",
+        )
         return
     }
 

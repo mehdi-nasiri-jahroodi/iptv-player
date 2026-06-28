@@ -146,11 +146,15 @@ fun HomeScreen(
                     items(uiState.sources, key = { it.id }) { source ->
                         val isActive = source.id == uiState.activeSource?.id
                         FocusableButton(
-                            text = source.label,
+                            // Active is marked ONLY by a leading ✓ — both chips
+                            // share the subdued Secondary style so the selected
+                            // chip doesn't mimic a focused button (which made it
+                            // look like two things were focused at once when the
+                            // header tab held real focus). Real D-pad focus still
+                            // highlights whichever chip is actually focused.
+                            text = if (isActive) "✓ ${source.label}" else source.label,
                             onClick = { viewModel.switchSource(source.id) },
-                            modifier = if (isActive) {
-                                Modifier.border(2.dp, colors.accent, RoundedCornerShape(8.dp))
-                            } else Modifier,
+                            variant = ButtonVariant.Secondary,
                         )
                     }
                 }

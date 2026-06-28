@@ -76,6 +76,7 @@ import com.iptvtavern.androidtv.domain.model.GroupSortDir
 import com.iptvtavern.androidtv.domain.model.SeriesEpisode
 import com.iptvtavern.androidtv.domain.model.SeriesSeason
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.common.EmptyState
 import com.iptvtavern.androidtv.ui.common.rememberOkLongPress
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
@@ -222,6 +223,16 @@ fun SeriesBrowseScreen(
         ) {
             Text(uiState.error!!, color = colors.danger, fontSize = 18.sp)
         }
+        return
+    }
+
+    if (uiState.filteredGroups.isEmpty() && uiState.groupSearchQuery.isBlank()) {
+        EmptyState(
+            icon = "🎞️",
+            title = "No series",
+            message = "This source has no series. Try switching sources, or add a " +
+                "source that includes a series catalog.",
+        )
         return
     }
 

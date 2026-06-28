@@ -35,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -152,7 +153,12 @@ class BrowseViewModel @Inject constructor(
             }
 
     init {
-        loadCatalog()
+        // React to active-source changes — see VodBrowseViewModel for rationale.
+        viewModelScope.launch {
+            settingsDataStore.activeSourceId.distinctUntilChanged().collect {
+                loadCatalog()
+            }
+        }
         startMinuteClock()
     }
 

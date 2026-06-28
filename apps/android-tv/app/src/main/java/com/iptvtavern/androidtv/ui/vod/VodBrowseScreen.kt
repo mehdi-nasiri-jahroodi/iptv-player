@@ -73,6 +73,7 @@ import com.iptvtavern.androidtv.domain.parser.VodSortKey
 import com.iptvtavern.androidtv.domain.parser.formatVodDuration
 import com.iptvtavern.androidtv.domain.parser.getVodPosterBadge
 import com.iptvtavern.androidtv.ui.common.LoadingOverlay
+import com.iptvtavern.androidtv.ui.common.EmptyState
 import com.iptvtavern.androidtv.ui.navigation.LocalNavBarFocusRequester
 import com.iptvtavern.androidtv.ui.onboarding.TvSearchButton
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
@@ -209,6 +210,16 @@ fun VodBrowseScreen(
         ) {
             Text(uiState.error!!, color = colors.danger, fontSize = 18.sp)
         }
+        return
+    }
+
+    if (uiState.filteredGroups.isEmpty() && uiState.groupSearchQuery.isBlank()) {
+        EmptyState(
+            icon = "🎬",
+            title = "No movies",
+            message = "This source has no movies. Try switching sources, or add a " +
+                "source that includes a VOD / movies catalog.",
+        )
         return
     }
 

@@ -99,6 +99,7 @@
 - **Auto-hide overlay** after 5s (resets on any key while overlay open).
 - **Error overlay** — human-readable messages mapped from Media3 codes + **Retry** + **Copy Diagnostics** to clipboard.
 - **Live playback failover** — cycles alternate stream URLs on AV break / error.
+- **Catchup / timeshift** — replays past programs from catchup-capable live channels. "⏮ Catchup" button in the player overlay opens a program picker (past + currently-airing programs within `catchupDays`); selecting one builds a URL per mode (Xtream `timeshift` path, M3U `catchup-source` template, or `append`/`shift`/`flussonic` fallback) and plays it as a seekable stream. "● Return to Live" exits catchup.
 
 ### EPG (`EpgScreen.kt`)
 
@@ -141,9 +142,9 @@ Prioritized by user impact. Each entry notes **why**, **effort** (S/M/L), and th
 - **How**: `android:supportsPictureInPicture="true"` on MainActivity, enter PiP on Home press during playback, handle `onPictureInPictureModeChanged`.
 - **Effort**: M · **Phase 13**
 
-#### 2. Catchup / timeshift playback
-- **Why**: Channel model already carries `catchupMode` / `catchupDays` / `catchupSource` (`Channel.kt`), and `packages/core` ships `buildCatchupUrl` — but no UI plays it back. Big differentiator for live TV.
-- **How**: In player overlay, add a "Catchup" timeline when channel supports it; build URL per mode (flussonic/shift/append) and seek.
+#### 2. Catchup / timeshift playback — ✅ IMPLEMENTED
+- **Why**: Channel model already carries `catchupMode` / `catchupDays` / `catchupSource` (`Channel.kt`), and `packages/core` ships `buildCatchupUrl` — big differentiator for live TV.
+- **How**: `CatchupUrlBuilder` resolves Xtream `timeshift` path (ported from `packages/core`), M3U `catchup-source` template substitution (`${start}`/`${end}`/`${duration}`/`${timestamp}`…), and per-mode fallback (`append`/`shift`/`flussonic`). `CatchupSupport` computes the playable window + past EPG programs. Player overlay exposes "⏮ Catchup" → program picker; selection plays as seekable VOD with "● Return to Live". Files: `domain/catchup/*`, `PlayerViewModel.playCatchupProgram`/`exitCatchup`, `PlayerScreen` `CatchupPickerOverlay`.
 - **Effort**: L · **Phase 13+**
 
 #### 3. Performance pass (from `PERF.md`)
@@ -298,4 +299,4 @@ Prioritized by user impact. Each entry notes **why**, **effort** (S/M/L), and th
 
 If shipping polish fast, do in order: **3 (perf)** → **28/30 (a11y)** → **1 (PiP)** → **4 (file import)** → **5 (trailer)** → **10 (hidden groups)** → **17 (sleep timer)** → **25 (EPG auto-refresh)**.
 
-If maximizing user value, prioritize: **2 (catchup)** → **6 (profiles)** → **11 (global search)** → **13 (source failover)** → **15 (QR onboarding)**.
+If maximizing user value, prioritize: **6 (profiles)** → **11 (global search)** → **13 (source failover)** → **15 (QR onboarding)**. (#2 catchup shipped.)

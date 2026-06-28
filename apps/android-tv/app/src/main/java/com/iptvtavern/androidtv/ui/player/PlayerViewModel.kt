@@ -17,7 +17,10 @@ import com.iptvtavern.androidtv.data.repository.PlaylistManager
 import com.iptvtavern.androidtv.data.repository.ProfileRepository
 import com.iptvtavern.androidtv.data.repository.SourceRepository
 import com.iptvtavern.androidtv.data.repository.WatchedRepository
+import com.iptvtavern.androidtv.domain.catchup.CatchupSupport
+import com.iptvtavern.androidtv.domain.catchup.CatchupUrlBuilder
 import com.iptvtavern.androidtv.domain.model.Channel
+import com.iptvtavern.androidtv.domain.model.EpgProgram
 import com.iptvtavern.androidtv.domain.model.PlayerBufferMode
 import com.iptvtavern.androidtv.domain.model.Source
 import com.iptvtavern.androidtv.domain.model.SourceType
@@ -84,6 +87,14 @@ data class PlayerUiState(
     val epgNowTitle: String? = null,
     /** EPG: next program title. */
     val epgNextTitle: String? = null,
+    /** True when the current live channel declares catchup support. */
+    val isCatchupCapable: Boolean = false,
+    /** True while playing a catchup/timeshift recording (treated as seekable VOD). */
+    val isCatchupActive: Boolean = false,
+    /** Past + currently-airing programs within the catchup window (newest first). */
+    val catchupPrograms: List<EpgProgram> = emptyList(),
+    /** Title of the program currently playing from catchup (shown in the overlay). */
+    val catchupTitle: String? = null,
 )
 
 /** Matches series episode IDs: "xtream:series:<num>:ep:<episodeId>" */
@@ -440,6 +451,10 @@ class PlayerViewModel @Inject constructor(
             durationMs = 0,
             epgNowTitle = null,
             epgNextTitle = null,
+            isCatchupCapable = false,
+            isCatchupActive = false,
+            catchupPrograms = emptyList(),
+            catchupTitle = null,
         )
 
         // Look up EPG now/next for live channels
@@ -453,6 +468,18 @@ class PlayerViewModel @Inject constructor(
                     epgNextTitle = nowNext.next?.title,
                 )
             }
+        }
+
+        // Populate catchup state for live channels that declare support.
+        if (channel is Channel.Live && CatchupSupport.isSupported(channel)) {
+            val windowStart = CatchupSupport.windowStartMs(channel)
+            val programs = channel.tvgId?.let { tvgId ->
+                epgRepository.guide?.programsByChannelId?.get(tvgId)
+            }
+            _uiState.value = _uiState.value.copy(
+                isCatchupCapable = true,
+                catchupPrograms = CatchupSupport.playablePrograms(programs, channel.tvgId, windowStart),
+            )
         }
 
         val playbackUrl = if (channel is Channel.Live) {
@@ -526,6 +553,55 @@ class PlayerViewModel @Inject constructor(
             profileRepository.addRecent(channelList[prev])
         }
         playChannel(prev)
+    }
+
+    // ── Catchup / time-shift ─────────────────────────────────────
+
+    /**
+     * Play a past [program] from the current live channel's catchup archive.
+     *
+     * The resulting stream is a fixed-length recording, so it is treated as
+     * seekable VOD: [PlayerUiState.isVod] is set true so the scrubber and
+     * seek keys work, and [PlayerUiState.isCatchupActive] marks the mode so
+     * the overlay can offer a "Return to Live" action.
+     */
+    fun playCatchupProgram(program: EpgProgram) {
+        val liveChannel = currentLiveChannel() ?: return
+        val url = CatchupUrlBuilder.build(liveChannel, activeSource, program)
+        if (url == null) {
+            _uiState.value = _uiState.value.copy(
+                error = "Catchup unavailable for this channel.",
+                showOverlay = true,
+            )
+            return
+        }
+
+        saveCurrentProgress()
+        livePlayback.reset()
+
+        _uiState.value = _uiState.value.copy(
+            isLoading = true,
+            error = null,
+            errorDetails = null,
+            isVod = true,
+            isCatchupActive = true,
+            catchupTitle = program.title,
+            showOverlay = true,
+            positionMs = 0,
+            durationMs = 0,
+        )
+        loadStreamUrl(url)
+    }
+
+    /** Leave catchup and resume the live edge of the current channel. */
+    fun exitCatchup() {
+        if (!_uiState.value.isCatchupActive) return
+        playChannel(_uiState.value.channelIndex)
+    }
+
+    private fun currentLiveChannel(): Channel.Live? {
+        val idx = _uiState.value.channelIndex
+        return channelList.getOrNull(idx) as? Channel.Live
     }
 
     // ── Series episode navigation (bounded, no wrap) ─────────────

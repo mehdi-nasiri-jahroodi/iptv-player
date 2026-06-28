@@ -22,6 +22,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 /**
  * Xtream Codes API client — Kotlin port of `packages/core/src/lib/xtream.ts`.
@@ -90,6 +92,27 @@ object XtreamClient {
     ): String {
         val c = sanitize(credentials)
         return "${c.host}/series/${enc(c.username)}/${enc(c.password)}/$episodeId.$containerExtension"
+    }
+
+    /**
+     * Catchup / time-shift URL for an Xtream live stream.
+     *
+     * Port of `packages/core/src/lib/xtream.ts#buildCatchupUrl` (timeshift_path
+     * style — the common panel pattern).
+     *
+     * `startMs` is epoch-millis (UTC); `durationMinutes` is the program length
+     * rounded up. Panel expects start as `YYYY-MM-DD:HH-MM` UTC.
+     */
+    fun buildCatchupUrl(
+        credentials: XtreamCredentials,
+        streamId: Int,
+        startMs: Long,
+        durationMinutes: Int,
+    ): String {
+        val c = sanitize(credentials)
+        val startStr = formatXtreamCatchupStart(startMs)
+        val dur = durationMinutes.coerceAtLeast(1)
+        return "${c.host}/timeshift/${enc(c.username)}/${enc(c.password)}/$dur/$startStr/$streamId.ts"
     }
 
     // ── Auth probe ───────────────────────────────────────────────
@@ -596,6 +619,18 @@ object XtreamClient {
     }
 
     private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    /** Xtream catchup start token: `YYYY-MM-DD:HH-MM` in UTC. */
+    private fun formatXtreamCatchupStart(ms: Long): String {
+        val odt = OffsetDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC)
+        return "%04d-%02d-%02d:%02d-%02d".format(
+            odt.year,
+            odt.monthValue,
+            odt.dayOfMonth,
+            odt.hour,
+            odt.minute,
+        )
+    }
 
     private fun slugify(value: String): String {
         return value.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')

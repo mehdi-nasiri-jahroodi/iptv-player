@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,7 +90,12 @@ class SeriesBrowseViewModel @Inject constructor(
     private var detailFetchJob: Job? = null
 
     init {
-        loadCatalog()
+        // React to active-source changes — see VodBrowseViewModel for rationale.
+        viewModelScope.launch {
+            settingsDataStore.activeSourceId.distinctUntilChanged().collect {
+                loadCatalog()
+            }
+        }
     }
 
     private fun loadCatalog() {
