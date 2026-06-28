@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -81,7 +82,22 @@ fun PlayerScreen(
     val focusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
 
-    val window = remember(context) { context.findActivity()?.window }
+    val activity = remember(context) { context.findActivity() }
+    val window = activity?.window
+
+    // Observe PiP transitions so the controls overlay can be hidden while
+    // the video renders in the floating window.
+    val isInPip by viewModel.pipController.isInPictureInPicture.collectAsState()
+
+    // Arm the PiP/pause gate only while a stream is showing. MainActivity
+    // reads this flag from onUserLeaveHint(): when armed, a Home press
+    // emits a pause request (so audio never plays invisibly) instead of
+    // the default "leave the app" behavior. Disarming on dispose prevents
+    // a stale flag pausing nothing after the user has left the player.
+    DisposableEffect(Unit) {
+        viewModel.pipController.playerActive = true
+        onDispose { viewModel.pipController.playerActive = false }
+    }
 
     DisposableEffect(uiState.isPlaying, window) {
         if (uiState.isPlaying) {
@@ -162,10 +178,10 @@ fun PlayerScreen(
     // For VOD: focus the Play/Pause button only when the user pressed
     // Down (overlayWantsFocus). Left/Right seek shows the overlay but
     // keeps focus on the root so the timer auto-hides it cleanly.
-    // For Live: never focus the controls — the overlay is display-only.
+    // For Live: focus is armed by pressing Right while the overlay is up.
     // When overlay hides, always return focus to the root Box.
     LaunchedEffect(uiState.showOverlay, overlayWantsFocus) {
-        if (uiState.showOverlay && uiState.error == null && overlayWantsFocus && uiState.isVod) {
+        if (uiState.showOverlay && uiState.error == null && overlayWantsFocus) {
             delay(150) // let AnimatedVisibility compose the controls
             try { playPauseFocusRequester.requestFocus() } catch (_: Throwable) {}
         } else if (!uiState.showOverlay) {
@@ -194,20 +210,32 @@ fun PlayerScreen(
 
                 when (event.key) {
                     Key.DirectionLeft, Key.DirectionRight -> {
-                        if (overlayControlFocused) {
-                            // Let the focused control handle Left/Right navigation
-                            false
-                        } else if (uiState.isVod) {
-                            // Seek without focusing the controller — overlay
-                            // appears but focus stays on root so auto-hide works.
-                            if (event.key == Key.DirectionLeft) viewModel.seekBackward()
-                            else viewModel.seekForward()
-                            viewModel.showOverlay()
-                            // Do NOT set overlayWantsFocus — keep focus on root
-                            true
-                        } else {
-                            viewModel.showOverlay()
-                            true
+                        when {
+                            overlayControlFocused -> {
+                                // Let the focused control handle Left/Right navigation
+                                false
+                            }
+                            uiState.isVod -> {
+                                // Seek without focusing the controller — overlay
+                                // appears but focus stays on root so auto-hide works.
+                                if (event.key == Key.DirectionLeft) viewModel.seekBackward()
+                                else viewModel.seekForward()
+                                viewModel.showOverlay()
+                                // Do NOT set overlayWantsFocus — keep focus on root
+                                true
+                            }
+                            event.key == Key.DirectionRight && uiState.showOverlay -> {
+                                // Live: a second Right (overlay already shown) focuses the
+                                // overlay controls so the user can reach PiP / prev-channel.
+                                // Up/Down keep zapping; Right is otherwise unused for live.
+                                overlayWantsFocus = true
+                                true
+                            }
+                            else -> {
+                                // Live Left, or Right while overlay hidden → reveal overlay.
+                                viewModel.showOverlay()
+                                true
+                            }
                         }
                     }
                     Key.DirectionUp -> {
@@ -312,9 +340,10 @@ fun PlayerScreen(
             )
         }
 
-        // Controls overlay
+        // Controls overlay — hidden while in PiP so only video shows in the
+        // floating window.
         AnimatedVisibility(
-            visible = uiState.showOverlay && uiState.error == null,
+            visible = uiState.showOverlay && uiState.error == null && !isInPip,
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
@@ -333,6 +362,9 @@ fun PlayerScreen(
                 onSelectSubtitleTrack = viewModel::selectSubtitleTrack,
                 onDisableSubtitles = viewModel::disableSubtitles,
                 onControlFocusChanged = { overlayControlFocused = it },
+                onEnterPip = {
+                    activity?.let { viewModel.pipController.enterPictureInPicture(it) }
+                },
                 playPauseFocusRequester = playPauseFocusRequester,
             )
         }
@@ -359,6 +391,7 @@ private fun ControlsOverlay(
     onSelectSubtitleTrack: (groupIndex: Int, trackIndex: Int) -> Unit,
     onDisableSubtitles: () -> Unit,
     onControlFocusChanged: (Boolean) -> Unit = {},
+    onEnterPip: () -> Unit = {},
     playPauseFocusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val colors = LuminaTheme.colors
@@ -532,6 +565,12 @@ private fun ControlsOverlay(
                             text = "Next Ep ▶",
                             onClick = onNextEpisode,
                         )
+                    }
+                    // Picture-in-Picture: explicit entry (PiP is no longer
+                    // triggered automatically by Home). Hidden on < API 26.
+                    // Reachable: VOD via Down-focus, Live via Right-focus.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        FocusableButton(text = "⧉ PiP", onClick = onEnterPip)
                     }
                 }
 

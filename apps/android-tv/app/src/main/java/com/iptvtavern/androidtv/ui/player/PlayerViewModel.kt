@@ -26,6 +26,7 @@ import com.iptvtavern.androidtv.domain.xtream.XtreamCache
 import com.iptvtavern.androidtv.domain.xtream.XtreamClient
 import com.iptvtavern.androidtv.playback.ExoPlayerFactory
 import com.iptvtavern.androidtv.playback.LivePlaybackSession
+import com.iptvtavern.androidtv.playback.PipController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -106,6 +107,7 @@ class PlayerViewModel @Inject constructor(
     private val epgRepository: EpgRepository,
     private val watchedRepository: WatchedRepository,
     private val playlistManager: PlaylistManager,
+    val pipController: PipController,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -193,6 +195,18 @@ class PlayerViewModel @Inject constructor(
                 updateTrackInfo(tracks)
             }
         })
+
+        // Pause when the user leaves the player via Home (PiP is opt-in via
+        // the overlay button, so a plain Home must not keep audio running
+        // invisibly). Emitted by PipController from onUserLeaveHint().
+        viewModelScope.launch {
+            pipController.pauseRequests.collect {
+                if (player.playWhenReady) {
+                    player.playWhenReady = false
+                    saveCurrentProgress()
+                }
+            }
+        }
 
         // Load the channel from nav args
         val channelId = savedStateHandle.get<String>("channelId")

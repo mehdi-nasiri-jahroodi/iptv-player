@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.iptvtavern.androidtv.playback.PipController
 import com.iptvtavern.androidtv.ui.common.PlaylistLoadOverlay
 import com.iptvtavern.androidtv.ui.common.rememberStalledFlag
 import com.iptvtavern.androidtv.ui.navigation.AppNavHost
@@ -24,6 +25,7 @@ import com.iptvtavern.androidtv.ui.navigation.TAB_ITEMS
 import com.iptvtavern.androidtv.ui.navigation.TopTabNavigation
 import com.iptvtavern.androidtv.ui.theme.LuminaTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Main (and only) Activity for the Android TV app.
@@ -40,6 +42,10 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var pipController: PipController
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -47,6 +53,33 @@ class MainActivity : ComponentActivity() {
                 AppRoot()
             }
         }
+    }
+
+    /**
+     * Called by the OS when the user leaves the Activity via a system
+     * gesture — i.e. the **Home** button (not Back). This is the only
+     * hook where we can intercept Home.
+     *
+     * PiP is now opt-in (overlay button), so plain Home should NOT leave
+     * audio playing invisibly. While the player is active we emit a pause
+     * request that `PlayerViewModel` collects to stop playback. On any
+     * other screen [PipController.playerActive] is false → normal behavior.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipController.playerActive) {
+            pipController.requestPause()
+        }
+    }
+
+    // The Boolean overload is deprecated in API 33 in favor of the
+    // PictureInPictureModeChangedInfo variant, but the Boolean form still
+    // fires on every API level (including 33+). We keep it because PiP
+    // itself starts at API 26, well below the new signature's API 33 floor.
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        pipController.setInPictureInPicture(isInPictureInPictureMode)
     }
 }
 
