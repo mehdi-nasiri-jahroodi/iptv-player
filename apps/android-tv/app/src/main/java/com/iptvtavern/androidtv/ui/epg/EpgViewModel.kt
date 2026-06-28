@@ -99,7 +99,7 @@ class EpgViewModel @Inject constructor(
             if (guide == null || guide.programsByChannelId.isEmpty()) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = if (source.epgUrl.isNullOrBlank()) "No EPG URL configured for this source." else "No EPG data available.",
+                    error = if (epgState.epgUrl.isNullOrBlank()) "No EPG URL configured for this source." else "No EPG data available.",
                     guideStatus = epgState.status,
                 )
                 return@launch

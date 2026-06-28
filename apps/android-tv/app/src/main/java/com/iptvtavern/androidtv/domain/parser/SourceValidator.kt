@@ -72,6 +72,18 @@ suspend fun validateSource(
     }
 }
 
+/**
+ * If the source has no manually-set [Source.epgUrl], auto-populate it from
+ * the M3U file's `#EXTM3U url-tvg="..."` header attribute.
+ *
+ * Called during validation — the raw M3U text is already in memory, so this
+ * is essentially free. Manual user input always takes precedence.
+ */
+private fun Source.withEpgFromTvg(rawM3uText: String): Source {
+    if (!epgUrl.isNullOrBlank()) return this
+    return extractUrlTvg(rawM3uText)?.let { copy(epgUrl = it) } ?: this
+}
+
 private fun validateM3uFile(source: Source, rawM3uText: String?): SourceValidationResult {
     val content = rawM3uText?.trim().orEmpty()
     if (content.isEmpty()) {
@@ -82,7 +94,7 @@ private fun validateM3uFile(source: Source, rawM3uText: String?): SourceValidati
     }
     return try {
         parseM3uToPlaylist(content, source.id)
-        SourceValidationResult.Success(source)
+        SourceValidationResult.Success(source.withEpgFromTvg(content))
     } catch (e: Exception) {
         SourceValidationResult.Failure(
             code = SourceValidationErrorCode.PARSE_ERROR,
@@ -144,7 +156,7 @@ private suspend fun validateM3uUrl(source: Source): SourceValidationResult {
 
                 // Try parsing — if it throws, content is not valid M3U
                 parseM3uToPlaylist(text, source.id)
-                SourceValidationResult.Success(source)
+                SourceValidationResult.Success(source.withEpgFromTvg(text))
             } finally {
                 connection.disconnect()
             }

@@ -35,6 +35,32 @@ import java.time.Instant
  * Intermediate representation of a parsed `#EXTINF` line.
  * Think of this like a "partial props object" before constructing the Channel.
  */
+/**
+ * Extract the `url-tvg` (EPG/XMLTV URL) from the `#EXTM3U` header line.
+ *
+ * Extended M3U files declare their EPG source in the first line:
+ * ```
+ * #EXTM3U url-tvg="https://example.com/epg.xml.gz"
+ * ```
+ *
+ * Returns the URL string, or null if the header is missing or has no `url-tvg`.
+ */
+fun extractUrlTvg(input: String): String? {
+    val firstLine = input
+        .lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotEmpty() }
+        ?: return null
+
+    if (!firstLine.startsWith("#EXTM3U")) return null
+
+    return ATTR_PATTERN.findAll(firstLine)
+        .firstOrNull { it.groupValues[1].lowercase() == "url-tvg" }
+        ?.groupValues?.get(2)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
 private data class ExtInfMeta(
     val name: String,
     val groupTitle: String,

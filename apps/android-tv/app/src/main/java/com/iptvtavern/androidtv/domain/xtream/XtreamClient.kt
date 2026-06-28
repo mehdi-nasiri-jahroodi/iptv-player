@@ -60,6 +60,11 @@ object XtreamClient {
         return "$base?${queryParts.joinToString("&")}"
     }
 
+    fun buildXmltvUrl(credentials: XtreamCredentials): String {
+        val c = sanitize(credentials)
+        return "${c.host}/xmltv.php?username=${enc(c.username)}&password=${enc(c.password)}"
+    }
+
     fun buildLiveStreamUrl(
         credentials: XtreamCredentials,
         streamId: Int,
