@@ -35,6 +35,8 @@ data class HomeUiState(
     val vodCount: Int = 0,
     val seriesCount: Int = 0,
     val recentChannels: List<ChannelSnapshot> = emptyList(),
+    /** Recently watched live channels (split from recentChannels). */
+    val recentLiveChannels: List<ChannelSnapshot> = emptyList(),
     /** Items with playback progress (VOD/episodes not yet completed). */
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val error: String? = null,
@@ -138,7 +140,17 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun applyCatalogMeta(meta: com.iptvtavern.androidtv.data.repository.PlaylistCacheStore.CatalogMeta) {
         val profile = profileRepository.getDefaultProfile()
-        val recents = profile.recentSnapshots.take(5)
+        // Split recents: live channels get their own rail, everything else
+        // (VOD/series) stays in the mixed "Recently Watched" rail. Filtering
+        // pre-stored snapshots is O(n) over ~20 tiny objects — no catalog I/O,
+        // so this cannot regress the loading-perf fixed in the catalog-perf
+        // refactor.
+        val recentLive = profile.recentSnapshots
+            .filter { it.kind == "live" }
+            .take(8)
+        val recents = profile.recentSnapshots
+            .filter { it.kind != "live" }
+            .take(5)
 
         val sourceId = _uiState.value.activeSource?.id
         val continueItems = if (sourceId != null) {
@@ -165,6 +177,7 @@ class HomeViewModel @Inject constructor(
             vodCount = meta.vodCount,
             seriesCount = meta.seriesCount,
             recentChannels = recents,
+            recentLiveChannels = recentLive,
             continueWatchingItems = continueItems,
             error = null,
         )

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,6 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.iptvtavern.androidtv.domain.model.ChannelSnapshot
+import com.iptvtavern.androidtv.ui.common.VerticalScrollbar
 import com.iptvtavern.androidtv.ui.settings.FocusableButton
 import com.iptvtavern.androidtv.ui.settings.ButtonSize
 import com.iptvtavern.androidtv.ui.settings.ButtonVariant
@@ -64,203 +68,242 @@ fun HomeScreen(
 ) {
     val colors = LuminaTheme.colors
     val uiState by viewModel.uiState.collectAsState()
+    val scrollState = rememberScrollState()
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
-            .padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+            .background(colors.background),
     ) {
-        // Header with source indicator
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(scrollState)
+                .padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            Text(
-                text = "Home",
-                color = colors.foreground,
-                fontSize = 28.sp,
-            )
-
-            // Active source badge + refresh button
+            // Header with source indicator
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (uiState.activeSource != null) {
-                    FocusableButton(
-                        text = "↻ Refresh",
-                        onClick = viewModel::refreshCatalog,
-                        variant = ButtonVariant.Secondary,
-                        size = ButtonSize.Small,
+                Text(
+                    text = "Home",
+                    color = colors.foreground,
+                    fontSize = 28.sp,
+                )
+
+                // Active source badge + refresh button
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (uiState.activeSource != null) {
+                        FocusableButton(
+                            text = "↻ Refresh",
+                            onClick = viewModel::refreshCatalog,
+                            variant = ButtonVariant.Secondary,
+                            size = ButtonSize.Small,
+                        )
+                        Text(
+                            text = uiState.activeSource!!.label,
+                            color = colors.accent,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .background(colors.surface, RoundedCornerShape(8.dp))
+                                .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+
+            // Loading / error states
+            if (uiState.isLoading) {
+                Text(
+                    text = "Loading catalog…",
+                    color = colors.foregroundMuted,
+                    fontSize = 16.sp,
+                )
+            } else if (uiState.error != null) {
+                Text(
+                    text = uiState.error!!,
+                    color = colors.danger,
+                    fontSize = 16.sp,
+                )
+                FocusableButton(
+                    text = "Retry",
+                    onClick = viewModel::refreshCatalog,
+                )
+            } else if (uiState.activeSource == null) {
+                // No sources — nudge to settings
+                Text(
+                    text = "No sources configured",
+                    color = colors.foregroundMuted,
+                    fontSize = 18.sp,
+                )
+                FocusableButton(
+                    text = "Add Source",
+                    onClick = onNavigateToSettings,
+                )
+            } else {
+                // Source switcher (only if multiple sources)
+                if (uiState.sources.size > 1) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(uiState.sources, key = { it.id }) { source ->
+                            val isActive = source.id == uiState.activeSource?.id
+                            FocusableButton(
+                                // Active is marked ONLY by a leading ✓ — both chips
+                                // share the subdued Secondary style so the selected
+                                // chip doesn't mimic a focused button (which made it
+                                // look like two things were focused at once when the
+                                // header tab held real focus). Real D-pad focus still
+                                // highlights whichever chip is actually focused.
+                                text = if (isActive) "✓ ${source.label}" else source.label,
+                                onClick = { viewModel.switchSource(source.id) },
+                                variant = ButtonVariant.Secondary,
+                            )
+                        }
+                    }
+                }
+
+                // Catalog tiles row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    CatalogTile(
+                        title = "Live TV",
+                        count = uiState.liveCount,
+                        onClick = { onNavigateToBrowse("live") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CatalogTile(
+                        title = "Movies",
+                        count = uiState.vodCount,
+                        onClick = { onNavigateToBrowse("vod") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CatalogTile(
+                        title = "Series",
+                        count = uiState.seriesCount,
+                        onClick = { onNavigateToBrowse("series") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Continue watching rail (items with playback progress)
+                if (uiState.continueWatchingItems.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Continue Watching",
+                        color = colors.foreground,
+                        fontSize = 18.sp,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(end = 32.dp),
+                    ) {
+                        items(uiState.continueWatchingItems, key = { "cw_${it.channelId}" }) { item ->
+                            ContinueWatchingCard(
+                                item = item,
+                                onClick = { onNavigateToPlayer(item.channelId) },
+                            )
+                        }
+                    }
+                }
+
+                // Recent live channels rail (split into its own section)
+                if (uiState.recentLiveChannels.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Recent Live Channels",
+                        color = colors.foreground,
+                        fontSize = 18.sp,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(end = 32.dp),
+                    ) {
+                        items(uiState.recentLiveChannels, key = { "live_${it.id}" }) { snapshot ->
+                            RecentChannelCard(
+                                snapshot = snapshot,
+                                onClick = { onNavigateToPlayer(snapshot.id) },
+                            )
+                        }
+                    }
+                }
+
+                // Recent channels rail
+                if (uiState.recentChannels.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Recently Watched",
+                        color = colors.foreground,
+                        fontSize = 18.sp,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(end = 32.dp),
+                    ) {
+                        items(uiState.recentChannels, key = { it.id }) { snapshot ->
+                            RecentChannelCard(
+                                snapshot = snapshot,
+                                onClick = { onNavigateToPlayer(snapshot.id) },
+                            )
+                        }
+                    }
+                }
+
+                if (uiState.continueWatchingItems.isEmpty() &&
+                    uiState.recentChannels.isEmpty() &&
+                    uiState.recentLiveChannels.isEmpty()
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Continue Watching",
+                        color = colors.foregroundMuted,
+                        fontSize = 18.sp,
                     )
                     Text(
-                        text = uiState.activeSource!!.label,
-                        color = colors.accent,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .background(colors.surface, RoundedCornerShape(8.dp))
-                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        text = "Your recent channels will appear here",
+                        color = colors.foregroundMuted,
+                        fontSize = 14.sp,
                     )
                 }
-            }
-        }
 
-        // Loading / error states
-        if (uiState.isLoading) {
-            Text(
-                text = "Loading catalog…",
-                color = colors.foregroundMuted,
-                fontSize = 16.sp,
-            )
-        } else if (uiState.error != null) {
-            Text(
-                text = uiState.error!!,
-                color = colors.danger,
-                fontSize = 16.sp,
-            )
-            FocusableButton(
-                text = "Retry",
-                onClick = viewModel::refreshCatalog,
-            )
-        } else if (uiState.activeSource == null) {
-            // No sources — nudge to settings
-            Text(
-                text = "No sources configured",
-                color = colors.foregroundMuted,
-                fontSize = 18.sp,
-            )
-            FocusableButton(
-                text = "Add Source",
-                onClick = onNavigateToSettings,
-            )
-        } else {
-            // Source switcher (only if multiple sources)
-            if (uiState.sources.size > 1) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(uiState.sources, key = { it.id }) { source ->
-                        val isActive = source.id == uiState.activeSource?.id
-                        FocusableButton(
-                            // Active is marked ONLY by a leading ✓ — both chips
-                            // share the subdued Secondary style so the selected
-                            // chip doesn't mimic a focused button (which made it
-                            // look like two things were focused at once when the
-                            // header tab held real focus). Real D-pad focus still
-                            // highlights whichever chip is actually focused.
-                            text = if (isActive) "✓ ${source.label}" else source.label,
-                            onClick = { viewModel.switchSource(source.id) },
-                            variant = ButtonVariant.Secondary,
-                        )
-                    }
-                }
-            }
-
-            // Catalog tiles row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                CatalogTile(
-                    title = "Live TV",
-                    count = uiState.liveCount,
-                    onClick = { onNavigateToBrowse("live") },
-                    modifier = Modifier.weight(1f),
-                )
-                CatalogTile(
-                    title = "Movies",
-                    count = uiState.vodCount,
-                    onClick = { onNavigateToBrowse("vod") },
-                    modifier = Modifier.weight(1f),
-                )
-                CatalogTile(
-                    title = "Series",
-                    count = uiState.seriesCount,
-                    onClick = { onNavigateToBrowse("series") },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            // Continue watching rail (items with playback progress)
-            if (uiState.continueWatchingItems.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Continue Watching",
-                    color = colors.foreground,
-                    fontSize = 18.sp,
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(end = 32.dp),
-                ) {
-                    items(uiState.continueWatchingItems, key = { "cw_${it.channelId}" }) { item ->
-                        ContinueWatchingCard(
-                            item = item,
-                            onClick = { onNavigateToPlayer(item.channelId) },
-                        )
-                    }
-                }
-            }
-
-            // Recent channels rail
-            if (uiState.recentChannels.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Recently Watched",
-                    color = colors.foreground,
-                    fontSize = 18.sp,
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(end = 32.dp),
-                ) {
-                    items(uiState.recentChannels, key = { it.id }) { snapshot ->
-                        RecentChannelCard(
-                            snapshot = snapshot,
-                            onClick = { onNavigateToPlayer(snapshot.id) },
-                        )
-                    }
-                }
-            }
-            
-            if (uiState.continueWatchingItems.isEmpty() && uiState.recentChannels.isEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Continue Watching",
-                    color = colors.foregroundMuted,
-                    fontSize = 18.sp,
-                )
-                Text(
-                    text = "Your recent channels will appear here",
-                    color = colors.foregroundMuted,
-                    fontSize = 14.sp,
-                )
-            }
-
-            // EPG Spotlight — what's on now (favorite channels)
-            if (uiState.epgSpotlight.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Now on Your Favorites",
-                    color = colors.foreground,
-                    fontSize = 18.sp,
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(end = 32.dp),
-                ) {
-                    items(uiState.epgSpotlight, key = { it.channel.id }) { item ->
-                        EpgSpotlightCard(
-                            item = item,
-                            onClick = { onNavigateToPlayer(item.channel.id) },
-                        )
+                // EPG Spotlight — what's on now (favorite channels)
+                if (uiState.epgSpotlight.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Now on Your Favorites",
+                        color = colors.foreground,
+                        fontSize = 18.sp,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(end = 32.dp),
+                    ) {
+                        items(uiState.epgSpotlight, key = { it.channel.id }) { item ->
+                            EpgSpotlightCard(
+                                item = item,
+                                onClick = { onNavigateToPlayer(item.channel.id) },
+                            )
+                        }
                     }
                 }
             }
         }
+
+        // Scroll indicator — sibling so its height equals the viewport.
+        VerticalScrollbar(
+            scrollState = scrollState,
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(end = 12.dp),
+        )
     }
 }
 
@@ -276,7 +319,7 @@ private fun CatalogTile(
 
     Box(
         modifier = modifier
-            .height(120.dp)
+            .height(92.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (isFocused) colors.surfaceRaised else colors.surface)
             .border(
@@ -299,18 +342,18 @@ private fun CatalogTile(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(12.dp),
         ) {
             Text(
                 text = title,
                 color = if (isFocused) colors.accent else colors.foreground,
-                fontSize = 22.sp,
+                fontSize = 20.sp,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = if (count > 0) "$count channels" else "—",
                 color = colors.foregroundMuted,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
             )
         }
     }
