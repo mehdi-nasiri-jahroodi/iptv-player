@@ -15,7 +15,6 @@ Some skills mention other products (e.g. Metabase, Next.js-only APIs, `yarn` scr
 | [frontend-design](skills/frontend-design/) | Building or restyling web UI for polish and distinctive layout |
 | [typescript-advanced-types](skills/typescript-advanced-types/) | Complex TS types, generics, inference in `packages/core` or shared libs |
 | [typescript-review](skills/typescript-review/) | Reviewing TS/JS diffs for quality (ignore unrelated org-specific standards) |
-| [vercel-composition-patterns](skills/vercel-composition-patterns/) | Refactoring React structure, compound components, context |
 | [vercel-react-best-practices](skills/vercel-react-best-practices/) | Writing or reviewing React performance patterns (many rules are Next/RSC-flavored—apply what fits a client-only Vite/React app) |
 | [web-artifacts-builder](skills/web-artifacts-builder/) | Only if you adopt its artifact scripts; otherwise skip |
 | [web-design-guidelines](skills/web-design-guidelines/) | UI review, accessibility, “check my site” style audits |
