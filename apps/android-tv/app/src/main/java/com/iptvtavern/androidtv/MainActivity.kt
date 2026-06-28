@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -113,6 +115,10 @@ fun AppRoot(
     // Track which tab is selected
     var selectedTabIndex by rememberSaveable { mutableIntStateOf(0) }
 
+    // One-shot: focus the Home tab when the app first opens so the user
+    // sees a focus indicator without pressing a key first.
+    var initialTabFocusDone by remember { mutableStateOf(false) }
+
     // Determine if top tabs should be visible (not during onboarding, player, or add-source)
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -140,6 +146,8 @@ fun AppRoot(
                         restoreState = true
                     }
                 },
+                requestInitialFocus = !initialTabFocusDone,
+                onInitialFocusDone = { initialTabFocusDone = true },
             ) {
                 AppNavHost(
                     navController = navController,

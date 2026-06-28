@@ -81,10 +81,21 @@ val LocalNavBarFocusRequester = compositionLocalOf { FocusRequester() }
 fun TopTabNavigation(
     selectedIndex: Int,
     onItemSelected: (index: Int, route: String) -> Unit,
+    requestInitialFocus: Boolean = false,
+    onInitialFocusDone: () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val colors = LuminaTheme.colors
     val navBarFocusRequester = remember { FocusRequester() }
+
+    // Focus the active tab once on first appearance so the app opens with
+    // a visible focus indicator instead of a dead focus state.
+    LaunchedEffect(requestInitialFocus) {
+        if (requestInitialFocus) {
+            runCatching { navBarFocusRequester.requestFocus() }
+            onInitialFocusDone()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Tab bar

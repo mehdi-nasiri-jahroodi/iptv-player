@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -618,31 +617,6 @@ private fun ControlsOverlay(
                 }
                 } // end if subtitleTracks
             } // end of focus-tracked Column
-
-            // Color button hints (live only)
-            if (!uiState.isVod) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .background(Color(0xFF22C55E), CircleShape),
-                        )
-                        Text(
-                            text = "Previous channel",
-                            color = Color(0xAAFFFFFF),
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
-            }
         }
     }
 }

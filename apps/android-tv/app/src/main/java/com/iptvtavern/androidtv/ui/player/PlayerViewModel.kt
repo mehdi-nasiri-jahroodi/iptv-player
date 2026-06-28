@@ -135,8 +135,6 @@ class PlayerViewModel @Inject constructor(
     /** Flat list of all live channels for channel zapping. */
     private var channelList: List<Channel> = emptyList()
     private var currentChannelId: String? = null
-    /** Previous channel index for "jump back" (Green button). */
-    private var previousChannelIndex: Int = -1
     /** Active source — stream URLs and User-Agent for playback. */
     private var activeSource: Source? = null
     /** Active source ID — needed for persisting watched progress. */
@@ -423,12 +421,6 @@ class PlayerViewModel @Inject constructor(
         // Save progress for the item we're leaving (before switching)
         saveCurrentProgress()
 
-        // Track previous channel for "jump back"
-        val currentIdx = _uiState.value.channelIndex
-        if (currentIdx >= 0 && currentIdx != index) {
-            previousChannelIndex = currentIdx
-        }
-
         currentChannelId = channel.id
         val isVod = channel is Channel.Vod
 
@@ -560,16 +552,6 @@ class PlayerViewModel @Inject constructor(
             profileRepository.addRecent(channelList[prev])
         }
         playChannel(prev)
-    }
-
-    /** Jump back to the previously watched channel (Green button). */
-    fun previousChannel() {
-        if (previousChannelIndex < 0 || channelList.isEmpty()) return
-        if (previousChannelIndex >= channelList.size) return
-        viewModelScope.launch {
-            profileRepository.addRecent(channelList[previousChannelIndex])
-        }
-        playChannel(previousChannelIndex)
     }
 
     // ── Playback controls ────────────────────────────────────────

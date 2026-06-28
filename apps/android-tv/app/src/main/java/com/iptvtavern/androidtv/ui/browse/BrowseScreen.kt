@@ -519,10 +519,13 @@ private fun MiniPlayerRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(
+                    Text(
+                        text = "OK",
+                        color = colors.accentForeground,
+                        fontSize = 10.sp,
                         modifier = Modifier
-                            .size(15.dp)
-                            .background(Color(0xFF2563EB), CircleShape),
+                            .background(colors.accent, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                     Text(
                         text = "⛶",
@@ -1149,10 +1152,10 @@ private fun BottomGuidelineBar() {
         horizontalArrangement = Arrangement.spacedBy(24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // OK (tap) = play in mini player
+        // OK (tap) = select
         ButtonHint(
             color = colors.accent,
-            label = "Play in mini player",
+            label = "select",
             symbol = "OK",
         )
         // OK (hold) = toggle favorite
