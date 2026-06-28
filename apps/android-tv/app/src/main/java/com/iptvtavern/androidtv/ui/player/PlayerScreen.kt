@@ -1,8 +1,10 @@
 package com.iptvtavern.androidtv.ui.player
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -78,6 +80,17 @@ fun PlayerScreen(
     val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
+
+    val window = remember(context) { context.findActivity()?.window }
+
+    DisposableEffect(uiState.isPlaying, window) {
+        if (uiState.isPlaying) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     // Track whether any overlay control (subtitle/audio button, seek button) has focus.
     // When true, Left/Right should navigate between controls, not seek.
@@ -269,6 +282,9 @@ fun PlayerScreen(
                     player = viewModel.player
                     useController = false // We draw our own overlay
                 }
+            },
+            update = { view ->
+                view.keepScreenOn = uiState.isPlaying
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -710,4 +726,10 @@ private fun ErrorOverlay(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

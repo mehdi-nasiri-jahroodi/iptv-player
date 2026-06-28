@@ -98,6 +98,7 @@ object ExoPlayerFactory {
                     .build(),
                 /* handleAudioFocus = */ true,
             )
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
             .also { it.installAutoAudioTrackSelection() }
     }
